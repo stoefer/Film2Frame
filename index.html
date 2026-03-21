@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file: data:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>Film2Frame</title>
+  <link rel="stylesheet" href="styles/main.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="toolbar">
+      <h1 class="toolbar-title">Film2Frame</h1>
+      <span id="f2f-build-version" class="toolbar-version" title="Buildversie (YYYYMMDDNNN)">—</span>
+      <button type="button" id="f2f-about-btn" class="btn btn-about" title="Over deze app">Over</button>
+      <div class="toolbar-status">
+        <span class="toolbar-status-label">Belasting</span>
+        <span id="status-load" class="toolbar-status-load">0%</span>
+        <div class="toolbar-status-bar-wrap" title="Systeembelasting 0–100%">
+          <div id="status-load-bar" class="toolbar-status-bar" style="width: 0%"></div>
+        </div>
+        <span class="toolbar-status-label">Bewerking</span>
+        <span id="status-operation" class="toolbar-status-operation">—</span>
+      </div>
+    </header>
+    <main class="content main-two-panels">
+      <div class="main-panel main-panel-left">
+      <section class="panel project-panel">
+        <h2>Project</h2>
+        <div id="project-bar" class="project-bar">
+          <span id="project-info" class="project-info">Geen project geopend</span>
+          <span id="project-dirty" class="project-dirty hidden"> (niet opgeslagen)</span>
+          <div class="project-actions">
+            <button type="button" id="f2f-project-starten" class="btn btn-secondary" title="Laatst gebruikte project openen">Project starten</button>
+            <button type="button" id="f2f-refresh-scan-list" class="btn btn-secondary small hidden" title="Scanlijst opnieuw tellen en oriëntaties bepalen">Scanlijst vernieuwen</button>
+            <button type="button" id="f2f-new-project" class="btn btn-primary">Nieuw project</button>
+            <button type="button" id="f2f-open-project" class="btn btn-secondary">Open</button>
+            <button type="button" id="f2f-save-project" class="btn btn-secondary">Bewaren</button>
+            <button type="button" id="f2f-delete-project" class="btn btn-secondary hidden" title="Projectmap definitief verwijderen">Project wissen</button>
+          </div>
+        </div>
+        <div id="project-stats" class="project-stats hidden">
+          <h3 class="project-stats-title">Overzicht</h3>
+          <div class="project-stats-grid">
+            <div class="project-stat">
+              <span class="project-stat-label">Scanlints</span>
+              <span id="f2f-stat-scan-count" class="project-stat-value">—</span>
+            </div>
+            <div class="project-stat">
+              <span class="project-stat-label">Frames per scan</span>
+              <span id="f2f-stat-frames-per-scan" class="project-stat-value">—</span>
+            </div>
+            <div class="project-stat">
+              <span class="project-stat-label">Totaal frames</span>
+              <span id="f2f-stat-total-frames" class="project-stat-value">—</span>
+            </div>
+            <div class="project-stat project-stat-timecode">
+              <span class="project-stat-label">Tijdcode</span>
+              <span id="f2f-stat-timecode" class="project-stat-value project-stat-timecode-value">00:00:00:00</span>
+            </div>
+            <div class="project-stat project-stat-fps">
+              <label class="project-stat-label" for="f2f-timecode-fps">Frames/sec (tijdcode)</label>
+              <input type="number" id="f2f-timecode-fps" min="12" max="60" value="24" class="input-num project-stat-fps-input" title="12–60 fps voor tijdcodeberekening" />
+            </div>
+          </div>
+        </div>
+        <div id="project-first-step" class="project-first-step">
+          <p class="message">Eerst een project aanmaken of openen om te werken met scanlinten.</p>
+          <div id="new-project-form" class="new-project-form hidden">
+            <div class="row">
+              <label>Projectmap</label>
+              <button type="button" id="f2f-pick-project-folder" class="btn btn-secondary">Kies map…</button>
+              <span id="f2f-project-folder-path" class="filename">—</span>
+            </div>
+            <div class="row">
+              <label>Projectnaam</label>
+              <input type="text" id="f2f-project-name" placeholder="Naam van het project" class="input-text" />
+            </div>
+            <div class="row">
+              <label>Bestandslocatie (map met scanlints)</label>
+              <button type="button" id="f2f-pick-location" class="btn btn-secondary">Kies map…</button>
+              <span id="f2f-location-path" class="filename">—</span>
+            </div>
+            <div class="row">
+              <label>Aantal frames per lint (1–99)</label>
+              <input type="number" id="f2f-project-frames" min="1" max="99" value="30" class="input-num" />
+            </div>
+            <div class="row">
+              <label>Aantal scans in map</label>
+              <input type="number" id="f2f-scan-count" readonly min="0" value="" placeholder="—" class="input-num input-readonly" title="Wordt automatisch ingevuld na het kiezen van de bestandslocatie" />
+              <button type="button" id="f2f-refresh-scan-count" class="btn btn-secondary small" title="Nieuwe telling en oriëntaties">Nieuwe telling</button>
+            </div>
+            <div id="f2f-scan-orient-wrap" class="scan-orient-wrap hidden">
+              <div class="row">
+                <label>Oriëntatie scans</label>
+                <span id="f2f-scan-orient-summary" class="value">—</span>
+              </div>
+              <div class="scan-list-label">Lijst (V = verticaal, H = horizontaal → wordt bij laden 90° gedraaid)</div>
+              <ul id="f2f-scan-list" class="scan-list"></ul>
+            </div>
+            <div class="row">
+              <button type="button" id="f2f-create-project" class="btn btn-primary">Project aanmaken</button>
+              <button type="button" id="f2f-cancel-new-project" class="btn btn-secondary">Annuleren</button>
+            </div>
+          </div>
+          <button type="button" id="f2f-show-new-project-form" class="btn btn-primary">Nieuw project aanmaken</button>
+        </div>
+        <div id="lint-panel" class="lint-panel">
+          <div class="sub-panel sub-panel--strip">
+            <h3 class="sub-panel-title">Filmstrook (scanlint)</h3>
+            <div class="controls sub-panel-body">
+              <div class="row">
+                <label>Scanlint</label>
+                <button type="button" id="f2f-prev-scan" class="btn btn-secondary" title="Vorige scan in project">◀ Vorige</button>
+                <button type="button" id="f2f-load-lint" class="btn btn-primary">Scanlint laden…</button>
+                <button type="button" id="f2f-next-scan" class="btn btn-secondary" title="Volgende scan in project">Volgende ▶</button>
+                <button type="button" id="f2f-go-to-scan" class="btn btn-secondary" title="Ga naar scanlint op nummer">Ga naar…</button>
+                <span id="f2f-filename" class="filename">—</span>
+              </div>
+              <div class="row">
+                <label>Oriëntatie</label>
+                <span id="f2f-orient" class="value">—</span>
+                <button type="button" id="f2f-rotate90" class="btn btn-secondary">Draai 90°</button>
+              </div>
+              <div class="row">
+                <label>Spiegelen</label>
+                <label class="checkbox-label"><input type="checkbox" id="f2f-flip-h" /> Horizontaal</label>
+                <label class="checkbox-label"><input type="checkbox" id="f2f-flip-v" /> Verticaal</label>
+              </div>
+              <div class="row">
+                <label>Filmsoort</label>
+                <select id="f2f-film-format" class="input-select" title="Formaat voor raster-presets">
+                  <option value="16mm-double">16mm dubbel perf</option>
+                  <option value="16mm-single">16mm enkel perf</option>
+                  <option value="super16">Super 16mm</option>
+                  <option value="8mm">8mm</option>
+                  <option value="super8">Super 8</option>
+                  <option value="9.5mm">9,5mm</option>
+                  <option value="35mm">35mm</option>
+                </select>
+                <label class="checkbox-label"><input type="radio" name="f2f-polarity" id="f2f-polarity-pos" value="positief" checked /> Positief</label>
+                <label class="checkbox-label"><input type="radio" name="f2f-polarity" id="f2f-polarity-neg" value="negatief" /> Negatief</label>
+              </div>
+              <div class="row">
+                <label>Fijne draaiing (±1°)</label>
+                <select id="f2f-tilt-pivot" class="input-select small" title="Kantelpunt voor rotatie">
+                  <option value="top-left">Boven links</option>
+                  <option value="top-center">Boven midden</option>
+                  <option value="top-right">Boven rechts</option>
+                  <option value="center-left">Midden links</option>
+                  <option value="center" selected>Midden</option>
+                  <option value="center-right">Midden rechts</option>
+                  <option value="bottom-left">Onder links</option>
+                  <option value="bottom-center">Onder midden</option>
+                  <option value="bottom-right">Onder rechts</option>
+                </select>
+                <input type="range" id="f2f-fine-rotation" min="-100" max="100" value="0" />
+                <input type="number" id="f2f-fine-value" min="-1" max="1" step="0.01" value="0" class="input-num" />°
+              </div>
+              <div class="row">
+                <label>Aantal frames (1–99)</label>
+                <input type="number" id="f2f-num-frames" min="1" max="99" value="30" class="input-num" />
+              </div>
+              <div class="row">
+                <label>Actief frame</label>
+                <button type="button" id="f2f-prev-frame" class="btn btn-secondary">◀</button>
+                <input type="number" id="f2f-active-frame" min="1" value="1" class="input-num" />
+                <span id="f2f-frame-of">/ 1</span>
+                <button type="button" id="f2f-next-frame" class="btn btn-secondary">▶</button>
+              </div>
+              <div class="row">
+                <label>Preview-vensters</label>
+                <div class="preview-btn-group">
+                  <button type="button" id="f2f-open-strip" class="btn btn-secondary">Open scanlint-preview</button>
+                  <button type="button" id="f2f-open-output-preview" class="btn btn-secondary">Open output-preview</button>
+                </div>
+              </div>
+              <div class="row">
+                <label for="f2f-strip-preview-res">Preview-resolutie scanlint</label>
+                <select id="f2f-strip-preview-res" class="input-num" title="Max. zijde in px; hoger = scherpere preview, nauwkeurigere rasterplaatsing">
+                  <option value="1024">1024 px</option>
+                  <option value="1536" selected>1536 px</option>
+                  <option value="2048">2048 px</option>
+                  <option value="2560">2560 px</option>
+                  <option value="3072">3072 px</option>
+                  <option value="4096">4096 px</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <div class="sub-panel sub-panel--settings">
+        <button type="button" id="f2f-settings-toggle" class="settings-accordion-toggle" aria-expanded="false">
+          Instellingen
+        </button>
+        <div id="f2f-settings-content" class="settings-content sub-panel-body hidden">
+          <div class="row">
+            <label for="f2f-setting-dpi">Scan-DPI</label>
+            <select id="f2f-setting-dpi" class="input-select">
+              <option value="600">600</option>
+              <option value="1200">1200</option>
+              <option value="2400">2400</option>
+              <option value="4800" selected>4800</option>
+              <option value="9600">9600</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="f2f-setting-default-frames">Standaard frames per lint</label>
+            <input type="number" id="f2f-setting-default-frames" min="1" max="99" value="30" class="input-num" />
+          </div>
+          <div class="row">
+            <label for="f2f-setting-output-format">Uitvoerformaat</label>
+            <select id="f2f-setting-output-format" class="input-select">
+              <option value="png" selected>PNG</option>
+              <option value="jpg">JPG</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="f2f-setting-output-res">Uitvoerresolutie</label>
+            <select id="f2f-setting-output-res" class="input-select">
+              <option value="original" selected>Origineel</option>
+              <option value="sd">SD (720p)</option>
+              <option value="hd">HD (1080p)</option>
+              <option value="uhd">UHD (4K)</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div id="f2f-setting-custom-res-wrap" class="row hidden">
+            <label>Custom resolutie</label>
+            <input type="number" id="f2f-setting-custom-w" min="1" placeholder="Breedte" class="input-num" />
+            <span>×</span>
+            <input type="number" id="f2f-setting-custom-h" min="1" placeholder="Hoogte" class="input-num" />
+          </div>
+          <div class="row">
+            <label for="f2f-setting-preview-res">Preview-resolutie scanlint</label>
+            <select id="f2f-setting-preview-res" class="input-select">
+              <option value="1024">1024 px</option>
+              <option value="1536" selected>1536 px</option>
+              <option value="2048">2048 px</option>
+              <option value="2560">2560 px</option>
+              <option value="3072">3072 px</option>
+              <option value="4096">4096 px</option>
+            </select>
+          </div>
+          <div class="row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="f2f-setting-dark-mode" /> Donkere modus
+            </label>
+          </div>
+          <div class="row">
+            <label for="f2f-setting-window-arrangement">Paneelschikking</label>
+            <select id="f2f-setting-window-arrangement" class="input-select" title="Standaard: Output links, Scanlint midden, Hoofdvenster rechts">
+              <option value="left-center-right">Output – Scanlint – Hoofd (standaard)</option>
+              <option value="left-rightstack">Output links – Scanlint/Hoofd rechts (boven/onder)</option>
+              <option value="top-middle-bottom">Output – Scanlint – Hoofd (boven/midden/onder)</option>
+              <option value="left-right-bottom">Output/Scanlint links-rechts – Hoofd onder</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="f2f-setting-arrow-step-px">Pijltjesstap (px, 1–10)</label>
+            <input type="number" id="f2f-setting-arrow-step-px" min="1" max="10" value="1" class="input-num" title="Verplaatsing per pijltjestoets in scanlint-preview" />
+          </div>
+          <div class="row">
+            <label for="f2f-setting-arrow-step-shift-px">Pijltjesstap met Shift (px, 10–100)</label>
+            <input type="number" id="f2f-setting-arrow-step-shift-px" min="10" max="100" value="10" class="input-num" title="Verplaatsing per pijltjestoets met Shift ingedrukt" />
+          </div>
+          <div class="row">
+            <button type="button" id="f2f-arrange-windows" class="btn btn-secondary">Vensters schikken</button>
+            <button type="button" id="f2f-settings-save" class="btn btn-primary">Instellingen bewaren</button>
+          </div>
+        </div>
+      </div>
+      </div>
+      <div class="main-panel main-panel-right">
+        <div id="f2f-info-panel" class="sub-panel sub-panel--scaninfo panel-equivalent">
+          <h3 class="sub-panel-title">Scaninfo</h3>
+          <div class="info-panel-grid sub-panel-body">
+            <span class="info-label">Afmetingen scan</span>
+            <span id="f2f-info-dimensions" class="info-value">—</span>
+            <span class="info-label">Resolutie (DPI)</span>
+            <span id="f2f-info-dpi" class="info-value">—</span>
+            <span class="info-label">Filmsoort</span>
+            <span id="f2f-info-film" class="info-value">—</span>
+          </div>
+        </div>
+        <section class="panel overlay-panel">
+          <h2>Overlay grid</h2>
+          <p class="overlay-hint">Plaatsen en afmeten van het raster (X/Y, Y-onder, pijltjes, breedte/hoogte, samendruk, reset, springen BOVEN/MIDDEN/ONDER, zoom, presets met naam) gebeurt in het venster <strong>Scanlint – raster afstellen</strong>. Hieronder: snelle start-offset per filmtype en raster uit millimeters (alleen in dit paneel).</p>
+          <div class="row overlay-row row-offset-presets">
+            <span class="offset-presets-label">Snelle offset (% van beeld, grove start):</span>
+            <button type="button" id="f2f-preset-16mm-double" class="btn btn-secondary small" title="16mm met dubbele perforaties">16mm dubbel</button>
+            <button type="button" id="f2f-preset-16mm-single" class="btn btn-secondary small" title="16mm met enkele perforatie">16mm enkel</button>
+            <button type="button" id="f2f-preset-super16" class="btn btn-secondary small" title="Super 16mm">Super 16mm</button>
+            <button type="button" id="f2f-preset-8mm" class="btn btn-secondary small">8mm</button>
+            <button type="button" id="f2f-preset-super8" class="btn btn-secondary small">Super 8</button>
+            <button type="button" id="f2f-preset-9.5mm" class="btn btn-secondary small">9,5mm</button>
+            <button type="button" id="f2f-preset-35mm" class="btn btn-secondary small">35mm</button>
+          </div>
+          <div class="row overlay-row metric-grid-row">
+            <span class="offset-presets-label">Raster uit metrische maten:</span>
+            <label class="overlay-label" title="Breedte van één frame in millimeter">Breedte (mm) <input type="number" id="f2f-grid-mm-width" min="0" step="0.1" value="10.26" class="input-num small" /></label>
+            <label class="overlay-label" title="Hoogte van één frame in millimeter">Hoogte (mm) <input type="number" id="f2f-grid-mm-height" min="0" step="0.1" value="7.49" class="input-num small" /></label>
+            <label class="overlay-label" title="Aantal frames op het lint">Frames <input type="number" id="f2f-grid-mm-frames" min="1" max="99" value="30" class="input-num small" /></label>
+            <label class="overlay-label" title="Pixels per millimeter van de scan (resolutie)">px/mm <input type="number" id="f2f-grid-px-per-mm" min="0.1" step="0.1" value="10" class="input-num small" /></label>
+            <button type="button" id="f2f-apply-grid-from-mm" class="btn btn-secondary small" title="Raster aanpassen zodat celgrootte zo goed mogelijk overeenkomt met de opgegeven mm">Raster toepassen</button>
+          </div>
+        </section>
+        <section class="panel frame-generator-panel">
+          <h2>Frame generator</h2>
+          <div class="sub-panel-body frame-generator-body">
+          <div class="row">
+            <label>Doelmap</label>
+            <button type="button" id="f2f-pick-export-folder" class="btn btn-secondary">Doelmap kiezen…</button>
+            <span id="f2f-export-folder-path" class="filename">—</span>
+          </div>
+          <div class="row">
+            <label for="f2f-export-base-name">Bestandsnaam (nummering 000001–999999)</label>
+            <input type="text" id="f2f-export-base-name" class="input-text" value="frame" placeholder="frame" title="Bijv. frame → frame_000001.png" />
+          </div>
+          <div class="row">
+            <label for="f2f-output-format">Uitvoerformaat</label>
+            <select id="f2f-output-format" class="input-select">
+              <option value="png" selected>PNG</option>
+              <option value="jpg">JPG</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="f2f-export-pause">Pauze na elke scan (seconden, batch)</label>
+            <input type="number" id="f2f-export-pause" class="input-num" min="0" max="300" value="0" title="0 = geen pauze; handig voor correcties of test run" />
+          </div>
+          <div class="row">
+            <span id="f2f-export-scan-count" class="value">—</span>
+          </div>
+          <div class="row">
+            <label for="f2f-export-scan-from">Van scan</label>
+            <input type="number" id="f2f-export-scan-from" class="input-num" min="1" value="1" title="Eerste scan in bereik (1 = eerste)" />
+            <label for="f2f-export-scan-to">tot scan</label>
+            <input type="number" id="f2f-export-scan-to" class="input-num" min="1" value="1" title="Laatste scan in bereik (inclusief)" />
+            <button type="button" id="f2f-export-batch-range" class="btn btn-secondary">Bewaren: scans in bereik</button>
+          </div>
+          <div class="row">
+            <button type="button" id="f2f-export-current" class="btn btn-primary">Huidige scan bewaren</button>
+            <button type="button" id="f2f-export-batch" class="btn btn-secondary">Batch: alle scanlints</button>
+          </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <div id="f2f-about-overlay" class="about-overlay hidden" aria-hidden="true">
+    <div class="about-dialog">
+      <h2 class="about-title">Film2Frame</h2>
+      <p class="about-version"><strong>Build</strong> <span id="f2f-about-version">—</span></p>
+      <p class="about-desc">Scanlinten (filmstroken) uitsnijden naar losse frames.</p>
+      <div class="about-verify">
+        <strong>Controleren of het juiste bestand geladen wordt (Electron)</strong>
+        <ul>
+          <li>Open het venster dat u wilt controleren (bijv. Scanlint-preview).</li>
+          <li>Rechtsklik in het venster → <strong>Inspecteren</strong> (of F12).</li>
+          <li>Tab <strong>Elements</strong> → bovenaan de HTML bekijken; de buildversie staat in een comment of in de About-dialog.</li>
+          <li>Vergelijk de getoonde buildversie met die hierboven; die hoort gelijk te zijn.</li>
+        </ul>
+      </div>
+      <button type="button" id="f2f-about-close" class="btn btn-primary">Sluiten</button>
+    </div>
+  </div>
+  <script type="module" src="renderer/ui.js"></script>
+</body>
+</html>

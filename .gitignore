@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Lokale projecten / test (geen persoonlijke paden op GitHub)
+Projects/
+test.txt

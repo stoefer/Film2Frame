@@ -1,0 +1,28 @@
+{
+  "name": "film2frame",
+  "version": "1.0.0",
+  "description": "16mm scan strip to frames – modular, extensible",
+  "main": "main/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "prestart": "node scripts/bump-version.js",
+    "start": "electron .",
+    "prepack": "node scripts/bump-version.js",
+    "prebuild": "node scripts/bump-version.js",
+    "pack": "electron-builder --dir",
+    "build": "electron-builder",
+    "version:bump": "node scripts/bump-version.js"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "com.film2frame.app",
+    "productName": "Film2Frame",
+    "directories": { "output": "dist" },
+    "files": ["**/*", "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"]
+  }
+}

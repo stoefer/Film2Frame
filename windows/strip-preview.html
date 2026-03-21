@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Film2Frame – Scanlint</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1a1a1a; color: #e0e0e0; font-family: system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column; }
+    .header { flex-shrink: 0; padding: 8px 12px; border-bottom: 1px solid #444; background: #252525; }
+    h1 { margin: 0; font-size: 14px; font-weight: 600; }
+    .toolbar {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      align-items: stretch;
+      gap: 12px;
+      padding: 10px 12px;
+      border-bottom: 1px solid #333;
+      background: #1a1a1a;
+      min-width: 0;
+    }
+    .toolbar-panel {
+      border: 1px solid #3d3d3d;
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: #222;
+    }
+    .toolbar-panel--left {
+      flex: 1 1 0;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toolbar-panel--right {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 8px;
+      min-width: fit-content;
+    }
+    .toolbar-panel__top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 12px;
+    }
+    .toolbar-panel__spacer {
+      flex: 1 1 auto;
+      min-height: 6px;
+    }
+    .toolbar-panel__reset-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 14px;
+    }
+    .toolbar-panel__spacer-right {
+      flex: 1 1 auto;
+      min-height: 4px;
+    }
+    .toolbar-panel-row--positie {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding-top: 6px;
+      border-top: 1px solid #333;
+    }
+    .positie-label { color: #aaa; margin-right: 4px; }
+    .toolbar-panel-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 12px;
+    }
+    .toolbar-panel-row--spread {
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .toolbar-panel-row--spread .step-group { flex: 0 1 auto; }
+    .toolbar-panel-row--spread #btn-vert-compress { flex-shrink: 0; }
+    .toolbar label { margin-right: 4px; color: #aaa; }
+    .toolbar input[type="number"] { width: 72px; padding: 6px 8px; background: #2a2a2a; border: 1px solid #555; border-radius: 4px; color: #fff; font-size: 13px; }
+    .toolbar button { padding: 6px 12px; cursor: pointer; background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; }
+    .toolbar button:hover { background: #444; }
+    .toolbar button:active { background: #555; }
+    .toolbar button.btn-active { border: 2px solid rgb(220, 55, 55); box-shadow: 0 0 0 1px rgba(255, 80, 80, 0.45); background: #3a2a2a; }
+    .toolbar .step-group { display: flex; align-items: center; gap: 4px; }
+    .toolbar .step-group .arrow { padding: 6px 10px; font-size: 16px; line-height: 1; }
+    .toolbar .preset-name-input { width: 96px; padding: 6px 8px; background: #2a2a2a; border: 1px solid #555; border-radius: 4px; color: #fff; font-size: 12px; }
+    .toolbar select#strip-preset-list { min-width: 130px; max-width: 200px; margin-left: 0; }
+    .zoom-select { padding: 6px 8px; background: #2a2a2a; border: 1px solid #555; border-radius: 4px; color: #fff; font-size: 13px; margin-left: 0; }
+    .viewport-wrap { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start; justify-content: center; padding: 16px; background: #0d0d0d; }
+    /* Layout-grootte = visuele zoom (transform schaalt alleen tekening); scrollgebied klopt dan bij 400–1000%. */
+    .zoom-wrapper { flex-shrink: 0; overflow: visible; position: relative; }
+    .strip-container { position: relative; display: inline-block; transform-origin: 0 0; }
+    .strip-container img { display: block; vertical-align: top; position: relative; z-index: 1; }
+    .strip-overlay { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 2; }
+    .placeholder { padding: 24px; color: #666; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Scanlint – raster afstellen</h1>
+  </div>
+  <div class="toolbar">
+    <div class="toolbar-panel toolbar-panel--left">
+      <div class="toolbar-panel__top">
+        <span><label>Y-onder (px):</label><input type="number" id="input-y-bottom" placeholder="0" title="Ook negatief mogelijk (raster onder het lint)" /></span>
+        <span class="step-group" title="Zelfde lijst als in het hoofdvenster (app-gegevens op schijf)">
+          <label>Preset:</label>
+          <input type="text" id="strip-preset-name" class="preset-name-input" placeholder="Naam" maxlength="80" />
+          <button type="button" id="strip-preset-save">Opslaan</button>
+          <select id="strip-preset-list" class="zoom-select"><option value="">— Preset —</option></select>
+          <button type="button" id="strip-preset-load">Laden</button>
+          <button type="button" id="strip-preset-delete" title="Geselecteerde preset wissen">Wis</button>
+        </span>
+        <span>
+          <label for="zoom">Zoom:</label>
+          <select id="zoom" class="zoom-select">
+            <option value="0.5">50%</option>
+            <option value="0.75">75%</option>
+            <option value="1" selected>100%</option>
+            <option value="1.5">150%</option>
+            <option value="2">200%</option>
+            <option value="4">400%</option>
+            <option value="8">800%</option>
+            <option value="10">1000%</option>
+          </select>
+        </span>
+      </div>
+      <div class="toolbar-panel__spacer" aria-hidden="true"></div>
+      <div class="toolbar-panel__reset-row">
+        <button type="button" id="btn-reset">Reset raster</button>
+        <span><label>X (px):</label><input type="number" id="input-x" placeholder="0" /></span>
+        <span><label>Y (px):</label><input type="number" id="input-y" placeholder="0" /></span>
+      </div>
+    </div>
+    <div class="toolbar-panel toolbar-panel--right">
+      <div class="toolbar-panel-row">
+        <span class="step-group" title="Stap in preview-pixels voor verplaatsen, breedte en hoogte">
+          <label>Stap:</label>
+          <button type="button" id="btn-step-1" title="Stap 1 px">1</button>
+          <button type="button" id="btn-step-10" title="Stap 10 px">10</button>
+        </span>
+        <span class="step-group" title="Hand: heel raster verschuiven (links/rechts/omhoog/omlaag)">
+          <label>Verplaatsen:</label>
+          <button type="button" id="btn-hand-left" class="arrow" title="Heel raster naar links">◀</button>
+          <button type="button" id="btn-hand-right" class="arrow" title="Heel raster naar rechts">▶</button>
+          <button type="button" id="btn-hand-up" class="arrow" title="Heel raster omhoog">▲</button>
+          <button type="button" id="btn-hand-down" class="arrow" title="Heel raster omlaag">▼</button>
+        </span>
+      </div>
+      <div class="toolbar-panel-row">
+        <span class="step-group" title="Rasterbreedte: alleen linker- of rechterrand (zelfde stap)">
+          <label>Breedte:</label>
+          <button type="button" id="btn-w-Lplus" class="arrow" title="Linker rand naar links (verbreden)">L+</button>
+          <button type="button" id="btn-w-Lminus" class="arrow" title="Linker rand naar rechts (versmallen)">L−</button>
+          <button type="button" id="btn-w-Rminus" class="arrow" title="Rechter rand naar links (versmallen)">R−</button>
+          <button type="button" id="btn-w-Rplus" class="arrow" title="Rechter rand naar rechts (verbreden)">R+</button>
+        </span>
+      </div>
+      <div class="toolbar-panel-row toolbar-panel-row--spread">
+        <span class="step-group" title="Rasterhoogte: alleen boven- of onderrand (zelfde stap)">
+          <label>Hoogte:</label>
+          <button type="button" id="btn-h-Tplus" class="arrow" title="Bovenrand naar boven (verbreden)">T+</button>
+          <button type="button" id="btn-h-Tminus" class="arrow" title="Bovenrand naar beneden (versmallen)">T−</button>
+          <button type="button" id="btn-h-Bminus" class="arrow" title="Onderrand naar beneden (verbreden)">B−</button>
+          <button type="button" id="btn-h-Bplus" class="arrow" title="Onderrand naar boven (versmallen)">B+</button>
+        </span>
+        <button type="button" id="btn-vert-compress" title="Y-onder blijft zoals ingesteld (B±/hand). Alle frames gelijke hoogte; bovenkant raster maximaal naar beneden.">Samendruk ▼</button>
+      </div>
+      <div class="toolbar-panel__spacer-right" aria-hidden="true"></div>
+      <div class="toolbar-panel-row toolbar-panel-row--positie">
+        <span class="positie-label">Positie:</span>
+        <button type="button" id="btn-top">BOVEN</button>
+        <button type="button" id="btn-middle">MIDDEN</button>
+        <button type="button" id="btn-bottom">ONDER</button>
+      </div>
+    </div>
+  </div>
+  <div class="viewport-wrap" id="viewport">
+    <div class="placeholder" id="placeholder">Geen scanlint. Laad een scanlint in het hoofdvenster.</div>
+    <div class="zoom-wrapper" id="zoom-wrapper" style="display:none;">
+      <div class="strip-container" id="strip-container">
+        <img id="strip-img" alt="Scanlint" />
+        <canvas id="strip-overlay" class="strip-overlay"></canvas>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const api = window.stripApi;
+      if (!api || !api.onStripUpdate) return;
+
+      const viewport = document.getElementById('viewport');
+      const placeholder = document.getElementById('placeholder');
+      const zoomWrapper = document.getElementById('zoom-wrapper');
+      const container = document.getElementById('strip-container');
+      const img = document.getElementById('strip-img');
+      const overlay = document.getElementById('strip-overlay');
+      const inputX = document.getElementById('input-x');
+      const inputY = document.getElementById('input-y');
+      const inputYBottom = document.getElementById('input-y-bottom');
+      const zoomSelect = document.getElementById('zoom');
+
+      let stepPx = 10;
+      let lastPayload = null;
+      let activeJump = null;
+
+      const btnStep1 = document.getElementById('btn-step-1');
+      const btnStep10 = document.getElementById('btn-step-10');
+      const btnTop = document.getElementById('btn-top');
+      const btnMiddle = document.getElementById('btn-middle');
+      const btnBottom = document.getElementById('btn-bottom');
+
+      function updateActiveButtons() {
+        btnStep1.classList.toggle('btn-active', stepPx === 1);
+        btnStep10.classList.toggle('btn-active', stepPx === 10);
+        btnTop.classList.toggle('btn-active', activeJump === 'top');
+        btnMiddle.classList.toggle('btn-active', activeJump === 'middle');
+        btnBottom.classList.toggle('btn-active', activeJump === 'bottom');
+      }
+
+      function sendWidthEdge(edge, deltaSign) {
+        if (!api.applyWidthEdge) return;
+        api.applyWidthEdge(edge, deltaSign * stepPx);
+        setBusy(true);
+      }
+
+      function sendHeightEdge(edge, deltaSign) {
+        if (!api.applyHeightEdge) return;
+        api.applyHeightEdge(edge, deltaSign * stepPx);
+        setBusy(true);
+      }
+
+      function setBusy(busy) {
+        document.body.style.pointerEvents = busy ? 'none' : '';
+        document.body.style.opacity = busy ? '0.85' : '1';
+      }
+
+      function applyAbsolute() {
+        if (!api.setGridOffsetAbsolute) return;
+        const x = parseInt(inputX.value, 10);
+        const y = parseInt(inputY.value, 10);
+        const yBottom = parseInt(inputYBottom.value, 10);
+        api.setGridOffsetAbsolute(isNaN(x) ? 0 : x, isNaN(y) ? 0 : y, isNaN(yBottom) ? 0 : yBottom);
+        setBusy(true);
+      }
+
+      function sendDelta(dx, dy) {
+        if (!api.sendGridOffsetDelta) return;
+        api.sendGridOffsetDelta(dx, dy, 'hand');
+        setBusy(true);
+      }
+
+      function updateInputsFromPayload(p) {
+        if (!p) return;
+        if (p.gridOffsetX != null && document.activeElement !== inputX) inputX.value = String(Math.round(p.gridOffsetX));
+        if (p.gridOffsetY != null && document.activeElement !== inputY) inputY.value = String(Math.round(p.gridOffsetY));
+        if (p.gridOffsetYBottom != null && document.activeElement !== inputYBottom) inputYBottom.value = String(Math.round(p.gridOffsetYBottom));
+      }
+
+      function drawGrid(p) {
+        if (!overlay || !p || !Array.isArray(p.gridRects) || p.gridRects.length === 0) return;
+        const w = Math.max(1, p.displayWidth || 1);
+        const h = Math.max(1, p.extendedDisplayHeight || p.displayHeight || 1);
+        const zoom = parseFloat(zoomSelect.value) || 1;
+        const pixelW = Math.max(1, Math.round(w * zoom));
+        const pixelH = Math.max(1, Math.round(h * zoom));
+        overlay.width = pixelW;
+        overlay.height = pixelH;
+        overlay.style.width = w + 'px';
+        overlay.style.height = h + 'px';
+        overlay.style.display = 'block';
+        const ctx = overlay.getContext('2d');
+        if (!ctx) return;
+        ctx.save();
+        ctx.scale(zoom, zoom);
+        ctx.clearRect(0, 0, w, h);
+        const lineW = Math.max(0.3, 1 / zoom);
+        const lineWActive = Math.max(0.5, 2 / zoom);
+        const activeNum = p.activeFrameNumber != null ? p.activeFrameNumber : (p.activeFrameIndex != null ? p.activeFrameIndex + 1 : 1);
+        for (let i = 0; i < p.gridRects.length; i++) {
+          const r = p.gridRects[i];
+          const x = Number(r.x) || 0;
+          const y = Number(r.y) || 0;
+          const rw = Math.max(0, Number(r.width) || 0);
+          const rh = Math.max(0, Number(r.height) || 0);
+          if (rw <= 0 || rh <= 0) continue;
+          const isActive = (r.frameNumber != null && r.frameNumber === activeNum);
+          ctx.strokeStyle = isActive ? 'rgb(255, 60, 60)' : 'rgb(0, 255, 100)';
+          ctx.lineWidth = isActive ? lineWActive : lineW;
+          ctx.strokeRect(x + lineW / 2, y + lineW / 2, Math.max(0, rw - lineW), Math.max(0, rh - lineW));
+          const fontSize = Math.max(4, Math.min(10, (12 * zoom) / 10));
+          ctx.font = 'bold ' + fontSize + 'px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = isActive ? 'rgba(255,80,80,0.95)' : 'rgba(255,255,255,0.95)';
+          ctx.fillText(String(r.frameNumber != null ? r.frameNumber : i + 1), x + rw / 2, y + rh / 2);
+        }
+        ctx.restore();
+      }
+
+      function applyZoom() {
+        const z = parseFloat(zoomSelect.value) || 1;
+        container.style.transform = 'scale(' + z + ')';
+        if (lastPayload) {
+          const w = Math.max(1, lastPayload.displayWidth || 1);
+          const extH = Math.max(1, lastPayload.extendedDisplayHeight || lastPayload.displayHeight || 1);
+          zoomWrapper.style.width = Math.max(1, Math.round(w * z)) + 'px';
+          zoomWrapper.style.height = Math.max(1, Math.round(extH * z)) + 'px';
+        }
+        if (lastPayload && lastPayload.gridRects && lastPayload.gridRects.length > 0) {
+          requestAnimationFrame(function () {
+            drawGrid(lastPayload);
+            requestAnimationFrame(scrollToActiveFrame);
+          });
+        } else {
+          requestAnimationFrame(scrollToActiveFrame);
+        }
+      }
+
+      var VIEWPORT_PADDING = 16;
+
+      function scrollToActiveFrame() {
+        if (!lastPayload || !lastPayload.gridRects || lastPayload.gridRects.length === 0) return;
+        const activeNum = lastPayload.activeFrameNumber != null ? lastPayload.activeFrameNumber : (lastPayload.activeFrameIndex != null ? lastPayload.activeFrameIndex + 1 : 1);
+        const rect = lastPayload.gridRects.find(function (r) { return (r.frameNumber != null && r.frameNumber === activeNum); }) || lastPayload.gridRects[0];
+        const cx = (Number(rect.x) || 0) + (Number(rect.width) || 0) / 2;
+        const cy = (Number(rect.y) || 0) + (Number(rect.height) || 0) / 2;
+        const w = Math.max(1, lastPayload.displayWidth || 1);
+        const extH = Math.max(1, lastPayload.extendedDisplayHeight || lastPayload.displayHeight || 1);
+        const scale = parseFloat(zoomSelect.value) || 1;
+        const vw = viewport.clientWidth;
+        const vh = viewport.clientHeight;
+        const scaledW = w * scale;
+        const scaledH = extH * scale;
+        const contentW = VIEWPORT_PADDING * 2 + scaledW;
+        const contentH = VIEWPORT_PADDING * 2 + scaledH;
+        const scrollLeft = Math.max(0, Math.min(contentW - vw, VIEWPORT_PADDING + cx * scale - vw / 2));
+        const scrollTop = Math.max(0, Math.min(contentH - vh, VIEWPORT_PADDING + cy * scale - vh / 2));
+        viewport.scrollLeft = scrollLeft;
+        viewport.scrollTop = scrollTop;
+      }
+
+      api.onStripUpdate(function (payload) {
+        setBusy(false);
+        lastPayload = payload;
+        if (!payload) {
+          placeholder.style.display = 'block';
+          zoomWrapper.style.display = 'none';
+          return;
+        }
+        if (payload.stripDataUrl) {
+          placeholder.style.display = 'none';
+          zoomWrapper.style.display = 'block';
+          img.style.display = 'block';
+          img.src = payload.stripDataUrl;
+          const dw = payload.displayWidth || 1;
+          const dh = payload.displayHeight || 1;
+          const extH = Math.max(dh, payload.extendedDisplayHeight || dh);
+          img.style.width = dw + 'px';
+          img.style.height = dh + 'px';
+          if (extH > dh) {
+            const margin = (extH - dh) / 2;
+            img.style.marginTop = margin + 'px';
+            img.style.marginBottom = margin + 'px';
+          } else {
+            img.style.marginTop = '';
+            img.style.marginBottom = '';
+          }
+          container.style.width = dw + 'px';
+          container.style.height = extH + 'px';
+        } else if (!(payload.gridRects && payload.gridRects.length > 0)) {
+          img.style.display = 'none';
+        }
+        if (payload.gridRects && payload.gridRects.length > 0) {
+          updateInputsFromPayload(payload);
+          var w = Math.max(1, payload.displayWidth || 1);
+          var extH = Math.max(1, payload.extendedDisplayHeight || payload.displayHeight || 1);
+          container.style.width = w + 'px';
+          container.style.height = extH + 'px';
+          if (!payload.stripDataUrl) {
+            placeholder.style.display = 'none';
+            zoomWrapper.style.display = 'block';
+            if (img.src) img.style.display = 'block';
+          }
+          drawGrid(payload);
+        }
+        applyZoom();
+        requestAnimationFrame(scrollToActiveFrame);
+      });
+
+      inputX.addEventListener('change', applyAbsolute);
+      inputX.addEventListener('keydown', function (e) { if (e.key === 'Enter') applyAbsolute(); });
+      inputY.addEventListener('change', applyAbsolute);
+      inputY.addEventListener('keydown', function (e) { if (e.key === 'Enter') applyAbsolute(); });
+      inputYBottom.addEventListener('change', applyAbsolute);
+      inputYBottom.addEventListener('keydown', function (e) { if (e.key === 'Enter') applyAbsolute(); });
+
+      document.getElementById('btn-step-1').addEventListener('click', function () { stepPx = 1; updateActiveButtons(); });
+      document.getElementById('btn-step-10').addEventListener('click', function () { stepPx = 10; updateActiveButtons(); });
+      document.getElementById('btn-hand-left').addEventListener('click', function () { sendDelta(-stepPx, 0); });
+      document.getElementById('btn-hand-right').addEventListener('click', function () { sendDelta(stepPx, 0); });
+      document.getElementById('btn-hand-up').addEventListener('click', function () { sendDelta(0, -stepPx); });
+      document.getElementById('btn-hand-down').addEventListener('click', function () { sendDelta(0, stepPx); });
+      document.getElementById('btn-w-Lplus').addEventListener('click', function () { sendWidthEdge('left', -1); });
+      document.getElementById('btn-w-Lminus').addEventListener('click', function () { sendWidthEdge('left', 1); });
+      document.getElementById('btn-w-Rminus').addEventListener('click', function () { sendWidthEdge('right', 1); });
+      document.getElementById('btn-w-Rplus').addEventListener('click', function () { sendWidthEdge('right', -1); });
+      document.getElementById('btn-h-Tplus').addEventListener('click', function () { sendHeightEdge('top', -1); });
+      document.getElementById('btn-h-Tminus').addEventListener('click', function () { sendHeightEdge('top', 1); });
+      document.getElementById('btn-h-Bminus').addEventListener('click', function () { sendHeightEdge('bottom', -1); });
+      document.getElementById('btn-h-Bplus').addEventListener('click', function () { sendHeightEdge('bottom', 1); });
+
+      document.getElementById('btn-reset').addEventListener('click', function () {
+        setBusy(true);
+        if (api.resetGridToDefault) api.resetGridToDefault();
+      });
+      document.getElementById('btn-top').addEventListener('click', function () { activeJump = 'top'; updateActiveButtons(); setBusy(true); if (api.jumpTo) api.jumpTo('top'); });
+      document.getElementById('btn-middle').addEventListener('click', function () { activeJump = 'middle'; updateActiveButtons(); setBusy(true); if (api.jumpTo) api.jumpTo('middle'); });
+      document.getElementById('btn-bottom').addEventListener('click', function () { activeJump = 'bottom'; updateActiveButtons(); setBusy(true); if (api.jumpTo) api.jumpTo('bottom'); });
+      zoomSelect.addEventListener('change', applyZoom);
+
+      document.addEventListener('keydown', function (e) {
+        if (document.activeElement === inputX || document.activeElement === inputY || document.activeElement === inputYBottom || document.activeElement === zoomSelect) return;
+        var dx = 0, dy = 0;
+        if (e.key === 'ArrowLeft') { dx = -stepPx; dy = 0; }
+        else if (e.key === 'ArrowRight') { dx = stepPx; dy = 0; }
+        else if (e.key === 'ArrowUp') { dx = 0; dy = -stepPx; }
+        else if (e.key === 'ArrowDown') { dx = 0; dy = stepPx; }
+        if (dx !== 0 || dy !== 0) {
+          e.preventDefault();
+          sendDelta(dx, dy);
+        }
+      });
+
+      img.addEventListener('load', function () {
+        if (lastPayload && lastPayload.gridRects && lastPayload.gridRects.length > 0) drawGrid(lastPayload);
+      });
+
+      if (api.sendStatus) api.sendStatus(0, '');
+
+      if (api.requestStripRefresh) {
+        setTimeout(function () { api.requestStripRefresh(); }, 150);
+        setTimeout(function () { api.requestStripRefresh(); }, 600);
+      }
+
+      function escapeStripAttr(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      }
+      async function refreshStripPresetList() {
+        if (!api.presetsList) return;
+        var sel = document.getElementById('strip-preset-list');
+        if (!sel) return;
+        var cur = sel.value;
+        try {
+          var list = await api.presetsList();
+          sel.innerHTML = '<option value="">— Preset —</option>' +
+            (list || []).map(function (p) {
+              return '<option value="' + escapeStripAttr(p.id) + '">' + escapeStripAttr(p.name) + '</option>';
+            }).join('');
+          var i;
+          for (i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].value === cur) {
+              sel.value = cur;
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+
+      document.getElementById('btn-vert-compress').addEventListener('click', function () {
+        setBusy(true);
+        if (api.applyVerticalCompressFixedBottom) api.applyVerticalCompressFixedBottom();
+      });
+      document.getElementById('strip-preset-save').addEventListener('click', function () {
+        var n = document.getElementById('strip-preset-name').value;
+        if (api.stripPresetSave) api.stripPresetSave(n);
+      });
+      document.getElementById('strip-preset-load').addEventListener('click', function () {
+        var id = document.getElementById('strip-preset-list').value;
+        if (!id) return;
+        setBusy(true);
+        if (api.stripPresetLoad) api.stripPresetLoad(id);
+      });
+      document.getElementById('strip-preset-delete').addEventListener('click', function () {
+        var id = document.getElementById('strip-preset-list').value;
+        if (!id) return;
+        if (api.stripPresetDelete) api.stripPresetDelete(id);
+      });
+      if (api.onPresetsUpdated) api.onPresetsUpdated(function () { refreshStripPresetList(); });
+      refreshStripPresetList();
+
+      updateActiveButtons();
+    })();
+  </script>
+</body>
+</html>
