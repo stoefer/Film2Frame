@@ -7,13 +7,34 @@
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1a1a1a; color: #e0e0e0; font-family: system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column; }
-    .header { flex-shrink: 0; padding: 8px 12px; border-bottom: 1px solid #444; background: #252525; }
-    h1 { margin: 0; font-size: 14px; font-weight: 600; }
+    .header {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 12px;
+      border-bottom: 1px solid #444;
+      background: #252525;
+      min-width: 0;
+    }
+    .header h1 { margin: 0; font-size: 14px; font-weight: 600; flex: 0 1 auto; min-width: 0; }
+    .header-filename {
+      flex: 0 1 auto;
+      max-width: min(520px, 55vw);
+      font-size: 12px;
+      font-weight: 500;
+      color: #9cdcfe;
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .toolbar {
       display: flex;
       flex-direction: row;
-      flex-wrap: nowrap;
-      align-items: stretch;
+      flex-wrap: wrap;
+      align-items: flex-start;
       gap: 12px;
       padding: 10px 12px;
       border-bottom: 1px solid #333;
@@ -34,12 +55,13 @@
       gap: 8px;
     }
     .toolbar-panel--right {
-      flex: 0 0 auto;
+      flex: 0 1 auto;
       display: flex;
       flex-direction: column;
       justify-content: flex-start;
       gap: 8px;
-      min-width: fit-content;
+      min-width: 0;
+      max-width: 100%;
     }
     .toolbar-panel__top {
       display: flex;
@@ -82,7 +104,28 @@
       gap: 12px;
     }
     .toolbar-panel-row--spread .step-group { flex: 0 1 auto; }
-    .toolbar-panel-row--spread #btn-vert-compress { flex-shrink: 0; }
+    .toolbar-panel-row--spread .step-group--compress-stack {
+      flex: 0 0 auto;
+      flex-direction: column;
+      align-items: stretch;
+      align-self: center;
+      gap: 4px;
+    }
+    .toolbar-panel-row--spread .step-group--compress-stack .compress-stack-label {
+      display: block;
+      font-size: 13px;
+      color: #aaa;
+      text-align: center;
+      line-height: 1.2;
+      margin: 0;
+    }
+    .toolbar-panel-row--spread .step-group--compress-stack .btn-vert-fixed-bottom {
+      flex-shrink: 0;
+      width: 100%;
+      white-space: nowrap;
+      padding-left: 8px;
+      padding-right: 8px;
+    }
     .toolbar label { margin-right: 4px; color: #aaa; }
     .toolbar input[type="number"] { width: 72px; padding: 6px 8px; background: #2a2a2a; border: 1px solid #555; border-radius: 4px; color: #fff; font-size: 13px; }
     .toolbar button { padding: 6px 12px; cursor: pointer; background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; }
@@ -92,34 +135,248 @@
     .toolbar .step-group { display: flex; align-items: center; gap: 4px; }
     .toolbar .step-group .arrow { padding: 6px 10px; font-size: 16px; line-height: 1; }
     .toolbar .preset-name-input { width: 96px; padding: 6px 8px; background: #2a2a2a; border: 1px solid #555; border-radius: 4px; color: #fff; font-size: 12px; }
-    .toolbar select#strip-preset-list { min-width: 130px; max-width: 200px; margin-left: 0; }
+    .toolbar select#strip-preset-list { margin-left: 0; }
+    /* Rij 1: Preset: naam | Opslaan | Wissen — Rij 2: dropdown | Laden */
+    .preset-block {
+      display: grid;
+      grid-template-columns: auto minmax(100px, 1fr) auto auto;
+      grid-template-rows: auto auto;
+      gap: 8px 10px;
+      align-items: center;
+    }
+    .preset-block__label {
+      grid-column: 1;
+      grid-row: 1;
+      margin: 0;
+      color: #aaa;
+      white-space: nowrap;
+    }
+    .preset-block__name {
+      grid-column: 2;
+      grid-row: 1;
+      width: 100%;
+      min-width: 0;
+    }
+    .preset-block__save {
+      grid-column: 3;
+      grid-row: 1;
+      justify-self: stretch;
+      min-width: 4.5em;
+    }
+    .preset-block__delete {
+      grid-column: 4;
+      grid-row: 1;
+      justify-self: stretch;
+      min-width: 4.5em;
+    }
+    .preset-block__select {
+      grid-column: 2 / span 2;
+      grid-row: 2;
+      width: 100%;
+      min-width: 0;
+      max-width: none;
+      margin-left: 0;
+    }
+    .preset-block__load {
+      grid-column: 4;
+      grid-row: 2;
+      justify-self: stretch;
+      min-width: 4.5em;
+    }
+    .toolbar button.btn-preset-delete {
+      background: #5c1e1e;
+      border-color: #a83232;
+      color: #ffdede;
+      font-weight: 600;
+    }
+    .toolbar button.btn-preset-delete:hover {
+      background: #722626;
+      border-color: #c04040;
+      color: #fff;
+    }
+    .toolbar button.btn-preset-delete:active {
+      background: #551a1a;
+    }
+    .yonder-block {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+      flex: 0 1 auto;
+      min-width: 0;
+    }
+    .yonder-block__row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    .yonder-block__nav {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    .input-scan-goto {
+      width: 52px;
+      padding: 6px 6px;
+      background: #2a2a2a;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 13px;
+    }
+    .label-scan-goto {
+      color: #aaa;
+      margin: 0;
+      white-space: nowrap;
+    }
     .zoom-select { padding: 6px 8px; background: #2a2a2a; border: 1px solid #555; border-radius: 4px; color: #fff; font-size: 13px; margin-left: 0; }
     .viewport-wrap { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: flex-start; justify-content: center; padding: 16px; background: #0d0d0d; }
     /* Layout-grootte = visuele zoom (transform schaalt alleen tekening); scrollgebied klopt dan bij 400–1000%. */
     .zoom-wrapper { flex-shrink: 0; overflow: visible; position: relative; }
     .strip-container { position: relative; display: inline-block; transform-origin: 0 0; }
-    .strip-container img { display: block; vertical-align: top; position: relative; z-index: 1; }
-    .strip-overlay { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 2; }
+    .strip-container img {
+      display: block;
+      vertical-align: top;
+      position: relative;
+      z-index: 1;
+      object-fit: contain;
+      max-width: 100%;
+    }
+    .strip-overlay { position: absolute; left: 0; top: 0; pointer-events: auto; z-index: 2; cursor: crosshair; }
     .placeholder { padding: 24px; color: #666; text-align: center; }
+    .toolbar-panel__anchor-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding-top: 8px;
+      margin-top: 6px;
+      border-top: 1px solid #333;
+    }
+    .toolbar-panel__anchor-row label { color: #aaa; margin: 0; white-space: nowrap; }
+    .toolbar-panel__anchor-row select { max-width: 220px; }
+    .toolbar-panel__anchor-row--right {
+      align-self: stretch;
+      width: 100%;
+    }
+    .toolbar-panel__anchor-row--right select.zoom-select {
+      max-width: none;
+      flex: 1 1 140px;
+      min-width: 0;
+    }
+    /* Koppeling referentielijn → Hand/Duw/Shift+Duw: rode rand wanneer actief */
+    .strip-panel-with-link.strip-panel-anchor-link-active {
+      border: 2px solid rgb(220, 55, 55);
+      box-shadow: 0 0 0 1px rgba(255, 80, 80, 0.45), inset 0 0 12px rgba(120, 30, 30, 0.25);
+      background: linear-gradient(180deg, rgba(70, 28, 28, 0.4) 0%, #222 32%);
+    }
+    .strip-panel-link-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 6px 4px 8px;
+      margin: -4px -4px 2px;
+      border-bottom: 1px solid #3a3a3a;
+    }
+    .strip-panel-link-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+      color: #e8e8e8;
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .strip-panel-link-toggle input {
+      width: auto;
+      margin: 0;
+      flex-shrink: 0;
+    }
+    .strip-panel-link-hint {
+      font-size: 11px;
+      font-weight: 400;
+      color: #aaa;
+      max-width: 100%;
+      line-height: 1.35;
+    }
+    /* Tweede vergroting: ander frame groot, zonder hoofdbeeld uit te zoomen */
+    .strip-detail-section {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      border-top: 1px solid #444;
+      background: #181818;
+      min-height: 0;
+      max-height: 38vh;
+    }
+    .strip-detail-section.strip-detail-section--collapsed .strip-detail-viewport-wrap {
+      display: none;
+    }
+    .strip-detail-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 14px;
+      padding: 8px 12px;
+      border-bottom: 1px solid #333;
+    }
+    .strip-detail-toolbar label { color: #aaa; margin: 0; display: inline-flex; align-items: center; gap: 6px; }
+    .strip-detail-toggle { font-weight: 600; color: #ddd !important; }
+    .strip-detail-viewport-wrap {
+      flex: 1;
+      min-height: 100px;
+      max-height: calc(38vh - 48px);
+      overflow: auto;
+      padding: 10px 12px 14px;
+      background: #0d0d0d;
+    }
+    #strip-detail-canvas {
+      display: block;
+      max-width: none;
+      box-shadow: 0 0 0 1px #444;
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>Scanlint – raster afstellen</h1>
+    <span id="strip-header-filename" class="header-filename" title="">—</span>
   </div>
   <div class="toolbar">
     <div class="toolbar-panel toolbar-panel--left">
       <div class="toolbar-panel__top">
-        <span><label>Y-onder (px):</label><input type="number" id="input-y-bottom" placeholder="0" title="Ook negatief mogelijk (raster onder het lint)" /></span>
-        <span class="step-group" title="Zelfde lijst als in het hoofdvenster (app-gegevens op schijf)">
-          <label>Preset:</label>
-          <input type="text" id="strip-preset-name" class="preset-name-input" placeholder="Naam" maxlength="80" />
-          <button type="button" id="strip-preset-save">Opslaan</button>
-          <select id="strip-preset-list" class="zoom-select"><option value="">— Preset —</option></select>
-          <button type="button" id="strip-preset-load">Laden</button>
-          <button type="button" id="strip-preset-delete" title="Geselecteerde preset wissen">Wis</button>
-        </span>
-        <span>
+        <div class="yonder-block">
+          <div class="yonder-block__row">
+            <label>Y-onder (px):</label>
+            <input type="number" id="input-y-bottom" placeholder="0" title="Ook negatief mogelijk (raster onder het lint)" />
+          </div>
+          <div class="yonder-block__nav" title="Huidige scanlint en project worden eerst opgeslagen. Vorige/Volgende: zelfde raster/frames als nu (minimale correctie op lintformaat).">
+            <button type="button" id="btn-scan-prev">Vorige</button>
+            <button type="button" id="btn-scan-next">Volgende</button>
+            <label class="label-scan-goto" for="input-scan-goto">Nr.:</label>
+            <input type="number" id="input-scan-goto" class="input-scan-goto" min="1" step="1" placeholder="1" title="Scanlint-nummer (1 = eerste in project), daarna Ga naar" />
+            <button type="button" id="btn-scan-goto">Ga naar</button>
+          </div>
+        </div>
+        <div class="preset-block" title="Zelfde lijst als in het hoofdvenster (app-gegevens op schijf)">
+          <label class="preset-block__label" for="strip-preset-name">Preset:</label>
+          <input type="text" id="strip-preset-name" class="preset-name-input preset-block__name" placeholder="Naam" maxlength="80" />
+          <button type="button" id="strip-preset-save" class="preset-block__save">Opslaan</button>
+          <button type="button" id="strip-preset-delete" class="preset-block__delete btn-preset-delete" title="Geselecteerde preset wissen">Wissen</button>
+          <select id="strip-preset-list" class="zoom-select preset-block__select" aria-label="Preset kiezen om te laden"><option value="">— Preset —</option></select>
+          <button type="button" id="strip-preset-load" class="preset-block__load">Laden</button>
+        </div>
+      </div>
+      <div class="toolbar-panel__spacer" aria-hidden="true"></div>
+      <div class="toolbar-panel__reset-row">
+        <button type="button" id="btn-reset">Reset raster</button>
+        <span><label>X (px):</label><input type="number" id="input-x" placeholder="0" /></span>
+        <span><label>Y (px):</label><input type="number" id="input-y" placeholder="0" /></span>
+        <span title="Sneltoetsen: Num * = breedte in venster, Num / = hoogte in venster">
           <label for="zoom">Zoom:</label>
           <select id="zoom" class="zoom-select">
             <option value="0.5">50%</option>
@@ -130,17 +387,20 @@
             <option value="4">400%</option>
             <option value="8">800%</option>
             <option value="10">1000%</option>
+            <option value="fit-width" title="Past de breedte van de scanlint in het venster (numeriek toetsenbord *)">Scanlint breedte</option>
+            <option value="fit-height" title="Past de hoogte van de scanlint in het venster (numeriek toetsenbord /)">Scanlint hoogte</option>
           </select>
         </span>
       </div>
-      <div class="toolbar-panel__spacer" aria-hidden="true"></div>
-      <div class="toolbar-panel__reset-row">
-        <button type="button" id="btn-reset">Reset raster</button>
-        <span><label>X (px):</label><input type="number" id="input-x" placeholder="0" /></span>
-        <span><label>Y (px):</label><input type="number" id="input-y" placeholder="0" /></span>
-      </div>
     </div>
-    <div class="toolbar-panel toolbar-panel--right">
+    <div class="toolbar-panel toolbar-panel--right strip-panel-with-link strip-panel-anchor-link-active" id="strip-right-tools">
+      <div class="strip-panel-link-row" title="Aan: Hand ▲▼, Duw en Shift+Duw volgen de referentielijn (split, vaste onderrand). Uit: alleen rigide verschuiven.">
+        <label class="strip-panel-link-toggle" for="strip-panel-vertical-anchor-link">
+          <input type="checkbox" id="strip-panel-vertical-anchor-link" checked />
+          <span>Koppel aan referentielijn</span>
+        </label>
+        <span class="strip-panel-link-hint">Rode rand = actief</span>
+      </div>
       <div class="toolbar-panel-row">
         <span class="step-group" title="Stap in preview-pixels voor verplaatsen, breedte en hoogte">
           <label>Stap:</label>
@@ -172,14 +432,29 @@
           <button type="button" id="btn-h-Bminus" class="arrow" title="Onderrand naar beneden (verbreden)">B−</button>
           <button type="button" id="btn-h-Bplus" class="arrow" title="Onderrand naar boven (versmallen)">B+</button>
         </span>
-        <button type="button" id="btn-vert-compress" title="Y-onder blijft zoals ingesteld (B±/hand). Alle frames gelijke hoogte; bovenkant raster maximaal naar beneden.">Samendruk ▼</button>
+        <span class="step-group step-group--compress-stack" title="Duw: bij Onderkant raster blijft Y-onder vast, alleen Y-boven schuift (celhoogte past zich aan). Bij andere referenties: rigide pan. Split niet via Duw — Hand ▲▼. Shift+knop = tot rand.">
+          <span class="compress-stack-label">Duw</span>
+          <button type="button" id="btn-vert-stretch" class="btn-vert-fixed-bottom" title="Onderkant raster: langere cellen (Y-onder vast). Anders: rigide omhoog. Shift = max.">Omhoog ▲</button>
+          <button type="button" id="btn-vert-compress" class="btn-vert-fixed-bottom" title="Onderkant raster: kortere cellen (Y-onder vast). Anders: rigide omlaag. Shift = max.">Omlaag ▼</button>
+        </span>
       </div>
       <div class="toolbar-panel__spacer-right" aria-hidden="true"></div>
       <div class="toolbar-panel-row toolbar-panel-row--positie">
         <span class="positie-label">Positie:</span>
-        <button type="button" id="btn-top">BOVEN</button>
-        <button type="button" id="btn-middle">MIDDEN</button>
-        <button type="button" id="btn-bottom">ONDER</button>
+        <button type="button" id="btn-top" title="Actief frame bovenaan (PgUp)">BOVEN</button>
+        <button type="button" id="btn-middle" title="Actief frame in het midden (Home)">MIDDEN</button>
+        <button type="button" id="btn-bottom" title="Actief frame onderaan (PgDn)">ONDER</button>
+      </div>
+      <div class="toolbar-panel__anchor-row toolbar-panel__anchor-row--right" title="Onderkant raster: Duw past alleen Y-boven aan (onderrand raster vast op de film). Andere referenties: rasters onder de gele lijn blijven gelijk; Hand ▲▼ (met koppeling aan) past alleen het bovenblok. Duw schuift dan rigide.">
+        <label for="strip-vertical-anchor">Referentielijn:</label>
+        <select id="strip-vertical-anchor" class="zoom-select">
+          <option value="bottomFixed">Onderkant raster</option>
+          <option value="pivotTop">Bovenkant raster</option>
+          <option value="pivotActive">Rand onder actief frame</option>
+          <option value="pivotMiddle">Midden raster</option>
+          <option value="pivotCustom">Lijn # (0–n, custom)</option>
+        </select>
+        <input type="number" id="strip-vertical-anchor-k" class="input-scan-goto" min="0" step="1" value="1" style="display:none;width:48px" title="Lijnindex: 0 = bovenkant raster, 1 = onder frame 1, …, n = onderkant (n = aantal frames)" />
       </div>
     </div>
   </div>
@@ -190,6 +465,28 @@
         <img id="strip-img" alt="Scanlint" />
         <canvas id="strip-overlay" class="strip-overlay"></canvas>
       </div>
+    </div>
+  </div>
+  <div class="strip-detail-section strip-detail-section--collapsed" id="strip-detail-section" style="display:none" title="Hoofdbeeld kan op actief frame onderaan blijven; hier een willekeurig frame sterk vergroten om boven/onder uit te lijnen.">
+    <div class="strip-detail-toolbar">
+      <label class="strip-detail-toggle">
+        <input type="checkbox" id="strip-detail-enabled" />
+        <span>2e vergroting</span>
+      </label>
+      <label for="strip-detail-frame">Frame</label>
+      <select id="strip-detail-frame" class="zoom-select" aria-label="Frame voor tweede vergroting"></select>
+      <label for="strip-detail-zoom">Zoom</label>
+      <select id="strip-detail-zoom" class="zoom-select" aria-label="Zoom tweede venster">
+        <option value="1.5">150%</option>
+        <option value="2" selected>200%</option>
+        <option value="3">300%</option>
+        <option value="4">400%</option>
+        <option value="6">600%</option>
+        <option value="8">800%</option>
+      </select>
+    </div>
+    <div class="strip-detail-viewport-wrap" id="strip-detail-viewport-wrap">
+      <canvas id="strip-detail-canvas" width="1" height="1"></canvas>
     </div>
   </div>
   <script>
@@ -206,11 +503,49 @@
       const inputX = document.getElementById('input-x');
       const inputY = document.getElementById('input-y');
       const inputYBottom = document.getElementById('input-y-bottom');
+      const inputScanGoto = document.getElementById('input-scan-goto');
       const zoomSelect = document.getElementById('zoom');
+      const selectVerticalAnchor = document.getElementById('strip-vertical-anchor');
+      const inputVerticalAnchorK = document.getElementById('strip-vertical-anchor-k');
+      const stripRightPanel = document.getElementById('strip-right-tools');
+      const chkPanelLink = document.getElementById('strip-panel-vertical-anchor-link');
+      const headerFilenameEl = document.getElementById('strip-header-filename');
+      const stripDetailSection = document.getElementById('strip-detail-section');
+      const chkDetailEnabled = document.getElementById('strip-detail-enabled');
+      const selDetailFrame = document.getElementById('strip-detail-frame');
+      const selDetailZoom = document.getElementById('strip-detail-zoom');
+      const canvasDetail = document.getElementById('strip-detail-canvas');
+
+      const LS_DETAIL_ON = 'stripDetailOpen';
+      const LS_DETAIL_FRAME = 'stripDetailFrame';
+      const LS_DETAIL_ZOOM = 'stripDetailZoom';
 
       let stepPx = 10;
       let lastPayload = null;
       let activeJump = null;
+      /** Tijdens programmatisch scrollen geen reset van activeJump (anders zou elke auto-scroll 'manual' lijken). */
+      let suppressActiveJumpClearOnScroll = false;
+
+      var VIEWPORT_PADDING = 16;
+      var ZOOM_FIT_MIN = 0.05;
+      var ZOOM_FIT_MAX = 20;
+
+      function getEffectiveZoomScale() {
+        var mode = zoomSelect.value;
+        if (mode === 'fit-width' || mode === 'fit-height') {
+          if (!lastPayload) return 1;
+          var w = Math.max(1, lastPayload.displayWidth || 1);
+          var extH = Math.max(1, lastPayload.extendedDisplayHeight || lastPayload.displayHeight || 1);
+          var vw = Math.max(1, viewport.clientWidth);
+          var vh = Math.max(1, viewport.clientHeight);
+          var innerW = Math.max(1, vw - VIEWPORT_PADDING * 2);
+          var innerH = Math.max(1, vh - VIEWPORT_PADDING * 2);
+          var z = mode === 'fit-width' ? innerW / w : innerH / extH;
+          return Math.max(ZOOM_FIT_MIN, Math.min(ZOOM_FIT_MAX, z));
+        }
+        var num = parseFloat(mode);
+        return Number.isFinite(num) && num > 0 ? num : 1;
+      }
 
       const btnStep1 = document.getElementById('btn-step-1');
       const btnStep10 = document.getElementById('btn-step-10');
@@ -224,6 +559,41 @@
         btnTop.classList.toggle('btn-active', activeJump === 'top');
         btnMiddle.classList.toggle('btn-active', activeJump === 'middle');
         btnBottom.classList.toggle('btn-active', activeJump === 'bottom');
+      }
+
+      function updateScanGotoHints(payload) {
+        if (!inputScanGoto) return;
+        if (!payload) {
+          inputScanGoto.removeAttribute('max');
+          inputScanGoto.placeholder = '1';
+          inputScanGoto.title = 'Scanlint-nummer (eerste in project = 1). Daarna Ga naar.';
+          if (document.activeElement !== inputScanGoto) inputScanGoto.value = '';
+          return;
+        }
+        var n = payload.projectScanCount != null ? Math.floor(Number(payload.projectScanCount)) : NaN;
+        if (Number.isFinite(n) && n >= 1) {
+          inputScanGoto.max = String(n);
+          inputScanGoto.placeholder = '1–' + n;
+          var cur = payload.projectScanIndex != null ? Math.floor(Number(payload.projectScanIndex)) : null;
+          inputScanGoto.title = 'Scanlint 1–' + n + (cur != null && cur >= 1 ? ' (nu: ' + cur + ')' : '') + '. Eerst project opslaan, dan laden.';
+          if (document.activeElement !== inputScanGoto && cur != null && cur >= 1) inputScanGoto.value = String(cur);
+        } else {
+          inputScanGoto.removeAttribute('max');
+          inputScanGoto.placeholder = '1';
+          inputScanGoto.title = 'Eerste scanlint in het project = 1 (alfabetische mapvolgorde). Eerst opslaan, dan laden.';
+        }
+      }
+
+      function doScanGoto() {
+        if (!api.gotoProjectScan) return;
+        var raw = inputScanGoto ? String(inputScanGoto.value).trim() : '';
+        var v = raw === '' ? NaN : parseInt(raw, 10);
+        if (!Number.isFinite(v) || v < 1) {
+          alert('Voer een geldig scanlint-nummer in (minimaal 1).');
+          return;
+        }
+        setBusy(true);
+        api.gotoProjectScan(v);
       }
 
       function sendWidthEdge(edge, deltaSign) {
@@ -265,11 +635,225 @@
         if (p.gridOffsetYBottom != null && document.activeElement !== inputYBottom) inputYBottom.value = String(Math.round(p.gridOffsetYBottom));
       }
 
+      function updateHeaderFilename(p) {
+        if (!headerFilenameEl) return;
+        var raw = p && p.lintFileName != null ? String(p.lintFileName).trim() : '';
+        if (!raw) {
+          headerFilenameEl.textContent = '—';
+          headerFilenameEl.title = '';
+        } else {
+          headerFilenameEl.textContent = raw;
+          headerFilenameEl.title = raw;
+        }
+      }
+
+      function loadDetailPrefs() {
+        try {
+          if (chkDetailEnabled && localStorage.getItem(LS_DETAIL_ON) === '1') chkDetailEnabled.checked = true;
+          var fz = localStorage.getItem(LS_DETAIL_FRAME);
+          if (fz != null && selDetailFrame) {
+            var fn = parseInt(fz, 10);
+            if (Number.isFinite(fn) && fn >= 1) selDetailFrame.dataset.pendingFrame = String(fn);
+          }
+          var zz = localStorage.getItem(LS_DETAIL_ZOOM);
+          if (zz != null && selDetailZoom) {
+            var z = parseFloat(zz);
+            if (Number.isFinite(z) && z > 0) selDetailZoom.value = String(z);
+          }
+        } catch (e) {}
+      }
+
+      function persistDetailPrefs() {
+        try {
+          if (chkDetailEnabled) localStorage.setItem(LS_DETAIL_ON, chkDetailEnabled.checked ? '1' : '0');
+          if (selDetailFrame && selDetailFrame.value) localStorage.setItem(LS_DETAIL_FRAME, selDetailFrame.value);
+          if (selDetailZoom && selDetailZoom.value) localStorage.setItem(LS_DETAIL_ZOOM, selDetailZoom.value);
+        } catch (e) {}
+      }
+
+      function updateDetailSectionLayout() {
+        if (!stripDetailSection) return;
+        if (!lastPayload) {
+          stripDetailSection.style.display = 'none';
+          return;
+        }
+        stripDetailSection.style.display = 'flex';
+        stripDetailSection.classList.toggle('strip-detail-section--collapsed', !(chkDetailEnabled && chkDetailEnabled.checked));
+      }
+
+      function syncDetailFrameOptions(p) {
+        if (!selDetailFrame || !p || !p.gridRects || p.gridRects.length === 0) return;
+        var n = p.gridRects.length;
+        var want = selDetailFrame.dataset.pendingFrame != null ? parseInt(selDetailFrame.dataset.pendingFrame, 10) : parseInt(selDetailFrame.value, 10);
+        if (!Number.isFinite(want) || want < 1) want = 1;
+        if (want > n) want = n;
+        delete selDetailFrame.dataset.pendingFrame;
+        var html = '';
+        var i;
+        for (i = 1; i <= n; i++) {
+          html += '<option value="' + i + '">' + i + '</option>';
+        }
+        selDetailFrame.innerHTML = html;
+        selDetailFrame.value = String(want);
+      }
+
+      function getImgVerticalMarginForPayload(p) {
+        var dh = Math.max(1, p.displayHeight || 1);
+        var extH = Math.max(1, p.extendedDisplayHeight || dh);
+        return extH > dh ? Math.round((extH - dh) / 2) : 0;
+      }
+
+      function drawDetailFrame() {
+        if (!canvasDetail || !chkDetailEnabled || !chkDetailEnabled.checked || !lastPayload || !selDetailFrame) return;
+        var p = lastPayload;
+        if (!p.gridRects || p.gridRects.length === 0) return;
+        if (!img.complete || img.naturalWidth < 1 || img.naturalHeight < 1) return;
+        var fn = parseInt(selDetailFrame.value, 10);
+        if (!Number.isFinite(fn) || fn < 1) fn = 1;
+        if (fn > p.gridRects.length) fn = p.gridRects.length;
+        var detailZ = parseFloat(selDetailZoom.value);
+        if (!Number.isFinite(detailZ) || detailZ <= 0) detailZ = 2;
+
+        var gr = p.gridRects.find(function (r) { return r.frameNumber === fn; }) || p.gridRects[fn - 1];
+        var w = Math.max(1, p.displayWidth || 1);
+        var dh = Math.max(1, p.displayHeight || 1);
+        var margin = getImgVerticalMarginForPayload(p);
+        var gx = Number(gr.x) || 0;
+        var gy = Number(gr.y) || 0;
+        var grw = Math.max(1, Number(gr.width) || 1);
+        var grh = Math.max(1, Number(gr.height) || 1);
+        var imgTop = margin;
+        var imgBot = margin + dh;
+        var y0 = Math.max(imgTop, gy);
+        var y1 = Math.min(imgBot, gy + grh);
+        if (y1 <= y0) {
+          var ctx0 = canvasDetail.getContext('2d');
+          if (ctx0) {
+            canvasDetail.width = Math.max(1, Math.round(w * detailZ));
+            canvasDetail.height = Math.max(1, Math.round(grh * detailZ));
+            ctx0.fillStyle = '#222';
+            ctx0.fillRect(0, 0, canvasDetail.width, canvasDetail.height);
+            ctx0.fillStyle = '#888';
+            ctx0.font = '12px system-ui';
+            ctx0.fillText('Frame buiten beeld', 8, 20);
+          }
+          return;
+        }
+
+        var nx = img.naturalWidth;
+        var ny = img.naturalHeight;
+        /* Volledige scanlintbreedte: L/R-marges en raster in context; verticaal alleen de frame-slice. */
+        var sx = 0;
+        var sw = nx;
+        var sy = ((y0 - margin) / dh) * ny;
+        var sh = ((y1 - y0) / dh) * ny;
+        var sliceH = y1 - y0;
+        var cw = Math.max(1, Math.round(w * detailZ));
+        var ch = Math.max(1, Math.round(sliceH * detailZ));
+        canvasDetail.width = cw;
+        canvasDetail.height = ch;
+        var ctx = canvasDetail.getContext('2d');
+        if (!ctx) return;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        try {
+          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
+        } catch (e) {
+          return;
+        }
+
+        var scaleX = cw / w;
+        var scaleY = ch / sliceH;
+        var xL = gx * scaleX;
+        var xR = (gx + grw) * scaleX;
+        var frameTopLocal = gy - y0;
+        var frameBotLocal = Math.min(sliceH, gy + grh - y0);
+        var yT = Math.max(0, frameTopLocal) * scaleY;
+        var yB = Math.max(yT, frameBotLocal * scaleY);
+
+        var activeNum = p.activeFrameNumber != null ? p.activeFrameNumber : (p.activeFrameIndex != null ? p.activeFrameIndex + 1 : 1);
+        var isActive = fn === activeNum;
+        var lineW = Math.max(1, detailZ * 0.75);
+        var lineWEmph = isActive ? Math.max(2, lineW * 1.6) : lineW;
+        var strokeMain = isActive ? 'rgb(255, 60, 60)' : 'rgb(0, 255, 100)';
+
+        /* Verticaal: raster L/R over hele slice (marges links/rechts van het raster zichtbaar). */
+        ctx.strokeStyle = strokeMain;
+        ctx.lineWidth = lineWEmph;
+        ctx.beginPath();
+        ctx.moveTo(xL, 0);
+        ctx.lineTo(xL, ch);
+        ctx.moveTo(xR, 0);
+        ctx.lineTo(xR, ch);
+        ctx.stroke();
+        /* Horizontaal: boven- en onderrand van het frame (tussen L en R). */
+        ctx.beginPath();
+        ctx.moveTo(xL, yT);
+        ctx.lineTo(xR, yT);
+        ctx.moveTo(xL, yB);
+        ctx.lineTo(xR, yB);
+        ctx.stroke();
+
+        var ref = refLineDisplayFromPayload(p);
+        if (ref && Number.isFinite(ref.y) && ref.y >= y0 && ref.y <= y1) {
+          var ry = ((ref.y - y0) / sliceH) * ch;
+          ctx.strokeStyle = 'rgba(255, 220, 0, 0.95)';
+          ctx.lineWidth = Math.max(1, detailZ);
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(0, ry);
+          ctx.lineTo(cw, ry);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        var fs = Math.max(10, Math.min(22, Math.round(11 * detailZ / 2)));
+        ctx.font = 'bold ' + fs + 'px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = isActive ? 'rgba(255,80,80,0.95)' : 'rgba(255,255,255,0.9)';
+        var cx = (xL + xR) / 2;
+        var cy = (yT + yB) / 2;
+        if (xR > xL + 4 && yB > yT + 4) ctx.fillText(String(fn), cx, cy);
+      }
+
+      function refLineDisplayFromPayload(p) {
+        const gr = p.gridRects;
+        if (!gr || gr.length === 0) return null;
+        const n = gr.length;
+        const mode = p.verticalAnchorMode || 'bottomFixed';
+        var k;
+        if (mode === 'pivotTop') k = 0;
+        else if (mode === 'pivotActive') {
+          var an = p.activeFrameNumber != null ? p.activeFrameNumber : (p.activeFrameIndex != null ? p.activeFrameIndex + 1 : 1);
+          k = Math.max(0, Math.min(n, Math.floor(Number(an)) || 1));
+        } else if (mode === 'pivotMiddle') k = Math.floor(n / 2);
+        else if (mode === 'pivotCustom') {
+          k = Math.floor(Number(p.verticalAnchorCustomK));
+          if (!Number.isFinite(k)) k = 1;
+          k = Math.max(0, Math.min(n, k));
+        } else k = n;
+        const r0 = gr[0];
+        var x0 = Number(r0.x) || 0;
+        var w0 = Math.max(0, Number(r0.width) || 0);
+        if (w0 <= 0) return null;
+        var yLine;
+        if (k <= 0) yLine = Number(r0.y) || 0;
+        else if (k >= n) {
+          var last = gr[n - 1];
+          yLine = (Number(last.y) || 0) + Math.max(0, Number(last.height) || 0);
+        } else {
+          var r = gr[k];
+          yLine = Number(r.y) || 0;
+        }
+        return { y: yLine, x0: x0, w: w0 };
+      }
+
       function drawGrid(p) {
         if (!overlay || !p || !Array.isArray(p.gridRects) || p.gridRects.length === 0) return;
         const w = Math.max(1, p.displayWidth || 1);
         const h = Math.max(1, p.extendedDisplayHeight || p.displayHeight || 1);
-        const zoom = parseFloat(zoomSelect.value) || 1;
+        const zoom = getEffectiveZoomScale();
         const pixelW = Math.max(1, Math.round(w * zoom));
         const pixelH = Math.max(1, Math.round(h * zoom));
         overlay.width = pixelW;
@@ -303,11 +887,22 @@
           ctx.fillStyle = isActive ? 'rgba(255,80,80,0.95)' : 'rgba(255,255,255,0.95)';
           ctx.fillText(String(r.frameNumber != null ? r.frameNumber : i + 1), x + rw / 2, y + rh / 2);
         }
+        const ref = refLineDisplayFromPayload(p);
+        if (ref && Number.isFinite(ref.y)) {
+          ctx.strokeStyle = 'rgba(255, 220, 0, 0.95)';
+          ctx.lineWidth = Math.max(0.8, 1.5 / zoom);
+          ctx.setLineDash([4 / zoom, 3 / zoom]);
+          ctx.beginPath();
+          ctx.moveTo(ref.x0, ref.y);
+          ctx.lineTo(ref.x0 + ref.w, ref.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
         ctx.restore();
       }
 
       function applyZoom() {
-        const z = parseFloat(zoomSelect.value) || 1;
+        const z = getEffectiveZoomScale();
         container.style.transform = 'scale(' + z + ')';
         if (lastPayload) {
           const w = Math.max(1, lastPayload.displayWidth || 1);
@@ -318,56 +913,164 @@
         if (lastPayload && lastPayload.gridRects && lastPayload.gridRects.length > 0) {
           requestAnimationFrame(function () {
             drawGrid(lastPayload);
-            requestAnimationFrame(scrollToActiveFrame);
+            drawDetailFrame();
+            scheduleScrollToActiveFrame();
           });
         } else {
-          requestAnimationFrame(scrollToActiveFrame);
+          scheduleScrollToActiveFrame();
         }
       }
-
-      var VIEWPORT_PADDING = 16;
 
       function scrollToActiveFrame() {
         if (!lastPayload || !lastPayload.gridRects || lastPayload.gridRects.length === 0) return;
         const activeNum = lastPayload.activeFrameNumber != null ? lastPayload.activeFrameNumber : (lastPayload.activeFrameIndex != null ? lastPayload.activeFrameIndex + 1 : 1);
         const rect = lastPayload.gridRects.find(function (r) { return (r.frameNumber != null && r.frameNumber === activeNum); }) || lastPayload.gridRects[0];
-        const cx = (Number(rect.x) || 0) + (Number(rect.width) || 0) / 2;
-        const cy = (Number(rect.y) || 0) + (Number(rect.height) || 0) / 2;
+        const left = Number(rect.x) || 0;
+        const top = Number(rect.y) || 0;
+        const rw = Math.max(0, Number(rect.width) || 0);
+        const rh = Math.max(0, Number(rect.height) || 0);
+        const cx = left + rw / 2;
+        const cy = top + rh / 2;
         const w = Math.max(1, lastPayload.displayWidth || 1);
         const extH = Math.max(1, lastPayload.extendedDisplayHeight || lastPayload.displayHeight || 1);
-        const scale = parseFloat(zoomSelect.value) || 1;
+        const scale = getEffectiveZoomScale();
         const vw = viewport.clientWidth;
         const vh = viewport.clientHeight;
         const scaledW = w * scale;
         const scaledH = extH * scale;
         const contentW = VIEWPORT_PADDING * 2 + scaledW;
         const contentH = VIEWPORT_PADDING * 2 + scaledH;
-        const scrollLeft = Math.max(0, Math.min(contentW - vw, VIEWPORT_PADDING + cx * scale - vw / 2));
-        const scrollTop = Math.max(0, Math.min(contentH - vh, VIEWPORT_PADDING + cy * scale - vh / 2));
-        viewport.scrollLeft = scrollLeft;
-        viewport.scrollTop = scrollTop;
+        var scrollLeft = Math.max(0, Math.min(contentW - vw, VIEWPORT_PADDING + cx * scale - vw / 2));
+        var scrollTop;
+        if (activeJump === 'top') {
+          scrollTop = VIEWPORT_PADDING + top * scale - VIEWPORT_PADDING;
+        } else if (activeJump === 'bottom') {
+          const frameBottom = VIEWPORT_PADDING + (top + rh) * scale;
+          scrollTop = frameBottom - vh + VIEWPORT_PADDING;
+        } else {
+          /* null of 'middle': actief frame in het midden van het zichtbare gebied */
+          scrollTop = VIEWPORT_PADDING + cy * scale - vh / 2;
+        }
+        scrollTop = Math.max(0, Math.min(contentH - vh, scrollTop));
+        viewport.scrollLeft = Math.round(scrollLeft);
+        viewport.scrollTop = Math.round(scrollTop);
+      }
+
+      function scheduleScrollToActiveFrame() {
+        suppressActiveJumpClearOnScroll = true;
+        requestAnimationFrame(function () {
+          scrollToActiveFrame();
+          requestAnimationFrame(function () {
+            scrollToActiveFrame();
+            suppressActiveJumpClearOnScroll = false;
+          });
+        });
+      }
+
+      viewport.addEventListener('scroll', function () {
+        if (suppressActiveJumpClearOnScroll) return;
+        if (activeJump !== null) {
+          activeJump = null;
+          updateActiveButtons();
+        }
+      }, { passive: true });
+
+      loadDetailPrefs();
+      if (chkDetailEnabled) {
+        chkDetailEnabled.addEventListener('change', function () {
+          persistDetailPrefs();
+          updateDetailSectionLayout();
+          drawDetailFrame();
+        });
+      }
+      if (selDetailFrame) {
+        selDetailFrame.addEventListener('change', function () {
+          persistDetailPrefs();
+          drawDetailFrame();
+        });
+      }
+      if (selDetailZoom) {
+        selDetailZoom.addEventListener('change', function () {
+          persistDetailPrefs();
+          drawDetailFrame();
+        });
+      }
+
+      function syncVerticalAnchorFromPayload(payload) {
+        if (!selectVerticalAnchor || !inputVerticalAnchorK || !payload) return;
+        var allowed = { bottomFixed: 1, pivotTop: 1, pivotActive: 1, pivotMiddle: 1, pivotCustom: 1 };
+        var mode = payload.verticalAnchorMode;
+        if (!allowed[mode]) mode = 'bottomFixed';
+        if (document.activeElement !== selectVerticalAnchor) selectVerticalAnchor.value = mode;
+        var n = 1;
+        if (payload.numFrames != null && Number.isFinite(Number(payload.numFrames))) {
+          n = Math.max(1, Math.floor(Number(payload.numFrames)));
+        } else if (payload.gridRects && payload.gridRects.length > 0) {
+          n = payload.gridRects.length;
+        }
+        inputVerticalAnchorK.min = '0';
+        inputVerticalAnchorK.max = String(n);
+        var k = payload.verticalAnchorCustomK != null ? Math.floor(Number(payload.verticalAnchorCustomK)) : 1;
+        k = Math.max(0, Math.min(n, k));
+        if (document.activeElement !== inputVerticalAnchorK) inputVerticalAnchorK.value = String(k);
+        inputVerticalAnchorK.style.display = mode === 'pivotCustom' ? '' : 'none';
+      }
+
+      function updateStripPanelLinkVisual() {
+        if (!stripRightPanel || !chkPanelLink) return;
+        stripRightPanel.classList.toggle('strip-panel-anchor-link-active', chkPanelLink.checked);
+      }
+
+      function syncPanelLinkFromPayload(payload) {
+        if (!chkPanelLink || !payload) return;
+        var on = payload.panelLinkVerticalAnchor !== false;
+        if (document.activeElement !== chkPanelLink) chkPanelLink.checked = on;
+        updateStripPanelLinkVisual();
       }
 
       api.onStripUpdate(function (payload) {
         setBusy(false);
         lastPayload = payload;
         if (!payload) {
+          updateHeaderFilename(null);
+          updateScanGotoHints(null);
           placeholder.style.display = 'block';
           zoomWrapper.style.display = 'none';
+          updateDetailSectionLayout();
           return;
         }
+        updateScanGotoHints(payload);
+        updateHeaderFilename(payload);
+        syncVerticalAnchorFromPayload(payload);
+        syncPanelLinkFromPayload(payload);
         if (payload.stripDataUrl) {
           placeholder.style.display = 'none';
           zoomWrapper.style.display = 'block';
           img.style.display = 'block';
-          img.src = payload.stripDataUrl;
-          const dw = payload.displayWidth || 1;
-          const dh = payload.displayHeight || 1;
-          const extH = Math.max(dh, payload.extendedDisplayHeight || dh);
+          const dw = Math.max(1, payload.displayWidth || 1);
+          const dh = Math.max(1, payload.displayHeight || 1);
           img.style.width = dw + 'px';
           img.style.height = dh + 'px';
+          img.src = payload.stripDataUrl;
+          img.onload = function () {
+            img.onload = null;
+            if (img.naturalWidth !== dw || img.naturalHeight !== dh) {
+              console.warn(
+                '[scanlint-preview] Bitmapgrootte komt niet overeen met payload:',
+                img.naturalWidth,
+                '×',
+                img.naturalHeight,
+                'verwacht',
+                dw,
+                '×',
+                dh
+              );
+            }
+            requestAnimationFrame(drawDetailFrame);
+          };
+          const extH = Math.max(dh, payload.extendedDisplayHeight || dh);
           if (extH > dh) {
-            const margin = (extH - dh) / 2;
+            const margin = Math.round((extH - dh) / 2);
             img.style.marginTop = margin + 'px';
             img.style.marginBottom = margin + 'px';
           } else {
@@ -388,12 +1091,20 @@
           if (!payload.stripDataUrl) {
             placeholder.style.display = 'none';
             zoomWrapper.style.display = 'block';
-            if (img.src) img.style.display = 'block';
+            if (img.src) {
+              img.style.display = 'block';
+              var dh0 = Math.max(1, payload.displayHeight || 1);
+              img.style.width = w + 'px';
+              img.style.height = dh0 + 'px';
+            }
           }
           drawGrid(payload);
+          syncDetailFrameOptions(payload);
         }
+        updateDetailSectionLayout();
         applyZoom();
-        requestAnimationFrame(scrollToActiveFrame);
+        /* scroll: applyZoom plant al scheduleScrollToActiveFrame bij grid; dubbel = subpixel-springen */
+        requestAnimationFrame(drawDetailFrame);
       });
 
       inputX.addEventListener('change', applyAbsolute);
@@ -422,13 +1133,98 @@
         setBusy(true);
         if (api.resetGridToDefault) api.resetGridToDefault();
       });
-      document.getElementById('btn-top').addEventListener('click', function () { activeJump = 'top'; updateActiveButtons(); setBusy(true); if (api.jumpTo) api.jumpTo('top'); });
-      document.getElementById('btn-middle').addEventListener('click', function () { activeJump = 'middle'; updateActiveButtons(); setBusy(true); if (api.jumpTo) api.jumpTo('middle'); });
-      document.getElementById('btn-bottom').addEventListener('click', function () { activeJump = 'bottom'; updateActiveButtons(); setBusy(true); if (api.jumpTo) api.jumpTo('bottom'); });
+      function isTextLikeFocused() {
+        var el = document.activeElement;
+        if (!el) return false;
+        var t = el.tagName;
+        if (t === 'TEXTAREA' || t === 'SELECT') return true;
+        if (t === 'INPUT') {
+          var type = (el.type || '').toLowerCase();
+          if (type === 'button' || type === 'submit' || type === 'reset' || type === 'checkbox' || type === 'radio') return false;
+          return true;
+        }
+        return false;
+      }
+
+      function jumpToPosition(which) {
+        activeJump = which;
+        updateActiveButtons();
+        setBusy(true);
+        if (api.jumpTo) api.jumpTo(which);
+      }
+
+      document.getElementById('btn-top').addEventListener('click', function () { jumpToPosition('top'); });
+      document.getElementById('btn-middle').addEventListener('click', function () { jumpToPosition('middle'); });
+      document.getElementById('btn-bottom').addEventListener('click', function () { jumpToPosition('bottom'); });
       zoomSelect.addEventListener('change', applyZoom);
 
+      /* Dubbelklik op rastercel: frame actief. Geen lokale drawGrid — bij pivotActive verandert k en dus alle gridRects; oude rects + nieuwe activeFrame geeft verkeerde rode rand en >1px sprong tot payload komt. */
+      overlay.addEventListener('dblclick', function (e) {
+        if (!lastPayload || !Array.isArray(lastPayload.gridRects) || lastPayload.gridRects.length === 0) return;
+        if (!api.setActiveFrameByNumber) return;
+        var w = Math.max(1, lastPayload.displayWidth || 1);
+        var extH = Math.max(1, lastPayload.extendedDisplayHeight || lastPayload.displayHeight || 1);
+        var rect = overlay.getBoundingClientRect();
+        if (rect.width < 1 || rect.height < 1) return;
+        var dx = e.clientX - rect.left;
+        var dy = e.clientY - rect.top;
+        var contentX = (dx / rect.width) * w;
+        var contentY = (dy / rect.height) * extH;
+        var i;
+        for (i = 0; i < lastPayload.gridRects.length; i++) {
+          var r = lastPayload.gridRects[i];
+          var rx = Number(r.x) || 0;
+          var ry = Number(r.y) || 0;
+          var rw = Math.max(0, Number(r.width) || 0);
+          var rh = Math.max(0, Number(r.height) || 0);
+          if (rw <= 0 || rh <= 0) continue;
+          if (contentX >= rx && contentX <= rx + rw && contentY >= ry && contentY <= ry + rh) {
+            e.preventDefault();
+            var frameNum = r.frameNumber != null ? r.frameNumber : i + 1;
+            api.setActiveFrameByNumber(frameNum);
+            if (selDetailFrame) selDetailFrame.dataset.pendingFrame = String(frameNum);
+            return;
+          }
+        }
+      });
+
+      window.addEventListener('resize', function () {
+        if (zoomSelect.value === 'fit-width' || zoomSelect.value === 'fit-height') applyZoom();
+      });
+
       document.addEventListener('keydown', function (e) {
-        if (document.activeElement === inputX || document.activeElement === inputY || document.activeElement === inputYBottom || document.activeElement === zoomSelect) return;
+        if (document.activeElement === inputX || document.activeElement === inputY || document.activeElement === inputYBottom || document.activeElement === inputScanGoto || document.activeElement === zoomSelect || document.activeElement === selectVerticalAnchor || document.activeElement === inputVerticalAnchorK) return;
+        var code = e.code || '';
+        var key = e.key || '';
+        if (!isTextLikeFocused()) {
+          if (code === 'NumpadMultiply') {
+            e.preventDefault();
+            zoomSelect.value = 'fit-width';
+            applyZoom();
+            return;
+          }
+          if (code === 'NumpadDivide') {
+            e.preventDefault();
+            zoomSelect.value = 'fit-height';
+            applyZoom();
+            return;
+          }
+          if (code === 'PageUp' || key === 'PageUp') {
+            e.preventDefault();
+            jumpToPosition('top');
+            return;
+          }
+          if (code === 'PageDown' || key === 'PageDown') {
+            e.preventDefault();
+            jumpToPosition('bottom');
+            return;
+          }
+          if ((code === 'Home' || key === 'Home') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            e.preventDefault();
+            jumpToPosition('middle');
+            return;
+          }
+        }
         var dx = 0, dy = 0;
         if (e.key === 'ArrowLeft') { dx = -stepPx; dy = 0; }
         else if (e.key === 'ArrowRight') { dx = stepPx; dy = 0; }
@@ -441,7 +1237,11 @@
       });
 
       img.addEventListener('load', function () {
-        if (lastPayload && lastPayload.gridRects && lastPayload.gridRects.length > 0) drawGrid(lastPayload);
+        if (lastPayload && lastPayload.gridRects && lastPayload.gridRects.length > 0) {
+          drawGrid(lastPayload);
+          applyZoom();
+          scheduleScrollToActiveFrame();
+        }
       });
 
       if (api.sendStatus) api.sendStatus(0, '');
@@ -475,10 +1275,87 @@
         } catch (e) {}
       }
 
-      document.getElementById('btn-vert-compress').addEventListener('click', function () {
+      function sendVerticalAnchorFromUi() {
+        if (!api.setVerticalAnchor) return;
+        var m = selectVerticalAnchor ? selectVerticalAnchor.value : 'bottomFixed';
+        var ck = undefined;
+        if (m === 'pivotCustom' && inputVerticalAnchorK) {
+          ck = parseInt(inputVerticalAnchorK.value, 10);
+          if (!Number.isFinite(ck)) ck = 1;
+          var n = lastPayload && (lastPayload.numFrames || (lastPayload.gridRects && lastPayload.gridRects.length)) || 1;
+          n = Math.max(1, Math.floor(Number(n)) || 1);
+          ck = Math.max(0, Math.min(n, ck));
+          inputVerticalAnchorK.value = String(ck);
+        }
         setBusy(true);
-        if (api.applyVerticalCompressFixedBottom) api.applyVerticalCompressFixedBottom();
+        api.setVerticalAnchor(m, ck);
+      }
+      if (selectVerticalAnchor) {
+        selectVerticalAnchor.addEventListener('change', function () {
+          if (inputVerticalAnchorK) {
+            inputVerticalAnchorK.style.display = selectVerticalAnchor.value === 'pivotCustom' ? '' : 'none';
+          }
+          sendVerticalAnchorFromUi();
+        });
+      }
+      if (inputVerticalAnchorK) {
+        inputVerticalAnchorK.addEventListener('change', function () {
+          if (!selectVerticalAnchor || selectVerticalAnchor.value !== 'pivotCustom') return;
+          sendVerticalAnchorFromUi();
+        });
+        inputVerticalAnchorK.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (selectVerticalAnchor && selectVerticalAnchor.value === 'pivotCustom') sendVerticalAnchorFromUi();
+          }
+        });
+      }
+      if (chkPanelLink && api.setPanelLinkVerticalAnchor) {
+        chkPanelLink.addEventListener('change', function () {
+          updateStripPanelLinkVisual();
+          setBusy(true);
+          api.setPanelLinkVerticalAnchor(chkPanelLink.checked);
+        });
+      }
+      updateStripPanelLinkVisual();
+
+      document.getElementById('btn-vert-compress').addEventListener('click', function (e) {
+        setBusy(true);
+        if (e.shiftKey && api.applyVerticalRigidPanBoundary) {
+          api.applyVerticalRigidPanBoundary(true);
+        } else if (api.applyVerticalFixedBottomStep) {
+          api.applyVerticalFixedBottomStep(stepPx);
+        }
       });
+      document.getElementById('btn-vert-stretch').addEventListener('click', function (e) {
+        setBusy(true);
+        if (e.shiftKey && api.applyVerticalRigidPanBoundary) {
+          api.applyVerticalRigidPanBoundary(false);
+        } else if (api.applyVerticalFixedBottomStep) {
+          api.applyVerticalFixedBottomStep(-stepPx);
+        }
+      });
+      document.getElementById('btn-scan-prev').addEventListener('click', function () {
+        if (!api.navigateProjectScan) return;
+        setBusy(true);
+        api.navigateProjectScan('prev');
+      });
+      document.getElementById('btn-scan-next').addEventListener('click', function () {
+        if (!api.navigateProjectScan) return;
+        setBusy(true);
+        api.navigateProjectScan('next');
+      });
+      document.getElementById('btn-scan-goto').addEventListener('click', function () {
+        doScanGoto();
+      });
+      if (inputScanGoto) {
+        inputScanGoto.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            doScanGoto();
+          }
+        });
+      }
       document.getElementById('strip-preset-save').addEventListener('click', function () {
         var n = document.getElementById('strip-preset-name').value;
         if (api.stripPresetSave) api.stripPresetSave(n);

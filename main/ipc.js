@@ -8,11 +8,27 @@ const windows = require('./windows');
 const project = require('./project');
 const prefs = require('./prefs');
 const presets = require('./presets');
+const gridPresets = require('./grid-presets');
 const version = require('./version');
 
 const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp'];
 
 function registerIPC() {
+  /** Renderer bewaart project + lintStates naar schijf; daarna mag het hoofdvenster echt sluiten. */
+  ipcMain.on('quit-save-complete', (event) => {
+    const win = windows.getMainWindow();
+    if (!win || win.isDestroyed()) return;
+    if (event.sender !== win.webContents) return;
+    if (!win._f2fQuitSavePending) return;
+    win._f2fQuitSavePending = false;
+    if (win._f2fQuitSaveTimer) {
+      clearTimeout(win._f2fQuitSaveTimer);
+      win._f2fQuitSaveTimer = null;
+    }
+    win._f2fAllowClose = true;
+    win.close();
+  });
+
   ipcMain.handle('select-folder', async (_, options) => {
     const win = windows.getMainWindow();
     const { lastProjectFolder, lastFileLocation } = prefs.getLastPaths();
@@ -366,9 +382,62 @@ function registerIPC() {
     }
   });
 
-  ipcMain.on('strip-vertical-compress-fixed-bottom', () => {
+  /** Shift+Samendruk / Shift+Uitrek: rigide pan tot clamp-grens (towardCompress true = omlaag, false = omhoog). */
+  ipcMain.on('strip-vertical-rigid-pan-boundary', (_, payload) => {
     const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('strip-vertical-compress-fixed-bottom');
+    if (mainWin && !mainWin.isDestroyed()) {
+      const p = payload && typeof payload === 'object' ? payload : {};
+      mainWin.webContents.send('strip-vertical-rigid-pan-boundary', {
+        towardCompress: !!p.towardCompress
+      });
+    }
+  });
+
+  /** Vorige/volgende scanlint of spring naar index (1-based): hoofdvenster slaat project eerst op, daarna laden. */
+  ipcMain.on('strip-navigate-scan', (_, payload) => {
+    const mainWin = windows.getMainWindow();
+    if (mainWin && !mainWin.isDestroyed()) {
+      const p = payload && typeof payload === 'object' ? payload : {};
+      const idx = p.index != null ? Math.floor(Number(p.index)) : NaN;
+      if (Number.isFinite(idx) && idx >= 1) {
+        mainWin.webContents.send('strip-navigate-scan', { index: idx });
+        return;
+      }
+      const direction = p.direction === 'next' ? 'next' : p.direction === 'prev' ? 'prev' : '';
+      if (direction) mainWin.webContents.send('strip-navigate-scan', { direction });
+    }
+  });
+
+  /** delta in preview-pixels: + / − = rigide verticale pan (zelfde als Hand ▲▼), geen celhoogte-wijziging */
+  ipcMain.on('strip-vertical-fixed-bottom-step', (_, payload) => {
+    const mainWin = windows.getMainWindow();
+    if (mainWin && !mainWin.isDestroyed()) {
+      const p = payload && typeof payload === 'object' ? payload : {};
+      mainWin.webContents.send('strip-vertical-fixed-bottom-step', {
+        delta: p.delta != null ? Number(p.delta) : 0
+      });
+    }
+  });
+
+  /** Verticale referentielijn (strip-overlay) + state: mode + optioneel customK (lijn 0…n). */
+  ipcMain.on('strip-vertical-anchor', (_, payload) => {
+    const mainWin = windows.getMainWindow();
+    if (mainWin && !mainWin.isDestroyed()) {
+      const p = payload && typeof payload === 'object' ? payload : {};
+      mainWin.webContents.send('strip-vertical-anchor', {
+        mode: typeof p.mode === 'string' ? p.mode : undefined,
+        customK: p.customK != null ? Number(p.customK) : undefined
+      });
+    }
+  });
+
+  /** Referentielijn koppelen aan scanlint-previewpaneel (Hand/Duw/Shift+Duw). */
+  ipcMain.on('strip-panel-link-vertical-anchor', (_, payload) => {
+    const mainWin = windows.getMainWindow();
+    if (mainWin && !mainWin.isDestroyed()) {
+      const p = payload && typeof payload === 'object' ? payload : {};
+      mainWin.webContents.send('strip-panel-link-vertical-anchor', { link: !!p.link });
+    }
   });
 
   ipcMain.on('strip-preset-save', (_, name) => {
@@ -415,6 +484,11 @@ function registerIPC() {
   ipcMain.handle('preset-save', (_, name, data) => presets.savePreset(name, data));
   ipcMain.handle('preset-load', (_, id) => presets.loadPreset(id));
   ipcMain.handle('preset-delete', (_, id) => presets.deletePreset(id));
+
+  ipcMain.handle('grid-presets-list', () => gridPresets.listGridPresets());
+  ipcMain.handle('grid-preset-save', (_, name, grid) => gridPresets.saveGridPreset(name, grid));
+  ipcMain.handle('grid-preset-load', (_, id) => gridPresets.loadGridPreset(id));
+  ipcMain.handle('grid-preset-delete', (_, id) => gridPresets.deleteGridPreset(id));
 
   ipcMain.handle('get-app-settings', () => prefs.getAllSettings());
   ipcMain.handle('set-app-settings', (_, settings) => {

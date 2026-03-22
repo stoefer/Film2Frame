@@ -8,13 +8,16 @@ const ZOOM_MAX = 10;
 const FINE_ROTATION_MIN = -1;
 const FINE_ROTATION_MAX = 1;
 
+/** Bovenrand raster (gridOffsetY) mag tot dit deel van de striphoogte (canvas) negatief zijn — extra uitlijning in scanlint-preview. */
+const GRID_TOP_SLACK_RATIO = 0.05;
+
 /** Stap pijltjestoets: 1 px normaal, 10 px met Shift. */
 const ARROW_STEP_PX = 1;
 const ARROW_STEP_SHIFT_PX = 10;
 
-/** Fijne rotatie: 0.01° normaal, 0.1° met Shift (numeriek + / -). */
-const ROTATION_STEP_DEG = 0.01;
-const ROTATION_STEP_SHIFT_DEG = 0.1;
+/** Fijne rotatie: 0.001° normaal, 0.01° met Shift (numeriek + / -); invoer tot 3 decimalen binnen ±1°. */
+const ROTATION_STEP_DEG = 0.001;
+const ROTATION_STEP_SHIFT_DEG = 0.01;
 
 /** Kantelpunten voor scanlint-rotatie. */
 const TILT_PIVOTS = [
@@ -75,6 +78,15 @@ const DEFAULT_FRAMES_PER_STRIP = 30;
 /** Preview-resolutie opties (max zijde px). */
 const STRIP_PREVIEW_MAX_DIM_OPTIONS = [1024, 1536, 2048, 2560, 3072, 4096];
 
+/**
+ * Max. zijde van strip-canvas na rotatie (strip-loader). Standaard preview-max hierop gelijk houden
+ * voorkomt een tweede downsampling (bv. 2048→1536) die onderaan blur/“uitgesmeerd” kan geven.
+ */
+const STRIP_CANVAS_MAX_DIM = 2048;
+
+/** Standaard max. zijde scanlint-preview (px); gelijk aan strip-cap = één schaalstap naar preview. */
+const DEFAULT_STRIP_PREVIEW_MAX_DIM = STRIP_CANVAS_MAX_DIM;
+
 /** Scanlint-preview: 5% boven + 5% onder het scanlint voor uitlijnen raster. */
 const STRIP_EXTENDED_RATIO = 1.1;
 
@@ -109,7 +121,10 @@ export {
   DEFAULT_DPI,
   DEFAULT_FRAMES_PER_STRIP,
   STRIP_PREVIEW_MAX_DIM_OPTIONS,
+  STRIP_CANVAS_MAX_DIM,
+  DEFAULT_STRIP_PREVIEW_MAX_DIM,
   STRIP_EXTENDED_RATIO,
+  GRID_TOP_SLACK_RATIO,
   OUTPUT_FORMATS,
   OUTPUT_RESOLUTIONS,
   FRAME_NUMBER_PAD

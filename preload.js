@@ -41,7 +41,11 @@ contextBridge.exposeInMainWorld('api', {
   onStripAdjustHeightEdge: (cb) => { ipcRenderer.on('strip-adjust-height-edge', (_, payload) => cb && cb(payload)); },
   onStripApplyVerticalPush: (cb) => { ipcRenderer.on('strip-apply-vertical-push', () => cb && cb()); },
   onStripApplyVerticalStretch: (cb) => { ipcRenderer.on('strip-apply-vertical-stretch', () => cb && cb()); },
-  onStripVerticalCompressFixedBottom: (cb) => { ipcRenderer.on('strip-vertical-compress-fixed-bottom', () => cb && cb()); },
+  onStripVerticalRigidPanBoundary: (cb) => { ipcRenderer.on('strip-vertical-rigid-pan-boundary', (_, p) => cb && cb(p)); },
+  onStripVerticalFixedBottomStep: (cb) => { ipcRenderer.on('strip-vertical-fixed-bottom-step', (_, payload) => cb && cb(payload)); },
+  onStripVerticalAnchor: (cb) => { ipcRenderer.on('strip-vertical-anchor', (_, payload) => cb && cb(payload)); },
+  onStripPanelLinkVerticalAnchor: (cb) => { ipcRenderer.on('strip-panel-link-vertical-anchor', (_, p) => cb && cb(p)); },
+  onStripNavigateScan: (cb) => { ipcRenderer.on('strip-navigate-scan', (_, payload) => cb && cb(payload)); },
   onStripPresetDoSave: (cb) => { ipcRenderer.on('strip-preset-do-save', (_, name) => cb && cb(name)); },
   onStripPresetDoLoad: (cb) => { ipcRenderer.on('strip-preset-do-load', (_, id) => cb && cb(id)); },
   onStripPresetDoDelete: (cb) => { ipcRenderer.on('strip-preset-do-delete', (_, id) => cb && cb(id)); },
@@ -50,8 +54,20 @@ contextBridge.exposeInMainWorld('api', {
   presetSave: (name, data) => ipcRenderer.invoke('preset-save', name, data),
   presetLoad: (id) => ipcRenderer.invoke('preset-load', id),
   presetDelete: (id) => ipcRenderer.invoke('preset-delete', id),
+  gridPresetsList: () => ipcRenderer.invoke('grid-presets-list'),
+  gridPresetSave: (name, grid) => ipcRenderer.invoke('grid-preset-save', name, grid),
+  gridPresetLoad: (id) => ipcRenderer.invoke('grid-preset-load', id),
+  gridPresetDelete: (id) => ipcRenderer.invoke('grid-preset-delete', id),
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
   setAppSettings: (settings) => ipcRenderer.invoke('set-app-settings', settings),
   arrangeWindows: () => ipcRenderer.invoke('arrange-windows'),
-  getAppVersion: () => ipcRenderer.invoke('get-app-version')
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  onRequestQuitSave: (cb) => {
+    ipcRenderer.on('request-quit-save', () => {
+      if (typeof cb === 'function') cb();
+    });
+  },
+  sendQuitSaveComplete: () => {
+    ipcRenderer.send('quit-save-complete');
+  }
 });

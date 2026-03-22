@@ -30,7 +30,7 @@ const KEYS = {
 
 const DEFAULTS = {
   darkMode: false,
-  stripPreviewRes: 1536,
+  stripPreviewRes: 2048,
   outputFormat: 'png',
   scanDpi: 4800,
   defaultFramesPerStrip: 30,
@@ -129,7 +129,7 @@ function setSettings(settings) {
   if (!settings || typeof settings !== 'object') return;
   const data = read();
   if (settings.darkMode !== undefined) data[KEYS.darkMode] = !!settings.darkMode;
-  if (settings.stripPreviewRes !== undefined) data[KEYS.stripPreviewRes] = Math.max(512, Math.min(8192, Number(settings.stripPreviewRes) || 1536));
+  if (settings.stripPreviewRes !== undefined) data[KEYS.stripPreviewRes] = Math.max(512, Math.min(8192, Number(settings.stripPreviewRes) || 2048));
   if (settings.outputFormat !== undefined) data[KEYS.outputFormat] = settings.outputFormat === 'jpg' || settings.outputFormat === 'jpeg' ? 'jpg' : 'png';
   if (settings.scanDpi !== undefined) data[KEYS.scanDpi] = Math.max(300, Math.min(9600, Number(settings.scanDpi) || 4800));
   if (settings.defaultFramesPerStrip !== undefined) data[KEYS.defaultFramesPerStrip] = Math.max(1, Math.min(99, Number(settings.defaultFramesPerStrip) || 30));

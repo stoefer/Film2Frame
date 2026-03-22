@@ -1,15 +1,45 @@
 /**
  * UI-binding – koppelt DOM aan state en preview. Enige module die getElementById gebruikt.
  */
-import { getState, setStrip, setRotation90, setFineRotation, setNumFrames, setActiveFrameIndex, setZoomFrames, setFramePreviewVisibleFrames, setStripPreviewMaxDim, setExportFolderPath, setExportBaseName, setExportPauseSeconds, setGridOffset, setGridOffsetXMargins, setGridOffsetYOnly, setGridOffsetYBottom, setDirty, setFlipHorizontal, setFlipVertical, setTimecodeFps, setFilmFormat, setFilmPolarity, setTiltPivot, setOutputFormat, setScanDpi, setArrowStepPx, setArrowStepShiftPx, getLintStateSnapshot, setLintStateForPath, updateProjectScanInfos, applyLintState } from './state.js';
+import { getState, setStrip, setRotation90, setFineRotation, setNumFrames, setActiveFrameIndex, setZoomFrames, setFramePreviewVisibleFrames, setStripPreviewMaxDim, setExportFolderPath, setExportBaseName, setExportPauseSeconds, setGridOffset, setGridOffsetXMargins, setGridOffsetYOnly, setGridOffsetYBottom, setDirty, setFlipHorizontal, setFlipVertical, setTimecodeFps, setFilmFormat, setFilmPolarity, setTiltPivot, setOutputFormat, setScanDpi, setArrowStepPx, setArrowStepShiftPx, getLintStateSnapshot, getGridGeometrySnapshot, applyGridGeometrySnapshot, setLintStateForPath, updateProjectScanInfos, applyLintState, setGridVerticalAnchorMode, setGridVerticalPivotCustomK, setGridSplitLowerPanCanvas, setGridPanelLinkVerticalAnchor } from './state.js';
 import { loadImage, getStripCanvas, getStripCanvasDimensions } from './strip-loader.js';
-import { getFrameDimensions, getEffectiveGridOffsetX, getDefaultGridOffsetX, cropFrameAtIndex, clampGridMarginsCanvas, clampGridVerticalMarginsCanvas, getEffectiveGridMargins, compressGridVerticallyFixedBottomCanvas } from './grid.js';
+import {
+  getFrameDimensions,
+  getEffectiveGridOffsetX,
+  getDefaultGridOffsetX,
+  cropFrameAtIndex,
+  clampGridMarginsCanvas,
+  clampGridVerticalMarginsCanvas,
+  getEffectiveGridMargins,
+  applyRigidVerticalPanStepCanvas,
+  applyBottomAnchoredVerticalPanStepCanvas,
+  rigidVerticalPanToBoundaryCanvas,
+  bottomAnchoredVerticalPanToBoundaryCanvas,
+  getMinGridOffsetYCanvas,
+  usesSplitLowerVerticalPan,
+  handVerticalUsesSplitPan,
+  panelUsesVerticalAnchorLink,
+  pivotActiveAnchorsStripBottom,
+  resolveVerticalPivotKFromState,
+  applySplitLowerPanStepCanvas,
+  splitLowerPanToBoundaryCanvas,
+  clampGridSplitLowerPanCanvas,
+  ensurePivotFrozenLowerCellHeight
+} from './grid.js';
 import { refreshPreviews, refreshPreviewsGridOnly, getScaledDimensions, getScaledDimensionsFromSize, buildGridPayload } from './preview.js';
-import { hasProject, getProjectMeta, getProjectPath, isDirty, createProject, openProject, openProjectByPath, saveProject, deleteProject, applySavedLintState, pickResumeLintPath } from './project.js';
+import { hasProject, getProjectMeta, getProjectPath, isDirty, createProject, openProject, openProjectByPath, saveProject, deleteProject, applySavedLintState, pickResumeLintPath, persistCurrentLintStateInProject } from './project.js';
 import { getFromCache, prefetch, clearCache } from './strip-cache.js';
 
 import { updateStatus } from './status.js';
-import { MIN_FRAMES, MAX_FRAMES, ZOOM_MIN, ZOOM_MAX, GRID_OFFSET_PRESETS, STRIP_PREVIEW_MAX_DIM_OPTIONS } from './constants.js';
+import {
+  MIN_FRAMES,
+  MAX_FRAMES,
+  ZOOM_MIN,
+  ZOOM_MAX,
+  GRID_OFFSET_PRESETS,
+  STRIP_PREVIEW_MAX_DIM_OPTIONS,
+  DEFAULT_STRIP_PREVIEW_MAX_DIM
+} from './constants.js';
 
 const ids = {
   projectInfo: 'project-info',
@@ -49,6 +79,10 @@ const ids = {
   rotate90: 'f2f-rotate90',
   fineRotation: 'f2f-fine-rotation',
   fineRotationValue: 'f2f-fine-value',
+  fineMinusCoarse: 'f2f-fine-minus-coarse',
+  fineMinusFine: 'f2f-fine-minus-fine',
+  finePlusFine: 'f2f-fine-plus-fine',
+  finePlusCoarse: 'f2f-fine-plus-coarse',
   numFrames: 'f2f-num-frames',
   activeFrame: 'f2f-active-frame',
   frameOf: 'f2f-frame-of',
@@ -64,6 +98,11 @@ const ids = {
   gridMmFrames: 'f2f-grid-mm-frames',
   gridPxPerMm: 'f2f-grid-px-per-mm',
   applyGridFromMm: 'f2f-apply-grid-from-mm',
+  gridPresetName: 'f2f-grid-preset-name',
+  gridPresetList: 'f2f-grid-preset-list',
+  gridPresetSave: 'f2f-grid-preset-save',
+  gridPresetLoad: 'f2f-grid-preset-load',
+  gridPresetDelete: 'f2f-grid-preset-delete',
   stripPreviewRes: 'f2f-strip-preview-res',
   pickExportFolder: 'f2f-pick-export-folder',
   exportFolderPath: 'f2f-export-folder-path',
@@ -211,15 +250,20 @@ function updateUI() {
   }
   if (el(ids.frameOf)) el(ids.frameOf).textContent = '/ ' + n;
   if (el(ids.zoomValue)) el(ids.zoomValue).textContent = s.zoomFrames.toFixed(1);
-  if (el(ids.fineRotationValue)) el(ids.fineRotationValue).value = String(s.fineRotationDeg);
-  if (el(ids.fineRotation)) el(ids.fineRotation).value = String(Math.round(s.fineRotationDeg * 100));
+  const frFine = Math.round(s.fineRotationDeg * 1000) / 1000;
+  if (el(ids.fineRotationValue) && document.activeElement !== el(ids.fineRotationValue)) {
+    el(ids.fineRotationValue).value = frFine.toFixed(3);
+  }
+  if (el(ids.fineRotation) && document.activeElement !== el(ids.fineRotation)) {
+    el(ids.fineRotation).value = String(Math.round(frFine * 1000));
+  }
   if (el(ids.zoom)) {
     const v = 1 + ((ZOOM_MAX - s.zoomFrames) / (ZOOM_MAX - ZOOM_MIN)) * 99;
     el(ids.zoom).value = String(Math.round(Math.max(1, Math.min(100, v))));
   }
   const stripResEl = el(ids.stripPreviewRes);
   if (stripResEl) {
-    const val = Number(s.stripPreviewMaxDim) || 1536;
+    const val = Number(s.stripPreviewMaxDim) || DEFAULT_STRIP_PREVIEW_MAX_DIM;
     const closest = STRIP_PREVIEW_MAX_DIM_OPTIONS.includes(val)
       ? val
       : STRIP_PREVIEW_MAX_DIM_OPTIONS.reduce((a, b) => Math.abs(a - val) <= Math.abs(b - val) ? a : b);
@@ -303,9 +347,49 @@ async function persistProjectAfterLintLoad() {
   } catch (_) {}
 }
 
+/**
+ * Na project-scanwissel met behoud van raster: offsets passend maken op het nieuwe strip-canvas
+ * (zelfde marge-instellingen, minimale correctie als het lint andere afmetingen heeft).
+ */
+function clampCurrentGridToStrip() {
+  const canvas = getStripCanvas();
+  if (!canvas) return;
+  const { frameWidth, frameHeight } = getFrameDimensions(canvas);
+  if (frameWidth < 1 || frameHeight < 1) return;
+  const s = getState();
+  const n = Math.max(1, s.numFrames);
+  if (s.gridOffsetXAsymmetric) {
+    let left = Number(s.gridOffsetXLeft);
+    let right = Number(s.gridOffsetXRight);
+    if (!Number.isFinite(left) || !Number.isFinite(right)) {
+      const ox = getEffectiveGridOffsetX(frameWidth);
+      left = ox;
+      right = ox;
+    }
+    const c = clampGridMarginsCanvas(frameWidth, left, right);
+    setGridOffsetXMargins(c.left, c.right);
+  } else {
+    const ox = clampGridOffsetX(frameWidth, getEffectiveGridOffsetX(frameWidth));
+    setGridOffset(ox, s.gridOffsetY);
+  }
+  const s2 = getState();
+  const cv = clampGridVerticalMarginsCanvas(
+    frameHeight,
+    n,
+    Number(s2.gridOffsetY) || 0,
+    Number(s2.gridOffsetYBottom) || 0
+  );
+  setGridOffsetYOnly(cv.top);
+  setGridOffsetYBottom(cv.bottom);
+}
+
+/** Opties voor loadScanByPath: preserveGrid = raster/frames/fijne rotatie van vorige lint behouden (Volgende/Vorige/Ga naar in project). */
+const PRESERVE_GRID_ON_SCAN_NAV = { preserveGrid: true };
+
 /** Slaat huidige lint-state op (bij wissel) en laadt de scan op het gegeven pad. Gebruikt strip-cache (vorige/volgende). */
-async function loadScanByPath(lintPath) {
+async function loadScanByPath(lintPath, opts = {}) {
   if (!lintPath || !window.api?.getFileUrl) return false;
+  const preserveGrid = opts.preserveGrid === true;
   const s = getState();
   if (hasProject() && s.path) {
     const snapshot = getLintStateSnapshot();
@@ -315,10 +399,18 @@ async function loadScanByPath(lintPath) {
   const paths = hasProject() ? await getProjectScanPaths() : [];
   const idx = paths.length ? Math.max(0, paths.indexOf(lintPath)) : 0;
 
+  const stripOpts = preserveGrid ? { preserveLintGrid: true } : {};
+
   let img = getFromCache(lintPath);
   if (img) {
-    setStrip(lintPath, img);
-    if (hasProject()) applySavedLintState(lintPath);
+    setStrip(lintPath, img, stripOpts);
+    if (hasProject() && !preserveGrid) {
+      applySavedLintState(lintPath);
+    }
+    if (preserveGrid) {
+      clampCurrentGridToStrip();
+      setDirty();
+    }
     updateUI();
     refreshPreviews();
     if (paths.length) prefetch(paths, idx, lintPath, (p) => window.api.getFileUrl(p), getState);
@@ -337,8 +429,14 @@ async function loadScanByPath(lintPath) {
     alert('Scan laden mislukt. Controleer of het bestand een geldige afbeelding is.');
     return false;
   }
-  setStrip(lintPath, img);
-  if (hasProject()) applySavedLintState(lintPath);
+  setStrip(lintPath, img, stripOpts);
+  if (hasProject() && !preserveGrid) {
+    applySavedLintState(lintPath);
+  }
+  if (preserveGrid) {
+    clampCurrentGridToStrip();
+    setDirty();
+  }
   updateUI();
   refreshPreviews();
   if (paths.length) prefetch(paths, idx, lintPath, (p) => window.api.getFileUrl(p), getState);
@@ -366,7 +464,7 @@ async function onPrevScan() {
   const current = getState().path;
   const idx = current ? paths.indexOf(current) : -1;
   const prevIndex = idx <= 0 ? paths.length - 1 : idx - 1;
-  await loadScanByPath(paths[prevIndex]);
+  await loadScanByPath(paths[prevIndex], PRESERVE_GRID_ON_SCAN_NAV);
 }
 
 async function onNextScan() {
@@ -376,7 +474,57 @@ async function onNextScan() {
   const current = getState().path;
   const idx = current ? paths.indexOf(current) : -1;
   const nextIndex = idx < 0 ? 0 : (idx >= paths.length - 1 ? 0 : idx + 1);
-  await loadScanByPath(paths[nextIndex]);
+  await loadScanByPath(paths[nextIndex], PRESERVE_GRID_ON_SCAN_NAV);
+}
+
+/**
+ * Vanuit scanlint-preview: eerst huidige lint + project naar schijf, daarna vorige/volgende scan of spring naar index.
+ */
+async function onStripNavigateScan(payload) {
+  const p = payload && typeof payload === 'object' ? payload : {};
+  const index1 = p.index != null ? Math.floor(Number(p.index)) : NaN;
+  const direction = p.direction === 'next' ? 'next' : p.direction === 'prev' ? 'prev' : '';
+  const isGoto = Number.isFinite(index1) && index1 >= 1;
+  if (!isGoto && direction !== 'prev' && direction !== 'next') return;
+  if (!hasProject()) {
+    alert('Geen project geopend. Open eerst een project in het hoofdvenster.');
+    return;
+  }
+  const s = getState();
+  if (s.path) {
+    const snapshot = getLintStateSnapshot();
+    if (snapshot) setLintStateForPath(s.path, snapshot);
+  }
+  let saveResult;
+  try {
+    saveResult = await saveProject();
+  } catch (_) {
+    saveResult = { ok: false, error: 'Onbekende fout bij opslaan' };
+  }
+  if (!saveResult.ok) {
+    alert(saveResult.error || 'Project opslaan mislukt. De scanlint wordt niet gewisseld.');
+    return;
+  }
+  const paths = await getProjectScanPaths();
+  if (!paths.length) {
+    alert('Geen scanlints in dit project.');
+    return;
+  }
+  if (isGoto) {
+    if (index1 < 1 || index1 > paths.length) {
+      alert(`Voer een getal tussen 1 en ${paths.length} in.`);
+      return;
+    }
+    await loadScanByPath(paths[index1 - 1], PRESERVE_GRID_ON_SCAN_NAV);
+    return;
+  }
+  const current = getState().path;
+  const idx = current ? paths.indexOf(current) : -1;
+  const targetIndex =
+    direction === 'prev'
+      ? (idx <= 0 ? paths.length - 1 : idx - 1)
+      : (idx < 0 ? 0 : (idx >= paths.length - 1 ? 0 : idx + 1));
+  await loadScanByPath(paths[targetIndex], PRESERVE_GRID_ON_SCAN_NAV);
 }
 
 async function onGoToScan() {
@@ -393,7 +541,7 @@ async function onGoToScan() {
     alert(`Voer een getal tussen 1 en ${paths.length} in.`);
     return;
   }
-  await loadScanByPath(paths[index - 1]);
+  await loadScanByPath(paths[index - 1], PRESERVE_GRID_ON_SCAN_NAV);
 }
 
 function onRotate90() {
@@ -406,8 +554,21 @@ function onRotate90() {
 function onFineRotation() {
   const sl = el(ids.fineRotation);
   const val = el(ids.fineRotationValue);
-  if (val && val.value !== '') setFineRotation(Number(val.value));
-  else if (sl) setFineRotation(Number(sl.value) / 100);
+  if (val && val.value !== '') {
+    const raw = Number(String(val.value).replace(',', '.'));
+    if (Number.isFinite(raw)) setFineRotation(raw);
+  } else if (sl && sl.value !== '') {
+    setFineRotation(Number(sl.value) / 1000);
+  }
+  setDirty();
+  updateUI();
+  refreshPreviews();
+}
+
+/** Stapknoppen fijne draaiing: 0,001° / 0,01° (zelfde stappen als Numpad +/−). */
+function nudgeFineRotation(deltaDeg) {
+  const s = getState();
+  setFineRotation(s.fineRotationDeg + deltaDeg);
   setDirty();
   updateUI();
   refreshPreviews();
@@ -424,6 +585,7 @@ function onNumFrames() {
 function onActiveFrame() {
   const n = parseInt(el(ids.activeFrame)?.value, 10);
   if (!Number.isNaN(n)) setActiveFrameIndex(n - 1);
+  syncGridSplitLowerPanClamp();
   setDirty();
   updateUI();
   refreshPreviewsGridOnly();
@@ -431,6 +593,7 @@ function onActiveFrame() {
 
 function onPrevFrame() {
   setActiveFrameIndex(getState().activeFrameIndex - 1);
+  syncGridSplitLowerPanClamp();
   setDirty();
   updateUI();
   refreshPreviewsGridOnly();
@@ -438,6 +601,7 @@ function onPrevFrame() {
 
 function onNextFrame() {
   setActiveFrameIndex(getState().activeFrameIndex + 1);
+  syncGridSplitLowerPanClamp();
   setDirty();
   updateUI();
   refreshPreviewsGridOnly();
@@ -476,9 +640,8 @@ function clampGridOffsetY(frameHeight, y, offsetYBottom, numFrames) {
   const stripHeight = frameHeight * n;
   const minTotalHeight = n * GRID_MIN_SIZE_PX;
   const bottom = Number(offsetYBottom) || 0;
-  const margin = Math.max(1, Math.round(stripHeight * 0.05));
-  const minY = -margin;
-  const maxY = stripHeight + margin - minTotalHeight - bottom;
+  const minY = getMinGridOffsetYCanvas(stripHeight);
+  const maxY = stripHeight - minTotalHeight - bottom;
   return Math.max(minY, Math.min(maxY, Math.round(y)));
 }
 
@@ -529,7 +692,7 @@ function onVerticalStretch() {
   if (frameHeight < 1) { if (el(ids.loadLint)) el(ids.loadLint).focus(); return; }
   const s = getState();
   const step = Math.max(1, Math.round(frameHeight * GRID_STEP_PERCENT_VERTICAL));
-  const next = clampGridOffsetY(frameHeight, Math.max(0, (s.gridOffsetY || 0) - step), s.gridOffsetYBottom, s.numFrames);
+  const next = clampGridOffsetY(frameHeight, (s.gridOffsetY || 0) - step, s.gridOffsetYBottom, s.numFrames);
   setGridOffset(s.gridOffsetX, next);
   setDirty();
   updateUI();
@@ -575,6 +738,7 @@ function onFilmFormatChange() {
   if (v) setFilmFormat(v);
   setDirty();
   updateUI();
+  persistCurrentLintStateInProject();
 }
 
 function onPolarityChange() {
@@ -582,6 +746,7 @@ function onPolarityChange() {
   setFilmPolarity(pos ? 'positief' : 'negatief');
   setDirty();
   updateUI();
+  persistCurrentLintStateInProject();
 }
 
 function onTiltPivotChange() {
@@ -589,6 +754,7 @@ function onTiltPivotChange() {
   if (v) setTiltPivot(v);
   setDirty();
   updateUI();
+  persistCurrentLintStateInProject();
 }
 
 function onOutputFormatChange() {
@@ -660,7 +826,16 @@ async function loadAppSettings() {
     set(ids.settingOutputRes, s.outputResolution || 'original');
     set(ids.settingCustomW, String(s.customOutputWidth || 1920));
     set(ids.settingCustomH, String(s.customOutputHeight || 1080));
-    set(ids.settingPreviewRes, String(s.stripPreviewRes || 1536));
+    const previewRes = Math.max(512, Math.min(8192, Number(s.stripPreviewRes) || DEFAULT_STRIP_PREVIEW_MAX_DIM));
+    set(ids.settingPreviewRes, String(previewRes));
+    setStripPreviewMaxDim(previewRes);
+    const stripResMain = el(ids.stripPreviewRes);
+    if (stripResMain) {
+      const closest = STRIP_PREVIEW_MAX_DIM_OPTIONS.includes(previewRes)
+        ? previewRes
+        : STRIP_PREVIEW_MAX_DIM_OPTIONS.reduce((a, b) => (Math.abs(a - previewRes) <= Math.abs(b - previewRes) ? a : b));
+      stripResMain.value = String(closest);
+    }
     set(ids.settingDarkMode, s.darkMode, 'checked');
     set(ids.settingWindowArrangement, s.windowArrangement || 'left-center-right');
     const arrowPx = (s.arrowStepPx != null && Number(s.arrowStepPx) >= 1) ? Math.min(10, Number(s.arrowStepPx)) : 1;
@@ -672,6 +847,7 @@ async function loadAppSettings() {
     setArrowStepShiftPx(arrowShiftPx);
     const wrap = el(ids.settingCustomResWrap);
     if (wrap) wrap.classList.toggle('hidden', s.outputResolution !== 'custom');
+    updateUI();
   } catch (_) {}
 }
 
@@ -686,7 +862,7 @@ async function saveAppSettings() {
     outputResolution: outRes,
     customOutputWidth: parseInt(el(ids.settingCustomW)?.value, 10) || 1920,
     customOutputHeight: parseInt(el(ids.settingCustomH)?.value, 10) || 1080,
-    stripPreviewRes: parseInt(el(ids.settingPreviewRes)?.value, 10) || 1536,
+    stripPreviewRes: parseInt(el(ids.settingPreviewRes)?.value, 10) || DEFAULT_STRIP_PREVIEW_MAX_DIM,
     darkMode: !!el(ids.settingDarkMode)?.checked,
     windowArrangement: el(ids.settingWindowArrangement)?.value || 'left-center-right',
     arrowStepPx: arrowPx,
@@ -779,6 +955,75 @@ async function onStripPresetDoDelete(id) {
   if (!window.api?.presetDelete) return;
   await window.api.presetDelete(id);
   window.api?.notifyStripPresetsUpdated?.();
+}
+
+async function refreshGridPresetList() {
+  const sel = el(ids.gridPresetList);
+  if (!sel || !window.api?.gridPresetsList) return;
+  try {
+    const list = await window.api.gridPresetsList();
+    const cur = sel.value;
+    sel.innerHTML =
+      '<option value="">— Raster-preset —</option>' +
+      (Array.isArray(list)
+        ? list
+            .map((p) => {
+              const id = escapeHtml(String(p.id || ''));
+              const name = escapeHtml(String(p.name || ''));
+              return `<option value="${id}">${name}</option>`;
+            })
+            .join('')
+        : '');
+    if (cur && [...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  } catch (_) {}
+}
+
+async function onGridPresetSaveClick() {
+  const name = el(ids.gridPresetName)?.value?.trim() || '';
+  if (!name) {
+    alert('Geef een naam voor het raster-preset.');
+    return;
+  }
+  if (!window.api?.gridPresetSave) return;
+  const grid = getGridGeometrySnapshot();
+  const result = await window.api.gridPresetSave(name, grid);
+  if (result?.ok) {
+    if (el(ids.gridPresetName)) el(ids.gridPresetName).value = '';
+    await refreshGridPresetList();
+    if (result.preset?.id && el(ids.gridPresetList)) el(ids.gridPresetList).value = result.preset.id;
+  } else if (result?.error) alert(result.error);
+}
+
+async function onGridPresetLoadClick() {
+  const sel = el(ids.gridPresetList);
+  const id = sel?.value;
+  if (!id) {
+    alert('Kies eerst een raster-preset.');
+    return;
+  }
+  if (!window.api?.gridPresetLoad) return;
+  const grid = await window.api.gridPresetLoad(id);
+  if (!grid || typeof grid !== 'object') {
+    alert('Preset niet gevonden.');
+    return;
+  }
+  applyGridGeometrySnapshot(grid);
+  syncGridSplitLowerPanClamp();
+  setDirty();
+  updateUI();
+  refreshPreviews();
+}
+
+async function onGridPresetDeleteClick() {
+  const id = el(ids.gridPresetList)?.value;
+  if (!id) {
+    alert('Kies eerst een preset.');
+    return;
+  }
+  if (!confirm('Dit raster-preset definitief wissen?')) return;
+  if (!window.api?.gridPresetDelete) return;
+  await window.api.gridPresetDelete(id);
+  await refreshGridPresetList();
 }
 
 async function onRefreshScanList() {
@@ -1009,6 +1254,29 @@ function onNewProjectClick() {
   onShowNewProjectForm();
 }
 
+/** Houdt gridSplitLowerPanCanvas binnen clamp; zet op 0 als referentie-modus geen split gebruikt. */
+function syncGridSplitLowerPanClamp() {
+  const s = getState();
+  if (!usesSplitLowerVerticalPan()) {
+    /* pivotActive: tijdelijk laatste frame (k=n) of rand — split uit; d bewaren voor terugkeren naar middenframes */
+    if ((s.gridVerticalAnchorMode || 'bottomFixed') === 'pivotActive') {
+      return;
+    }
+    setGridSplitLowerPanCanvas(0);
+    return;
+  }
+  const canvas = getStripCanvas();
+  const n = Math.max(1, s.numFrames || 1);
+  if (!canvas) return;
+  const { frameHeight } = getFrameDimensions(canvas);
+  if (frameHeight < 1) return;
+  ensurePivotFrozenLowerCellHeight(frameHeight, n);
+  const cv = clampGridVerticalMarginsCanvas(frameHeight, n, s.gridOffsetY ?? 0, s.gridOffsetYBottom ?? 0);
+  const k = resolveVerticalPivotKFromState();
+  const d = clampGridSplitLowerPanCanvas(frameHeight, n, cv.top, cv.bottom, k, s.gridSplitLowerPanCanvas);
+  setGridSplitLowerPanCanvas(d);
+}
+
 async function onOpenStrip() {
   const s = getState();
   if (!s.image && hasProject()) {
@@ -1033,11 +1301,16 @@ async function onOpenStrip() {
 
 function onFrameGridOffsetFromPreview(payload) {
   const p = payload && typeof payload === 'object' ? payload : {};
-  const deltaX = p.deltaX != null ? Number(p.deltaX) : 0;
+  let deltaX = p.deltaX != null ? Number(p.deltaX) : 0;
   const deltaY = p.deltaY != null ? Number(p.deltaY) : 0;
   const tool = p.tool || 'hand';
 
   const s = getState();
+  /* Horizontaal gespiegelde strip: marge wordt in canvas-X bijgewerkt, maar de preview toont gespiegeld —
+   * zonder tekenwissel voelen ◀/▶ (en pijltjes) omgekeerd aan t.o.v. het beeld. */
+  if (tool === 'hand' && s.flipHorizontal) {
+    deltaX = -deltaX;
+  }
   const n = Math.max(1, s.numFrames || 1);
   let frameWidth = 0;
   let frameHeight = 0;
@@ -1103,16 +1376,47 @@ function onFrameGridOffsetFromPreview(payload) {
   if (tool === 'hand') {
     /* Horizontaal: altijd verschuiven (L+ = verbreden linkerkant, L− = versmallen; R−/R+ spiegel), nooit symmetrische gridOffsetX — dat verbreedt/versmalt alleen. */
     const nFrames = Math.max(1, s.numFrames || 1);
-    const keepYBottom = s.gridOffsetYBottom ?? 0;
     if (dx !== 0) {
       const m = getEffectiveGridMargins(frameWidth);
       const c = clampGridMarginsCanvas(frameWidth, m.left + dx, m.right - dx);
       setGridOffsetXMargins(c.left, c.right);
     }
     if (dy !== 0) {
-      const cv = clampGridVerticalMarginsCanvas(frameHeight, nFrames, (s.gridOffsetY || 0) + dy, keepYBottom - dy);
-      setGridOffsetYOnly(cv.top);
-      setGridOffsetYBottom(cv.bottom);
+      if (handVerticalUsesSplitPan()) {
+        const k = resolveVerticalPivotKFromState();
+        const d = applySplitLowerPanStepCanvas(
+          frameHeight,
+          nFrames,
+          s.gridOffsetY || 0,
+          s.gridOffsetYBottom ?? 0,
+          k,
+          s.gridSplitLowerPanCanvas,
+          dy
+        );
+        setGridSplitLowerPanCanvas(d);
+      } else {
+        setGridSplitLowerPanCanvas(0);
+        /* Alleen pivotActive + actief onderste frame: lijn = strip-onder; anders zou rigide pan de lijn op de film verschuiven. */
+        const useBottomAnchored =
+          panelUsesVerticalAnchorLink() && pivotActiveAnchorsStripBottom();
+        const cv = useBottomAnchored
+          ? applyBottomAnchoredVerticalPanStepCanvas(
+              frameHeight,
+              nFrames,
+              s.gridOffsetY || 0,
+              s.gridOffsetYBottom ?? 0,
+              dy
+            )
+          : applyRigidVerticalPanStepCanvas(
+              frameHeight,
+              nFrames,
+              s.gridOffsetY || 0,
+              s.gridOffsetYBottom ?? 0,
+              dy
+            );
+        setGridOffsetYOnly(cv.top);
+        setGridOffsetYBottom(cv.bottom);
+      }
     }
   } else if (tool === 'verticaal') {
     const newY = clampGridOffsetY(frameHeight, s.gridOffsetY + dy, s.gridOffsetYBottom, s.numFrames);
@@ -1244,6 +1548,7 @@ function onStripAdjustHeightEdge(payload) {
   const c = clampGridVerticalMarginsCanvas(frameHeight, n, top, bottom);
   setGridOffsetYOnly(c.top);
   setGridOffsetYBottom(c.bottom);
+  syncGridSplitLowerPanClamp();
 
   setDirty();
   updateUI();
@@ -1255,16 +1560,29 @@ function onStripAdjustHeightEdge(payload) {
   }
 }
 
-function onStripVerticalCompressFixedBottom() {
+function onStripVerticalRigidPanBoundaryFromPreview(towardCompress) {
   const canvas = getStripCanvas();
   const { frameHeight } = getFrameDimensions(canvas);
   if (frameHeight < 1) return;
   const s = getState();
   const n = Math.max(1, s.numFrames || 1);
-  const fixedBottom = Number.isFinite(Number(s.gridOffsetYBottom)) ? Math.round(s.gridOffsetYBottom) : 0;
-  const c = compressGridVerticallyFixedBottomCanvas(frameHeight, n, fixedBottom);
-  setGridOffsetYOnly(c.top);
-  setGridOffsetYBottom(c.bottom);
+  const top = Number(s.gridOffsetY) || 0;
+  const bottom = Number.isFinite(Number(s.gridOffsetYBottom)) ? Math.round(s.gridOffsetYBottom) : 0;
+  if (handVerticalUsesSplitPan()) {
+    const k = resolveVerticalPivotKFromState();
+    const d = splitLowerPanToBoundaryCanvas(frameHeight, n, top, bottom, k, !!towardCompress);
+    setGridSplitLowerPanCanvas(d);
+  } else {
+    setGridSplitLowerPanCanvas(0);
+    const mode = s.gridVerticalAnchorMode || 'bottomFixed';
+    const link = panelUsesVerticalAnchorLink();
+    const c =
+      link && (mode === 'bottomFixed' || pivotActiveAnchorsStripBottom())
+        ? bottomAnchoredVerticalPanToBoundaryCanvas(frameHeight, n, top, bottom, !!towardCompress)
+        : rigidVerticalPanToBoundaryCanvas(frameHeight, n, top, bottom, !!towardCompress);
+    setGridOffsetYOnly(c.top);
+    setGridOffsetYBottom(c.bottom);
+  }
   setDirty();
   updateUI();
   let dim = null;
@@ -1275,6 +1593,88 @@ function onStripVerticalCompressFixedBottom() {
   } else {
     refreshPreviewsGridOnly();
   }
+}
+
+/**
+ * Duw Omhoog/Omlaag: bij referentie Onderkant raster = onder vast, alleen Y-boven (celhoogte varieert).
+ * Anders = rigide pan zoals Hand in niet-split-modus.
+ */
+function onStripVerticalFixedBottomStep(deltaDisplay) {
+  const d = Number(deltaDisplay) || 0;
+  if (d === 0) return;
+
+  const s = getState();
+  const n = Math.max(1, s.numFrames || 1);
+  let frameHeight = 0;
+  let scaleY = 1;
+  let dim = null;
+  const canvas = getStripCanvas();
+  if (canvas) {
+    dim = getScaledDimensions(canvas);
+    if (dim && dim.width >= 1 && dim.height >= 1) {
+      const fd = getFrameDimensions(canvas);
+      frameHeight = fd.frameHeight;
+      if (frameHeight >= 1) scaleY = canvas.height / dim.height;
+    }
+  }
+  if (frameHeight < 1) {
+    const dims = getStripCanvasDimensions();
+    if (dims && dims.width >= 1 && dims.height >= 1) {
+      frameHeight = Math.max(1, Math.round(dims.height / n));
+      const d2 = getScaledDimensionsFromSize(dims.width, dims.height);
+      scaleY = d2.height >= 1 ? dims.height / d2.height : 1;
+    }
+  }
+  if (frameHeight < 1) return;
+  if (!Number.isFinite(scaleY) || scaleY <= 0) scaleY = 1;
+
+  let stepC = Math.round(d * scaleY);
+  if (stepC === 0) stepC = d > 0 ? 1 : -1;
+
+  const curTop = Number(s.gridOffsetY) || 0;
+  const bottom = Number.isFinite(Number(s.gridOffsetYBottom)) ? Math.round(s.gridOffsetYBottom) : 0;
+  const mode = s.gridVerticalAnchorMode || 'bottomFixed';
+  const link = panelUsesVerticalAnchorLink();
+  /*
+   * Koppeling uit: Duw altijd rigide. Aan + Onderkant raster: Y-onder vast (Duw). Aan + pivotActive met lijn op strip-onder: idem. Anders: rigide.
+   */
+  const c =
+    !link
+      ? applyRigidVerticalPanStepCanvas(frameHeight, n, curTop, bottom, stepC)
+      : mode === 'bottomFixed' || pivotActiveAnchorsStripBottom()
+        ? applyBottomAnchoredVerticalPanStepCanvas(frameHeight, n, curTop, bottom, stepC)
+        : applyRigidVerticalPanStepCanvas(frameHeight, n, curTop, bottom, stepC);
+  setGridOffsetYOnly(c.top);
+  setGridOffsetYBottom(c.bottom);
+  syncGridSplitLowerPanClamp();
+
+  setDirty();
+  updateUI();
+  if (canvas && dim && dim.width >= 1 && dim.height >= 1 && canvas.height > 0) {
+    const scale = dim.height / canvas.height;
+    refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale));
+  } else {
+    refreshPreviewsGridOnly();
+  }
+}
+
+function onStripVerticalAnchorFromPreview(payload) {
+  const p = payload && typeof payload === 'object' ? payload : {};
+  if (typeof p.mode === 'string') setGridVerticalAnchorMode(p.mode);
+  if (p.customK != null) setGridVerticalPivotCustomK(p.customK);
+  syncGridSplitLowerPanClamp();
+  setDirty();
+  updateUI();
+  const canvas = getStripCanvas();
+  if (canvas) {
+    const dim = getScaledDimensions(canvas);
+    if (dim && dim.width >= 1 && dim.height >= 1 && canvas.height > 0) {
+      const scale = dim.height / canvas.height;
+      refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale));
+      return;
+    }
+  }
+  refreshPreviewsGridOnly();
 }
 
 function onArrowKeyGridOffset(dx, dy) {
@@ -1294,6 +1694,7 @@ function onSetGridOffsetAbsolute(payload) {
   const cv = clampGridVerticalMarginsCanvas(frameHeight, n, wantY, wantYB);
   setGridOffset(newX, cv.top);
   setGridOffsetYBottom(cv.bottom);
+  syncGridSplitLowerPanClamp();
   setDirty();
   updateUI();
   if (canvas) {
@@ -1347,6 +1748,10 @@ function bind() {
   el(ids.fineRotation)?.addEventListener('input', onFineRotation);
   el(ids.fineRotationValue)?.addEventListener('input', onFineRotation);
   el(ids.fineRotationValue)?.addEventListener('change', onFineRotation);
+  el(ids.fineMinusCoarse)?.addEventListener('click', () => nudgeFineRotation(-0.01));
+  el(ids.fineMinusFine)?.addEventListener('click', () => nudgeFineRotation(-0.001));
+  el(ids.finePlusFine)?.addEventListener('click', () => nudgeFineRotation(0.001));
+  el(ids.finePlusCoarse)?.addEventListener('click', () => nudgeFineRotation(0.01));
   el(ids.numFrames)?.addEventListener('change', onNumFrames);
   el(ids.activeFrame)?.addEventListener('change', onActiveFrame);
   el(ids.prevFrame)?.addEventListener('click', onPrevFrame);
@@ -1360,6 +1765,9 @@ function bind() {
   el('f2f-preset-9.5mm')?.addEventListener('click', () => applyGridOffsetPreset('9.5mm'));
   el('f2f-preset-35mm')?.addEventListener('click', () => applyGridOffsetPreset('35mm'));
   el(ids.applyGridFromMm)?.addEventListener('click', applyGridFromMm);
+  el(ids.gridPresetSave)?.addEventListener('click', () => onGridPresetSaveClick().catch(() => {}));
+  el(ids.gridPresetLoad)?.addEventListener('click', () => onGridPresetLoadClick().catch(() => {}));
+  el(ids.gridPresetDelete)?.addEventListener('click', () => onGridPresetDeleteClick().catch(() => {}));
   const stripResEl = el(ids.stripPreviewRes);
   if (stripResEl) {
     stripResEl.addEventListener('change', function () {
@@ -1386,7 +1794,7 @@ function bind() {
     if (e.code === 'Numpad2') { e.preventDefault(); onFramePreviewJump('middle'); return; }
     if (e.code === 'Numpad3') { e.preventDefault(); onFramePreviewJump('bottom'); return; }
     if (e.code === 'NumpadAdd' || e.code === 'NumpadSubtract') {
-      const rotStep = e.shiftKey ? 0.1 : 0.01;
+      const rotStep = e.shiftKey ? 0.01 : 0.001;
       const delta = e.code === 'NumpadAdd' ? rotStep : -rotStep;
       const s = getState();
       setFineRotation(s.fineRotationDeg + delta);
@@ -1410,8 +1818,27 @@ function bind() {
   });
 }
 
+function registerQuitSaveHandler() {
+  window.api?.onRequestQuitSave?.(() => {
+    void (async () => {
+      try {
+        if (hasProject()) {
+          persistCurrentLintStateInProject();
+          await saveProject();
+        }
+      } catch (err) {
+        console.error('[Film2Frame] Automatisch bewaren bij afsluiten mislukt:', err);
+      } finally {
+        window.api?.sendQuitSaveComplete?.();
+      }
+    })();
+  });
+}
+
 async function init() {
   bind();
+  registerQuitSaveHandler();
+  refreshGridPresetList().catch(() => {});
   updateUI();
   if (!hasProject()) {
     el(ids.lintPanel)?.classList.add('hidden');
@@ -1462,7 +1889,28 @@ async function init() {
   window.api?.onStripAdjustHeightEdge?.(onStripAdjustHeightEdge);
   window.api?.onStripApplyVerticalPush?.(onVerticalPush);
   window.api?.onStripApplyVerticalStretch?.(onVerticalStretch);
-  window.api?.onStripVerticalCompressFixedBottom?.(onStripVerticalCompressFixedBottom);
+  window.api?.onStripVerticalRigidPanBoundary?.((payload) => {
+    const p = payload && typeof payload === 'object' ? payload : {};
+    onStripVerticalRigidPanBoundaryFromPreview(!!p.towardCompress);
+  });
+  window.api?.onStripVerticalFixedBottomStep?.((payload) => {
+    const p = payload && typeof payload === 'object' ? payload : {};
+    onStripVerticalFixedBottomStep(p.delta != null ? Number(p.delta) : 0);
+  });
+  window.api?.onStripVerticalAnchor?.((payload) => {
+    onStripVerticalAnchorFromPreview(payload);
+  });
+  window.api?.onStripPanelLinkVerticalAnchor?.((payload) => {
+    const p = payload && typeof payload === 'object' ? payload : {};
+    setGridPanelLinkVerticalAnchor(!!p.link);
+    syncGridSplitLowerPanClamp();
+    setDirty();
+    updateUI();
+    requestAnimationFrame(() => refreshPreviewsGridOnly());
+  });
+  window.api?.onStripNavigateScan?.((payload) => {
+    onStripNavigateScan(payload).catch(() => {});
+  });
   window.api?.onStripPresetDoSave?.(onStripPresetDoSave);
   window.api?.onStripPresetDoLoad?.(onStripPresetDoLoad);
   window.api?.onStripPresetDoDelete?.(onStripPresetDoDelete);
@@ -1521,6 +1969,7 @@ function onFramePreviewJump(position) {
   if (position === 'top') setActiveFrameIndex(0);
   else if (position === 'middle') setActiveFrameIndex(Math.floor((n - 1) / 2));
   else if (position === 'bottom') setActiveFrameIndex(n - 1);
+  syncGridSplitLowerPanClamp();
   updateUI();
   requestAnimationFrame(() => refreshPreviewsGridOnly());
 }
@@ -1529,6 +1978,7 @@ function onSetActiveFrameFromPreview(frameNumber) {
   const n = Math.max(1, getState().numFrames);
   const index = Math.max(0, Math.min(n - 1, Math.floor(Number(frameNumber) || 1) - 1));
   setActiveFrameIndex(index);
+  syncGridSplitLowerPanClamp();
   updateUI();
   requestAnimationFrame(() => refreshPreviewsGridOnly());
 }

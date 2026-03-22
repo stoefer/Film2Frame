@@ -89,7 +89,7 @@ function createMainWindow(preloadPath) {
   }
   mainWindow = new BrowserWindow(opts);
   mainWindow.loadFile(path.join(__dirname, '..', 'index.html'));
-  mainWindow.on('close', () => {
+  mainWindow.on('close', (e) => {
     const state = prefs.getWindowState();
     if (mainWindow && !mainWindow.isDestroyed()) {
       const b = mainWindow.getBounds();
@@ -104,8 +104,39 @@ function createMainWindow(preloadPath) {
       state.outputPreviewBounds = outputPreviewWindow.getBounds();
     }
     prefs.setWindowState(state);
+
+    if (mainWindow._f2fAllowClose) {
+      mainWindow._f2fAllowClose = false;
+      closeStripPreviewWindow();
+      closeOutputPreviewWindow();
+      return;
+    }
+    e.preventDefault();
     closeStripPreviewWindow();
     closeOutputPreviewWindow();
+    mainWindow._f2fQuitSavePending = true;
+    if (mainWindow._f2fQuitSaveTimer) {
+      clearTimeout(mainWindow._f2fQuitSaveTimer);
+      mainWindow._f2fQuitSaveTimer = null;
+    }
+    mainWindow._f2fQuitSaveTimer = setTimeout(() => {
+      mainWindow._f2fQuitSaveTimer = null;
+      if (!mainWindow || mainWindow.isDestroyed() || !mainWindow._f2fQuitSavePending) return;
+      mainWindow._f2fQuitSavePending = false;
+      mainWindow._f2fAllowClose = true;
+      mainWindow.close();
+    }, 8000);
+    if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('request-quit-save');
+    } else {
+      if (mainWindow._f2fQuitSaveTimer) {
+        clearTimeout(mainWindow._f2fQuitSaveTimer);
+        mainWindow._f2fQuitSaveTimer = null;
+      }
+      mainWindow._f2fQuitSavePending = false;
+      mainWindow._f2fAllowClose = true;
+      mainWindow.close();
+    }
   });
   mainWindow.on('closed', () => { mainWindow = null; });
   return mainWindow;

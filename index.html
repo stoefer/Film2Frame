@@ -31,12 +31,12 @@
           <span id="project-info" class="project-info">Geen project geopend</span>
           <span id="project-dirty" class="project-dirty hidden"> (niet opgeslagen)</span>
           <div class="project-actions">
-            <button type="button" id="f2f-project-starten" class="btn btn-secondary" title="Laatst gebruikte project openen">Project starten</button>
-            <button type="button" id="f2f-refresh-scan-list" class="btn btn-secondary small hidden" title="Scanlijst opnieuw tellen en oriëntaties bepalen">Scanlijst vernieuwen</button>
+            <button type="button" id="f2f-project-starten" class="btn btn-secondary btn-project-open" title="Laatst gebruikte project openen">Project starten</button>
+            <button type="button" id="f2f-refresh-scan-list" class="btn btn-secondary small hidden btn-scanlist-refresh" title="Scanlijst opnieuw tellen en oriëntaties bepalen">Scanlijst vernieuwen</button>
             <button type="button" id="f2f-new-project" class="btn btn-primary">Nieuw project</button>
-            <button type="button" id="f2f-open-project" class="btn btn-secondary">Open</button>
-            <button type="button" id="f2f-save-project" class="btn btn-secondary">Bewaren</button>
-            <button type="button" id="f2f-delete-project" class="btn btn-secondary hidden" title="Projectmap definitief verwijderen">Project wissen</button>
+            <button type="button" id="f2f-open-project" class="btn btn-secondary btn-project-open">Open</button>
+            <button type="button" id="f2f-save-project" class="btn btn-secondary btn-project-save">Bewaren</button>
+            <button type="button" id="f2f-delete-project" class="btn btn-secondary btn-project-delete hidden" title="Projectmap definitief verwijderen">Project wissen</button>
           </div>
         </div>
         <div id="project-stats" class="project-stats hidden">
@@ -141,7 +141,7 @@
                 <label class="checkbox-label"><input type="radio" name="f2f-polarity" id="f2f-polarity-pos" value="positief" checked /> Positief</label>
                 <label class="checkbox-label"><input type="radio" name="f2f-polarity" id="f2f-polarity-neg" value="negatief" /> Negatief</label>
               </div>
-              <div class="row">
+              <div class="row row--fine-rotation">
                 <label>Fijne draaiing (±1°)</label>
                 <select id="f2f-tilt-pivot" class="input-select small" title="Kantelpunt voor rotatie">
                   <option value="top-left">Boven links</option>
@@ -154,8 +154,15 @@
                   <option value="bottom-center">Onder midden</option>
                   <option value="bottom-right">Onder rechts</option>
                 </select>
-                <input type="range" id="f2f-fine-rotation" min="-100" max="100" value="0" />
-                <input type="number" id="f2f-fine-value" min="-1" max="1" step="0.01" value="0" class="input-num" />°
+                <input type="range" id="f2f-fine-rotation" min="-1000" max="1000" value="0" step="1" title="Schuifregelaar ±1° (stap 0,001°)" />
+                <div class="fine-rotation-nudge" title="Stappen 0,001° en 0,01° (zelfde als Numpad +/−)">
+                  <button type="button" id="f2f-fine-minus-coarse" class="btn btn-secondary fine-rotation-nudge-btn" title="−0,01°">−0,01°</button>
+                  <button type="button" id="f2f-fine-minus-fine" class="btn btn-secondary fine-rotation-nudge-btn" title="−0,001°">−0,001°</button>
+                  <input type="number" id="f2f-fine-value" min="-1" max="1" step="0.001" value="0" class="input-num input-num--fine input-num--no-spin" title="Graden (3 decimalen), handmatig intypen" inputmode="decimal" />
+                  <span class="fine-rotation-degree" aria-hidden="true">°</span>
+                  <button type="button" id="f2f-fine-plus-fine" class="btn btn-secondary fine-rotation-nudge-btn" title="+0,001°">+0,001°</button>
+                  <button type="button" id="f2f-fine-plus-coarse" class="btn btn-secondary fine-rotation-nudge-btn" title="+0,01°">+0,01°</button>
+                </div>
               </div>
               <div class="row">
                 <label>Aantal frames (1–99)</label>
@@ -171,16 +178,16 @@
               <div class="row">
                 <label>Preview-vensters</label>
                 <div class="preview-btn-group">
-                  <button type="button" id="f2f-open-strip" class="btn btn-secondary">Open scanlint-preview</button>
-                  <button type="button" id="f2f-open-output-preview" class="btn btn-secondary">Open output-preview</button>
+                  <button type="button" id="f2f-open-strip" class="btn btn-preview-scanlint" title="Scanlint-preview openen">SCANLINT</button>
+                  <button type="button" id="f2f-open-output-preview" class="btn btn-preview-output" title="Output-preview openen">OUTPUT</button>
                 </div>
               </div>
               <div class="row">
                 <label for="f2f-strip-preview-res">Preview-resolutie scanlint</label>
                 <select id="f2f-strip-preview-res" class="input-num" title="Max. zijde in px; hoger = scherpere preview, nauwkeurigere rasterplaatsing">
                   <option value="1024">1024 px</option>
-                  <option value="1536" selected>1536 px</option>
-                  <option value="2048">2048 px</option>
+                  <option value="1536">1536 px</option>
+                  <option value="2048" selected>2048 px</option>
                   <option value="2560">2560 px</option>
                   <option value="3072">3072 px</option>
                   <option value="4096">4096 px</option>
@@ -236,8 +243,8 @@
             <label for="f2f-setting-preview-res">Preview-resolutie scanlint</label>
             <select id="f2f-setting-preview-res" class="input-select">
               <option value="1024">1024 px</option>
-              <option value="1536" selected>1536 px</option>
-              <option value="2048">2048 px</option>
+              <option value="1536">1536 px</option>
+              <option value="2048" selected>2048 px</option>
               <option value="2560">2560 px</option>
               <option value="3072">3072 px</option>
               <option value="4096">4096 px</option>
@@ -286,7 +293,17 @@
         </div>
         <section class="panel overlay-panel">
           <h2>Overlay grid</h2>
-          <p class="overlay-hint">Plaatsen en afmeten van het raster (X/Y, Y-onder, pijltjes, breedte/hoogte, samendruk, reset, springen BOVEN/MIDDEN/ONDER, zoom, presets met naam) gebeurt in het venster <strong>Scanlint – raster afstellen</strong>. Hieronder: snelle start-offset per filmtype en raster uit millimeters (alleen in dit paneel).</p>
+          <p class="overlay-hint">Plaatsen en afmeten van het raster (X/Y, Y-onder, pijltjes, breedte/hoogte, samendruk/uitrekken per stap (1/10 px), Shift+Samendruk = max. samendruk, reset, springen BOVEN/MIDDEN/ONDER, zoom, presets met naam) gebeurt in het venster <strong>Scanlint – raster afstellen</strong>. Hieronder: snelle start-offset per filmtype, raster uit millimeters, en <strong>raster-presets</strong> (alleen afmetingen/offsets — bruikbaar in elk project).</p>
+          <div class="row overlay-row grid-preset-row">
+            <span class="offset-presets-label" title="Bewaart alleen: frames, X/Y, Y-onder, asymmetrische marges, referentielijn en split. Geen rotatie, spiegeling of filmformaat.">Raster-preset (alleen afstelling):</span>
+            <input type="text" id="f2f-grid-preset-name" class="input-text small" maxlength="80" placeholder="Naam" title="Naam voor deze raster-afstelling" style="max-width:140px" />
+            <button type="button" id="f2f-grid-preset-save" class="btn btn-secondary small" title="Huidige rasterafmetingen onder deze naam bewaren">Opslaan</button>
+            <select id="f2f-grid-preset-list" class="input-select small" style="max-width:200px" title="Kies een bewaard raster">
+              <option value="">— Preset —</option>
+            </select>
+            <button type="button" id="f2f-grid-preset-load" class="btn btn-secondary small" title="Geselecteerde preset op huidige scan toepassen">Laden</button>
+            <button type="button" id="f2f-grid-preset-delete" class="btn btn-secondary small" title="Geselecteerde preset wissen">Wissen</button>
+          </div>
           <div class="row overlay-row row-offset-presets">
             <span class="offset-presets-label">Snelle offset (% van beeld, grove start):</span>
             <button type="button" id="f2f-preset-16mm-double" class="btn btn-secondary small" title="16mm met dubbele perforaties">16mm dubbel</button>

@@ -109,6 +109,19 @@ export async function openProjectByPath(projectFolderPath) {
 /**
  * Huidige wijzigingen bewaren in project.
  */
+/**
+ * Houdt lintStates gelijk met de live state van het huidige scanlint.
+ * Zo gaan nieuwe raster-/lint-aanpassingen niet verloren bij wisselen of automatisch bewaren,
+ * ook als er al een oudere invoer voor dit lint in het project stond.
+ */
+export function persistCurrentLintStateInProject() {
+  if (!hasProject()) return;
+  const s = getState();
+  if (!s.path) return;
+  const snapshot = getLintStateSnapshot();
+  if (snapshot) setLintStateForPath(s.path, snapshot);
+}
+
 export async function saveProject() {
   const s = getState();
   if (!s.projectPath) return { ok: false, error: 'Geen project geopend' };
