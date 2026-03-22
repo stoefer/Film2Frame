@@ -1636,14 +1636,19 @@ function onStripVerticalFixedBottomStep(deltaDisplay) {
   const mode = s.gridVerticalAnchorMode || 'bottomFixed';
   const link = panelUsesVerticalAnchorLink();
   /*
-   * Koppeling uit: Duw altijd rigide. Aan + Onderkant raster: Y-onder vast (Duw). Aan + pivotActive met lijn op strip-onder: idem. Anders: rigide.
+   * Koppeling uit: Duw altijd rigide.
+   * Koppeling aan: Y-onder van het raster vast, alleen Y-boven aanpassen (celhoogte uitrekken/duwen) bij:
+   *   Onderkant raster, pivot met lijn op strip-onder, of elke modus met split (0 < k < n) — niet rigide schuiven.
+   * Anders (o.a. pivotTop k=0): rigide pan.
    */
-  const c =
-    !link
-      ? applyRigidVerticalPanStepCanvas(frameHeight, n, curTop, bottom, stepC)
-      : mode === 'bottomFixed' || pivotActiveAnchorsStripBottom()
-        ? applyBottomAnchoredVerticalPanStepCanvas(frameHeight, n, curTop, bottom, stepC)
-        : applyRigidVerticalPanStepCanvas(frameHeight, n, curTop, bottom, stepC);
+  const useBottomAnchoredDuw =
+    link &&
+    (mode === 'bottomFixed' ||
+      pivotActiveAnchorsStripBottom() ||
+      usesSplitLowerVerticalPan());
+  const c = useBottomAnchoredDuw
+    ? applyBottomAnchoredVerticalPanStepCanvas(frameHeight, n, curTop, bottom, stepC)
+    : applyRigidVerticalPanStepCanvas(frameHeight, n, curTop, bottom, stepC);
   setGridOffsetYOnly(c.top);
   setGridOffsetYBottom(c.bottom);
   syncGridSplitLowerPanClamp();

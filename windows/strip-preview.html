@@ -432,7 +432,7 @@
           <button type="button" id="btn-h-Bminus" class="arrow" title="Onderrand naar beneden (verbreden)">B−</button>
           <button type="button" id="btn-h-Bplus" class="arrow" title="Onderrand naar boven (versmallen)">B+</button>
         </span>
-        <span class="step-group step-group--compress-stack" title="Duw: bij Onderkant raster blijft Y-onder vast, alleen Y-boven schuift (celhoogte past zich aan). Bij andere referenties: rigide pan. Split niet via Duw — Hand ▲▼. Shift+knop = tot rand.">
+        <span class="step-group step-group--compress-stack" title="Duw: met koppeling aan blijft Y-onder van het raster vast (uitrekken/duwen). Bij referentie met split (0 &lt; k &lt; n) idem — geen rigide schuiven. Zonder koppeling of bij pivot boven (k=0): rigide pan. Hand ▲▼ = split. Shift+knop = tot rand.">
           <span class="compress-stack-label">Duw</span>
           <button type="button" id="btn-vert-stretch" class="btn-vert-fixed-bottom" title="Onderkant raster: langere cellen (Y-onder vast). Anders: rigide omhoog. Shift = max.">Omhoog ▲</button>
           <button type="button" id="btn-vert-compress" class="btn-vert-fixed-bottom" title="Onderkant raster: kortere cellen (Y-onder vast). Anders: rigide omlaag. Shift = max.">Omlaag ▼</button>
@@ -445,7 +445,7 @@
         <button type="button" id="btn-middle" title="Actief frame in het midden (Home)">MIDDEN</button>
         <button type="button" id="btn-bottom" title="Actief frame onderaan (PgDn)">ONDER</button>
       </div>
-      <div class="toolbar-panel__anchor-row toolbar-panel__anchor-row--right" title="Onderkant raster: Duw past alleen Y-boven aan (onderrand raster vast op de film). Andere referenties: rasters onder de gele lijn blijven gelijk; Hand ▲▼ (met koppeling aan) past alleen het bovenblok. Duw schuift dan rigide.">
+      <div class="toolbar-panel__anchor-row toolbar-panel__anchor-row--right" title="Met koppeling aan: Duw past Y-boven aan (onderrand raster vast) — uitrekken/duwen, ook bij referentie met split. Hand ▲▼ past het bovenblok (split). Zonder koppeling: Duw rigide.">
         <label for="strip-vertical-anchor">Referentielijn:</label>
         <select id="strip-vertical-anchor" class="zoom-select">
           <option value="bottomFixed">Onderkant raster</option>
