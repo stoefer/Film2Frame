@@ -51,12 +51,12 @@ export function cropFrameCanvas(stripCanvas) {
 }
 
 /**
- * Crop frame op gegeven index uit strip (grid-uitsnede, ladder-layout) voor export.
+ * Uitsnede-rechthoek in strip-canvas-pixels (zelfde coördinaten als cropFrameAtIndex).
  * @param {HTMLCanvasElement} stripCanvas
  * @param {number} frameIndex 0-based
- * @returns {HTMLCanvasElement|null}
+ * @returns {{ x: number, y: number, w: number, h: number }|null}
  */
-export function cropFrameAtIndex(stripCanvas, frameIndex) {
+export function getFrameCropRectInStripPx(stripCanvas, frameIndex) {
   const s = getState();
   const n = Math.max(1, s.numFrames);
   if (!stripCanvas || frameIndex < 0 || frameIndex >= n) return null;
@@ -69,11 +69,49 @@ export function cropFrameAtIndex(stripCanvas, frameIndex) {
   const h = Math.max(1, Math.round(row.h));
   if (s.flipHorizontal) x = stripCanvas.width - x - w;
   if (s.flipVertical) y = stripCanvas.height - y - h;
+  return { x, y, w, h };
+}
+
+/**
+ * Crop frame op gegeven index uit strip (grid-uitsnede, ladder-layout) voor export.
+ * @param {HTMLCanvasElement} stripCanvas
+ * @param {number} frameIndex 0-based
+ * @returns {HTMLCanvasElement|null}
+ */
+export function cropFrameAtIndex(stripCanvas, frameIndex) {
+  const r = getFrameCropRectInStripPx(stripCanvas, frameIndex);
+  if (!r) return null;
+  const c = document.createElement('canvas');
+  c.width = r.w;
+  c.height = r.h;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(stripCanvas, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
+  return c;
+}
+
+/**
+ * Export: raster staat in previewStrip (laag); fullStrip is zelfde beeld op hogere resolutie (uniform geschaald).
+ * @param {HTMLCanvasElement} fullStrip
+ * @param {HTMLCanvasElement} previewStrip
+ * @param {number} frameIndex 0-based
+ * @returns {HTMLCanvasElement|null}
+ */
+export function cropFrameAtIndexForExport(fullStrip, previewStrip, frameIndex) {
+  if (!fullStrip || !previewStrip || previewStrip.width < 1 || previewStrip.height < 1) return null;
+  const r = getFrameCropRectInStripPx(previewStrip, frameIndex);
+  if (!r) return null;
+  const kx = fullStrip.width / previewStrip.width;
+  const ky = fullStrip.height / previewStrip.height;
+  const x = Math.max(0, Math.floor(r.x * kx));
+  const y = Math.max(0, Math.floor(r.y * ky));
+  const w = Math.max(1, Math.min(fullStrip.width - x, Math.round(r.w * kx)));
+  const h = Math.max(1, Math.min(fullStrip.height - y, Math.round(r.h * ky)));
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   const ctx = c.getContext('2d');
-  ctx.drawImage(stripCanvas, x, y, w, h, 0, 0, c.width, c.height);
+  if (ctx.imageSmoothingEnabled !== undefined) ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(fullStrip, x, y, w, h, 0, 0, w, h);
   return c;
 }
 
@@ -191,6 +229,11 @@ export function getMinGridOffsetYCanvas(stripHeight) {
   return -Math.max(1, Math.round(h * GRID_TOP_SLACK_RATIO));
 }
 
+/** Minimaal (negatief) gridOffsetYBottom: zelfde verhouding als boven — extra ruimte onder het lint. */
+export function getMinGridOffsetYBottomCanvas(stripHeight) {
+  return getMinGridOffsetYCanvas(stripHeight);
+}
+
 /**
  * Clamp linker/rechter marge in canvas-pixels (zelfde regels als clampGridOffsetX in ui).
  */
@@ -223,29 +266,42 @@ export function clampGridVerticalMarginsCanvas(frameHeight, numFrames, yTop, yBo
   const stripHeight = frameHeight * n;
   const minTotalHeight = n * GRID_MIN_SIZE_PX;
   const minTop = getMinGridOffsetYCanvas(stripHeight);
+  const minBottom = getMinGridOffsetYBottomCanvas(stripHeight);
   const maxSum = Math.max(0, stripHeight - minTotalHeight);
   let top = Math.round(yTop);
   let bottom = Math.round(yBottom);
   top = Math.max(minTop, Math.min(maxSum - bottom, top));
-  bottom = Math.max(0, Math.min(maxSum - top, bottom));
+  bottom = Math.max(minBottom, Math.min(maxSum - top, bottom));
   top = Math.max(minTop, Math.min(maxSum - bottom, top));
-  bottom = Math.max(0, Math.min(maxSum - top, bottom));
+  bottom = Math.max(minBottom, Math.min(maxSum - top, bottom));
   return { top, bottom };
 }
 
-/** Lijnindex k: 0 = boven raster, n = onder raster; rand onder frame i (0-based) = i+1. */
+/**
+ * Lijnindex k: 0 = boven raster, n = onder raster; rand onder frame i (0-based) = i+1.
+ * Midden-boven: k = ceil(n/2) zodat het flexibele blok minstens 2 cellen heeft bij oneven n.
+ * Midden-onder: k = floor(n/2) zodat het flexibele onderblok minstens 2 cellen heeft bij oneven n.
+ * (Bij dezelfde n kan de gele lijn dus 1 rij verschillen tussen beide modi.)
+ */
 export function resolveVerticalPivotKFromState() {
   const s = getState();
   const n = Math.max(1, s.numFrames || 1);
   const mode = s.gridVerticalAnchorMode || 'bottomFixed';
   if (mode === 'pivotTop') return 0;
   if (mode === 'pivotActive') return Math.max(0, Math.min(n, (s.activeFrameIndex || 0) + 1));
-  if (mode === 'pivotMiddle') return Math.floor(n / 2);
+  if (mode === 'pivotMiddleUpper') {
+    if (n <= 1) return n;
+    return Math.min(n - 1, Math.max(1, Math.ceil(n / 2)));
+  }
+  if (mode === 'pivotMiddleLower') {
+    if (n <= 1) return n;
+    return Math.min(n - 1, Math.max(1, Math.floor(n / 2)));
+  }
   if (mode === 'pivotCustom') return Math.max(0, Math.min(n, Math.round(Number(s.gridVerticalPivotCustomK) || 0)));
   return n;
 }
 
-/** True = verticale hand/pan verschuift alleen het blok onder referentielijn k (niet bottomFixed, 0 < k < n). */
+/** True = verticale Hand (met koppeling) past split-pan d toe i.p.v. rigide Y-marges (niet bottomFixed, 0 < k < n). */
 export function usesSplitLowerVerticalPan() {
   const s = getState();
   if ((s.gridVerticalAnchorMode || 'bottomFixed') === 'bottomFixed') return false;
@@ -271,13 +327,21 @@ export function pivotActiveAnchorsStripBottom() {
 let lastPivotFrozenKey = '';
 
 /**
- * Zet gridFrozenLowerCellHeightPx bij eerste split-layout (of na n/k/mode-wijziging), vanuit inner + d.
+ * Geen split (b.v. pivotActive op laatste frame): markeer cache zó dat we niet terugvallen op
+ * lastPivotFrozenKey === '' — dat zou de “snapshot frozen behouden”-tak triggeren en hLo niet opnieuw
+ * laten seeden bij terugkeren naar een middenframe → clamp zet d op 0 en uitrekken gaat verloren.
+ */
+const PIVOT_FROZEN_NO_SPLIT_KEY = '__no_split__';
+
+/**
+ * Zet gridFrozenLowerCellHeightPx bij eerste split-layout (of na n/k/mode-wijziging).
+ * Midden-boven/onder: seed inner/n (d beïnvloedt alleen flexibele cellen). Anders: (inner+d)/n.
  * Behoudt opgeslagen frozen na laden (lastPivotFrozenKey === '' + frozen gezet → alleen key vastleggen).
  *
  * pivotActive: k volgt het actieve frame. Zonder k in de key bleef één frozen hLo gelden terwijl nLo = n−k
  * per frame wisselt → verkeerde U/hLo-clamp, raster lijkt terug op begintoestand tot je het vorige frame
  * weer actief maakt (dan klopt d+k weer). Bij k-wissel opnieuw seeden met h=(inner+d)/n; d is dan al de
- * waarde uit gridSplitLowerPanByPivotK (setActiveFrameIndex vóór syncGridSplitLowerPanClamp).
+ * waarde uit gridSplitLowerPanByPivotK (UI roept syncGridSplitLowerPanClamp vóór én na setActiveFrameIndex).
  */
 export function ensurePivotFrozenLowerCellHeight(frameHeight, numFrames) {
   const s = getState();
@@ -287,7 +351,7 @@ export function ensurePivotFrozenLowerCellHeight(frameHeight, numFrames) {
   const key =
     mode === 'pivotActive' ? `${n}|${mode}|${k}` : `${n}|${k}|${mode}`;
   if (!usesSplitLowerVerticalPan()) {
-    lastPivotFrozenKey = '';
+    lastPivotFrozenKey = PIVOT_FROZEN_NO_SPLIT_KEY;
     return;
   }
   if (key === lastPivotFrozenKey && s.gridFrozenLowerCellHeightPx != null && Number.isFinite(Number(s.gridFrozenLowerCellHeightPx))) {
@@ -300,7 +364,11 @@ export function ensurePivotFrozenLowerCellHeight(frameHeight, numFrames) {
   const c = clampGridVerticalMarginsCanvas(frameHeight, n, s.gridOffsetY ?? 0, s.gridOffsetYBottom ?? 0);
   const inner = frameHeight * n - c.top - c.bottom;
   const d = Number(s.gridSplitLowerPanCanvas) || 0;
-  const h = (inner + d) / n;
+  /* Midden-boven/onder: starre band = uniforme rijhoogte; d verdeelt alleen het flexibele blok. */
+  const h =
+    mode === 'pivotMiddleUpper' || mode === 'pivotMiddleLower'
+      ? inner / n
+      : (inner + d) / n;
   setGridFrozenLowerCellHeightPx(h);
   lastPivotFrozenKey = key;
 }
@@ -311,6 +379,7 @@ export function ensurePivotFrozenLowerCellHeight(frameHeight, numFrames) {
 function computeUpperInnerAndLowerCellHeight(inner, numFrames, splitK) {
   const s = getState();
   const n = Math.max(1, numFrames || 1);
+  const mode = s.gridVerticalAnchorMode || 'bottomFixed';
   const k = Math.max(0, Math.min(n, Math.round(Number(splitK) || 0)));
   const nLo = n - k;
   const minH = GRID_MIN_SIZE_PX;
@@ -320,7 +389,8 @@ function computeUpperInnerAndLowerCellHeight(inner, numFrames, splitK) {
   const dRef = Number(s.gridSplitLowerPanCanvas) || 0;
   let hLo = Number(s.gridFrozenLowerCellHeightPx);
   if (!Number.isFinite(hLo) || hLo < minH) {
-    hLo = (inner + dRef) / n;
+    hLo =
+      mode === 'pivotMiddleUpper' || mode === 'pivotMiddleLower' ? inner / n : (inner + dRef) / n;
   }
   const maxLowerSum = Math.max(0, inner - k * minH);
   let L = nLo * hLo;
@@ -328,11 +398,39 @@ function computeUpperInnerAndLowerCellHeight(inner, numFrames, splitK) {
     hLo = Math.max(minH, maxLowerSum / nLo);
     L = nLo * hLo;
   }
-  const frozenBefore = Number(s.gridFrozenLowerCellHeightPx);
-  if (Number.isFinite(frozenBefore) && hLo + 1e-9 < frozenBefore) {
-    setGridFrozenLowerCellHeightPx(hLo);
-  }
+  /* Geen setGridFrozenLowerCellHeightPx hier: dat verschuift de referentielijn bij elke herberekening. */
   return { U: Math.max(0, inner - L), hLo, nLo, k };
+}
+
+/**
+ * pivotMiddleLower: boven k rijen gelijk (star), onder m = n−k rijen flexibel met split-delta d
+ * (spiegel van computeUpperInnerAndLowerCellHeight). gridFrozenLowerCellHeightPx = starre boven-celhoogte hHi.
+ */
+function computeLowerFlexAndUpperRigidHeights(inner, numFrames, splitK) {
+  const s = getState();
+  const n = Math.max(1, numFrames || 1);
+  const mode = s.gridVerticalAnchorMode || 'bottomFixed';
+  const k = Math.max(0, Math.min(n, Math.round(Number(splitK) || 0)));
+  const m = n - k;
+  const minH = GRID_MIN_SIZE_PX;
+  if (m <= 0 || k <= 0) {
+    return { U_lo: inner, hHi: inner / Math.max(1, n), m: 0, k };
+  }
+  const dRef = Number(s.gridSplitLowerPanCanvas) || 0;
+  let hHi = Number(s.gridFrozenLowerCellHeightPx);
+  if (!Number.isFinite(hHi) || hHi < minH) {
+    hHi =
+      mode === 'pivotMiddleUpper' || mode === 'pivotMiddleLower' ? inner / n : (inner + dRef) / n;
+  }
+  const maxUpperSum = Math.max(0, inner - m * minH);
+  let U_up = k * hHi;
+  if (U_up > maxUpperSum + 1e-9) {
+    hHi = Math.max(minH, maxUpperSum / k);
+    U_up = k * hHi;
+  }
+  /* Geen setGridFrozenLowerCellHeightPx hier — zie computeUpperInnerAndLowerCellHeight. */
+  const U_lo = Math.max(0, inner - U_up);
+  return { U_lo, hHi, m, k };
 }
 
 /** Referentielijn-koppeling aan scanlint-previewpaneel staat aan (standaard ja). */
@@ -346,7 +444,8 @@ export function handVerticalUsesSplitPan() {
 }
 
 /**
- * Clamp split-delta voor het bovenblok (k cellen): alleen verdeling boven de gefixeerde lijn; onderblok hoogte vast.
+ * Clamp split-delta d: bij pivotMiddleUpper / overige split-modi = verdeling in het bovenblok (k cellen), onderblok vast.
+ * Bij pivotMiddleLower = verdeling in het onderblok (n−k cellen), bovenblok star gelijk.
  */
 export function clampGridSplitLowerPanCanvas(frameHeight, numFrames, top, bottom, splitK, splitDelta) {
   const n = Math.max(1, numFrames || 1);
@@ -357,9 +456,18 @@ export function clampGridSplitLowerPanCanvas(frameHeight, numFrames, top, bottom
   const k = Math.max(0, Math.min(n, Math.round(Number(splitK) || 0)));
   let d = Math.round(Number(splitDelta) || 0);
   if (k <= 0 || k >= n || inner < n * GRID_MIN_SIZE_PX) return 0;
+  const minH = GRID_MIN_SIZE_PX;
+  const mode = getState().gridVerticalAnchorMode || 'bottomFixed';
+  if (mode === 'pivotMiddleLower') {
+    const { U_lo, m: mUse } = computeLowerFlexAndUpperRigidHeights(inner, n, splitK);
+    if (mUse <= 1 || U_lo < mUse * minH) return 0;
+    const dLow = Math.ceil(mUse * minH - U_lo);
+    const dHigh = Math.floor((U_lo - mUse * minH) / Math.max(1, mUse - 1));
+    if (dLow > dHigh) return 0;
+    return Math.max(dLow, Math.min(dHigh, d));
+  }
   const { U, k: kUse } = computeUpperInnerAndLowerCellHeight(inner, n, splitK);
   if (kUse <= 1 || U < kUse * GRID_MIN_SIZE_PX) return 0;
-  const minH = GRID_MIN_SIZE_PX;
   const dLow = Math.ceil(kUse * minH - U);
   const dHigh = Math.floor((U - kUse * minH) / Math.max(1, kUse - 1));
   if (dLow > dHigh) return 0;
@@ -377,7 +485,8 @@ export function getLadderRowsCanvasFromMargins(stripHeight, numFrames, top, bott
   const fh = S / n;
   ensurePivotFrozenLowerCellHeight(fh, n);
   const T = Math.round(Number(top) || 0);
-  const B = Math.max(0, Math.round(Number(bottom) || 0));
+  /* Zelfde als clampGridVerticalMarginsCanvas: negatieve bottom is toegestaan (onderste slack). */
+  const B = Math.round(Number(bottom) || 0);
   const inner = Math.max(0, S - T - B);
   const k = resolveVerticalPivotKFromState();
 
@@ -395,6 +504,30 @@ export function getLadderRowsCanvasFromMargins(stripHeight, numFrames, top, bott
   }
 
   const d = clampGridSplitLowerPanCanvas(fh, n, T, B, k, Number(s.gridSplitLowerPanCanvas) || 0);
+  const mode = s.gridVerticalAnchorMode || 'bottomFixed';
+
+  if (mode === 'pivotMiddleLower') {
+    const { U_lo, hHi, m: mUse, k: kUse } = computeLowerFlexAndUpperRigidHeights(inner, n, k);
+    const rows = [];
+    let y = T;
+    for (let i = 0; i < kUse; i++) {
+      rows.push({ y, h: hHi });
+      y += hHi;
+    }
+    if (mUse <= 1) {
+      rows.push({ y, h: U_lo });
+    } else {
+      const hLoFlex = (U_lo + d) / mUse;
+      const hLastLower = hLoFlex - d;
+      for (let i = 0; i < mUse - 1; i++) {
+        rows.push({ y, h: hLoFlex });
+        y += hLoFlex;
+      }
+      rows.push({ y, h: hLastLower });
+    }
+    return rows;
+  }
+
   const { U, hLo, k: kUse } = computeUpperInnerAndLowerCellHeight(inner, n, k);
   const rows = [];
   let y = T;
@@ -443,9 +576,18 @@ export function splitLowerPanToBoundaryCanvas(frameHeight, numFrames, top, botto
   const inner = S - c.top - c.bottom;
   const k = Math.max(0, Math.min(n, Math.round(Number(splitK) || 0)));
   if (k <= 0 || k >= n || inner < n * GRID_MIN_SIZE_PX) return 0;
+  const minH = GRID_MIN_SIZE_PX;
+  const mode = getState().gridVerticalAnchorMode || 'bottomFixed';
+  if (mode === 'pivotMiddleLower') {
+    const { U_lo, m: mUse } = computeLowerFlexAndUpperRigidHeights(inner, n, splitK);
+    if (mUse <= 1 || U_lo < mUse * minH) return 0;
+    const dLow = Math.ceil(mUse * minH - U_lo);
+    const dHigh = Math.floor((U_lo - mUse * minH) / Math.max(1, mUse - 1));
+    if (dLow > dHigh) return 0;
+    return towardCompress ? dHigh : dLow;
+  }
   const { U, k: kUse } = computeUpperInnerAndLowerCellHeight(inner, n, splitK);
   if (kUse <= 1 || U < kUse * GRID_MIN_SIZE_PX) return 0;
-  const minH = GRID_MIN_SIZE_PX;
   const dLow = Math.ceil(kUse * minH - U);
   const dHigh = Math.floor((U - kUse * minH) / Math.max(1, kUse - 1));
   if (dLow > dHigh) return 0;
@@ -459,11 +601,11 @@ export function splitLowerPanToBoundaryCanvas(frameHeight, numFrames, top, botto
  */
 export function applyRigidVerticalPanStepCanvas(frameHeight, numFrames, top, bottom, dyCanvas) {
   const n = Math.max(1, numFrames || 1);
-  if (frameHeight < 1) return { top: Number(top) || 0, bottom: Math.max(0, Number(bottom) || 0) };
+  if (frameHeight < 1) return { top: Number(top) || 0, bottom: Math.round(Number(bottom) || 0) };
   const d = Math.round(Number(dyCanvas) || 0);
   if (d === 0) return clampGridVerticalMarginsCanvas(frameHeight, n, top, bottom);
   const T = Number(top) || 0;
-  const B = Math.max(0, Number(bottom) || 0);
+  const B = Math.round(Number(bottom) || 0);
   return clampGridVerticalMarginsCanvas(frameHeight, n, T + d, B - d);
 }
 
@@ -474,11 +616,11 @@ export function applyRigidVerticalPanStepCanvas(frameHeight, numFrames, top, bot
  */
 export function applyBottomAnchoredVerticalPanStepCanvas(frameHeight, numFrames, top, bottom, dyCanvas) {
   const n = Math.max(1, numFrames || 1);
-  if (frameHeight < 1) return { top: Number(top) || 0, bottom: Math.max(0, Number(bottom) || 0) };
+  if (frameHeight < 1) return { top: Number(top) || 0, bottom: Math.round(Number(bottom) || 0) };
   const d = Math.round(Number(dyCanvas) || 0);
   if (d === 0) return clampGridVerticalMarginsCanvas(frameHeight, n, top, bottom);
   const T = Number(top) || 0;
-  const B = Math.max(0, Math.round(Number(bottom) || 0));
+  const B = Math.round(Number(bottom) || 0);
   return clampGridVerticalMarginsCanvas(frameHeight, n, T + d, B);
 }
 
@@ -492,7 +634,7 @@ export function bottomAnchoredVerticalPanToBoundaryCanvas(frameHeight, numFrames
   const minTotalHeight = n * GRID_MIN_SIZE_PX;
   const minTop = getMinGridOffsetYCanvas(S);
   const maxSum = Math.max(0, S - minTotalHeight);
-  const B = Math.max(0, Math.round(Number(bottom) || 0));
+  const B = Math.round(Number(bottom) || 0);
   const maxTop = maxSum - B;
   if (towardCompress) {
     return clampGridVerticalMarginsCanvas(frameHeight, n, maxTop, B);
@@ -528,9 +670,10 @@ export function compressGridVerticallyFixedBottomCanvas(frameHeight, numFrames, 
   const stripHeight = frameHeight * n;
   const minTotalHeight = n * GRID_MIN_SIZE_PX;
   const minTop = getMinGridOffsetYCanvas(stripHeight);
+  const minBottom = getMinGridOffsetYBottomCanvas(stripHeight);
   const maxSum = Math.max(0, stripHeight - minTotalHeight);
   let bottom = Math.round(Number(fixedBottomPixels) || 0);
-  bottom = Math.max(0, Math.min(maxSum, bottom));
+  bottom = Math.max(minBottom, Math.min(maxSum, bottom));
   let top = stripHeight - bottom - minTotalHeight;
   top = Math.max(minTop, Math.min(maxSum - bottom, top));
   return clampGridVerticalMarginsCanvas(frameHeight, n, top, bottom);

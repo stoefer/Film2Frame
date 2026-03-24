@@ -9,7 +9,12 @@ import {
   setLintStateForPath,
   applyLintState,
   getLintStateForPath,
-  resetGridToDefault
+  resetGridToDefault,
+  setFilmFormat,
+  setFilmPolarity,
+  setNumFrames,
+  setOutputFormat,
+  setScanDpi
 } from './state.js';
 
 export function hasProject() {
@@ -43,7 +48,8 @@ export async function createProject(payload) {
     numberOfScans: result.project.numberOfScans,
     lintStates: result.project.lintStates || [],
     scanInfos: result.project.scanInfos || [],
-    currentLintPath: result.project.currentLintPath ?? null
+    currentLintPath: result.project.currentLintPath ?? null,
+    stripPresetId: result.project.stripPresetId ?? null
   });
   return result;
 }
@@ -61,7 +67,8 @@ function applyLoadedProject(p) {
     outputFolder: p.outputFolder,
     outputFormat: p.outputFormat,
     scanDpi: p.scanDpi,
-    currentLintPath: p.currentLintPath || null
+    currentLintPath: p.currentLintPath || null,
+    stripPresetId: p.stripPresetId ?? null
   });
   if (p.state) applyLintState(p.state);
 }
@@ -138,7 +145,8 @@ export async function saveProject() {
     filmPolarity: s.filmPolarity,
     outputFolder: s.exportFolderPath,
     outputFormat: s.outputFormat,
-    scanDpi: s.scanDpi
+    scanDpi: s.scanDpi,
+    stripPresetId: s.projectMeta?.stripPresetId ?? null
   });
   if (result.ok) {
     s.isDirty = false;
@@ -152,12 +160,33 @@ export async function saveProject() {
 
 /**
  * Pas opgeslagen lint-state toe voor een pad (na laden van dat lint).
+ * Als het project een stripPresetId heeft: eerst die preset laden (zelfde als “Laden” in Scanlint),
+ * daarna de opgeslagen lint-state — zo staan raster + rotatie/spiegeling gelijk aan de preset tot
+ * waar het project per-lint data heeft. Zonder opgeslagen lint wordt alleen de preset gebruikt.
  */
-export function applySavedLintState(lintPath) {
+export async function applySavedLintState(lintPath) {
   const snapshot = getLintStateForPath(lintPath);
+  const presetId = getState().projectMeta?.stripPresetId;
+  let presetApplied = false;
+  if (presetId && typeof presetId === 'string' && presetId.trim() !== '' && typeof window.api?.presetLoad === 'function') {
+    try {
+      const data = await window.api.presetLoad(presetId.trim());
+      if (data) {
+        applyLintState(data);
+        if (data.filmFormat) setFilmFormat(data.filmFormat);
+        if (data.filmPolarity) setFilmPolarity(data.filmPolarity);
+        if (data.numFrames != null) setNumFrames(data.numFrames);
+        if (data.outputFormat) setOutputFormat(data.outputFormat);
+        if (data.scanDpi != null) setScanDpi(data.scanDpi);
+        presetApplied = true;
+      }
+    } catch (_) {
+      /* preset ontbreekt of IPC-fout: gewoon door met snapshot/reset */
+    }
+  }
   if (snapshot) {
     applyLintState(snapshot);
-  } else {
+  } else if (!presetApplied) {
     resetGridToDefault();
   }
 }

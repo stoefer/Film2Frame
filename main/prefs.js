@@ -19,13 +19,18 @@ const KEYS = {
   customOutputWidth: 'customOutputWidth',
   customOutputHeight: 'customOutputHeight',
   windowArrangement: 'windowArrangement',
+  arrangeWindowsOnStartup: 'arrangeWindowsOnStartup',
   mainWindowBounds: 'mainWindowBounds',
   stripPreviewBounds: 'stripPreviewBounds',
   outputPreviewBounds: 'outputPreviewBounds',
+  alignPreviewBounds: 'alignPreviewBounds',
   stripPreviewOpen: 'stripPreviewOpen',
   outputPreviewOpen: 'outputPreviewOpen',
+  alignPreviewOpen: 'alignPreviewOpen',
   arrowStepPx: 'arrowStepPx',
-  arrowStepShiftPx: 'arrowStepShiftPx'
+  arrowStepShiftPx: 'arrowStepShiftPx',
+  stripPreviewShortcuts: 'stripPreviewShortcuts',
+  locale: 'locale'
 };
 
 const DEFAULTS = {
@@ -37,7 +42,8 @@ const DEFAULTS = {
   outputResolution: 'original',
   customOutputWidth: 1920,
   customOutputHeight: 1080,
-  windowArrangement: 'left-center-right',
+  windowArrangement: 'horiz-osm',
+  arrangeWindowsOnStartup: false,
   arrowStepPx: 1,
   arrowStepShiftPx: 10
 };
@@ -108,8 +114,9 @@ function setLastFileLocation(folderPath) {
 
 function getAllSettings() {
   const data = read();
-  const validArrangements = ['left-center-right', 'left-rightstack', 'top-middle-bottom', 'left-right-bottom'];
-  const arrangement = data[KEYS.windowArrangement];
+  const { normalizeLayout } = require('./window-arrange');
+  const rawArr = data[KEYS.windowArrangement];
+  const windowArrangement = normalizeLayout(typeof rawArr === 'string' ? rawArr : DEFAULTS.windowArrangement);
   return {
     darkMode: data[KEYS.darkMode] !== undefined ? !!data[KEYS.darkMode] : DEFAULTS.darkMode,
     stripPreviewRes: typeof data[KEYS.stripPreviewRes] === 'number' ? data[KEYS.stripPreviewRes] : DEFAULTS.stripPreviewRes,
@@ -119,9 +126,15 @@ function getAllSettings() {
     outputResolution: data[KEYS.outputResolution] || DEFAULTS.outputResolution,
     customOutputWidth: typeof data[KEYS.customOutputWidth] === 'number' ? data[KEYS.customOutputWidth] : DEFAULTS.customOutputWidth,
     customOutputHeight: typeof data[KEYS.customOutputHeight] === 'number' ? data[KEYS.customOutputHeight] : DEFAULTS.customOutputHeight,
-    windowArrangement: validArrangements.includes(arrangement) ? arrangement : DEFAULTS.windowArrangement,
-    arrowStepPx: typeof data[KEYS.arrowStepPx] === 'number' ? Math.max(1, Math.min(10, data[KEYS.arrowStepPx])) : DEFAULTS.arrowStepPx,
-    arrowStepShiftPx: typeof data[KEYS.arrowStepShiftPx] === 'number' ? Math.max(10, Math.min(100, data[KEYS.arrowStepShiftPx])) : DEFAULTS.arrowStepShiftPx
+    windowArrangement,
+    arrangeWindowsOnStartup: data[KEYS.arrangeWindowsOnStartup] === true,
+  arrowStepPx: typeof data[KEYS.arrowStepPx] === 'number' ? Math.max(1, Math.min(10, data[KEYS.arrowStepPx])) : DEFAULTS.arrowStepPx,
+  arrowStepShiftPx: typeof data[KEYS.arrowStepShiftPx] === 'number' ? Math.max(10, Math.min(100, data[KEYS.arrowStepShiftPx])) : DEFAULTS.arrowStepShiftPx,
+  locale: typeof data[KEYS.locale] === 'string' && ['en', 'nl'].includes(data[KEYS.locale]) ? data[KEYS.locale] : 'nl',
+    stripPreviewShortcuts:
+      data[KEYS.stripPreviewShortcuts] != null && typeof data[KEYS.stripPreviewShortcuts] === 'object'
+        ? data[KEYS.stripPreviewShortcuts]
+        : {}
   };
 }
 
@@ -136,12 +149,39 @@ function setSettings(settings) {
   if (settings.outputResolution !== undefined) data[KEYS.outputResolution] = String(settings.outputResolution);
   if (settings.customOutputWidth !== undefined) data[KEYS.customOutputWidth] = Math.max(1, Number(settings.customOutputWidth) || 1920);
   if (settings.customOutputHeight !== undefined) data[KEYS.customOutputHeight] = Math.max(1, Number(settings.customOutputHeight) || 1080);
-  const validArrangements = ['left-center-right', 'left-rightstack', 'top-middle-bottom', 'left-right-bottom'];
-  if (settings.windowArrangement !== undefined && validArrangements.includes(settings.windowArrangement)) {
-    data[KEYS.windowArrangement] = settings.windowArrangement;
+  if (settings.windowArrangement !== undefined) {
+    const { normalizeLayout, CANONICAL_LAYOUTS } = require('./window-arrange');
+    const n = normalizeLayout(String(settings.windowArrangement));
+    if (CANONICAL_LAYOUTS.includes(n)) {
+      data[KEYS.windowArrangement] = n;
+    }
+  }
+  if (settings.arrangeWindowsOnStartup !== undefined) {
+    data[KEYS.arrangeWindowsOnStartup] = !!settings.arrangeWindowsOnStartup;
   }
   if (settings.arrowStepPx !== undefined) data[KEYS.arrowStepPx] = Math.max(1, Math.min(10, Number(settings.arrowStepPx) || 1));
   if (settings.arrowStepShiftPx !== undefined) data[KEYS.arrowStepShiftPx] = Math.max(10, Math.min(100, Number(settings.arrowStepShiftPx) || 10));
+  if (settings.locale !== undefined && ['en', 'nl'].includes(String(settings.locale))) {
+    data[KEYS.locale] = settings.locale;
+  }
+  if (settings.stripPreviewShortcuts !== undefined && settings.stripPreviewShortcuts != null) {
+    const sc = require('./strip-shortcuts');
+    const raw = settings.stripPreviewShortcuts;
+    if (typeof raw === 'object') {
+      const cleaned = {};
+      for (const a of sc.ACTIONS) {
+        if (!Object.prototype.hasOwnProperty.call(raw, a.id)) continue;
+        const v = raw[a.id];
+        if (v === null) {
+          cleaned[a.id] = null;
+        } else if (v && typeof v === 'object') {
+          const n = sc.normalizeBinding(v);
+          if (n) cleaned[a.id] = n;
+        }
+      }
+      data[KEYS.stripPreviewShortcuts] = cleaned;
+    }
+  }
   write(data);
 }
 
@@ -162,8 +202,10 @@ function getWindowState() {
     mainBounds: parseBounds(data[KEYS.mainWindowBounds]),
     stripPreviewBounds: parseBounds(data[KEYS.stripPreviewBounds]),
     outputPreviewBounds: parseBounds(data[KEYS.outputPreviewBounds]),
+    alignPreviewBounds: parseBounds(data[KEYS.alignPreviewBounds]),
     stripPreviewOpen: data[KEYS.stripPreviewOpen] === true,
-    outputPreviewOpen: data[KEYS.outputPreviewOpen] === true
+    outputPreviewOpen: data[KEYS.outputPreviewOpen] === true,
+    alignPreviewOpen: data[KEYS.alignPreviewOpen] === true
   };
 }
 
@@ -179,8 +221,25 @@ function setWindowState(state) {
   if (state.outputPreviewBounds && typeof state.outputPreviewBounds === 'object') {
     data[KEYS.outputPreviewBounds] = state.outputPreviewBounds;
   }
+  if (state.alignPreviewBounds && typeof state.alignPreviewBounds === 'object') {
+    data[KEYS.alignPreviewBounds] = state.alignPreviewBounds;
+  }
   if (state.stripPreviewOpen !== undefined) data[KEYS.stripPreviewOpen] = !!state.stripPreviewOpen;
   if (state.outputPreviewOpen !== undefined) data[KEYS.outputPreviewOpen] = !!state.outputPreviewOpen;
+  if (state.alignPreviewOpen !== undefined) data[KEYS.alignPreviewOpen] = !!state.alignPreviewOpen;
+  write(data);
+}
+
+function getLocale() {
+  const data = read();
+  const loc = data[KEYS.locale];
+  return typeof loc === 'string' && ['en', 'nl'].includes(loc) ? loc : 'nl';
+}
+
+function setLocale(locale) {
+  if (!['en', 'nl'].includes(String(locale))) return;
+  const data = read();
+  data[KEYS.locale] = locale;
   write(data);
 }
 
@@ -192,6 +251,8 @@ module.exports = {
   setLastFileLocation,
   getAllSettings,
   setSettings,
+  getLocale,
+  setLocale,
   getWindowState,
   setWindowState,
   read,

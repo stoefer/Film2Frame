@@ -84,6 +84,12 @@ const STRIP_PREVIEW_MAX_DIM_OPTIONS = [1024, 1536, 2048, 2560, 3072, 4096];
  */
 const STRIP_CANVAS_MAX_DIM = 2048;
 
+/**
+ * Max. zijde van strip bij frame-export (hoger dan preview: volledige scanresolutie zoveel mogelijk).
+ * Blijft onder typische browser-/GPU-canvaslimieten; extreem grote scans worden proportioneel begrensd.
+ */
+const EXPORT_STRIP_MAX_DIM = 16384;
+
 /** Standaard max. zijde scanlint-preview (px); gelijk aan strip-cap = één schaalstap naar preview. */
 const DEFAULT_STRIP_PREVIEW_MAX_DIM = STRIP_CANVAS_MAX_DIM;
 
@@ -93,10 +99,18 @@ const STRIP_EXTENDED_RATIO = 1.1;
 /** Uitvoerformaten. */
 const OUTPUT_FORMATS = ['png', 'jpg', 'jpeg'];
 const OUTPUT_RESOLUTIONS = [
+  { id: 'original', label: 'Raster (native pixels)' },
+  { id: 'r1024x768', label: '1024 × 768' },
+  { id: 'r1280x720', label: '1280 × 720 (SD)' },
+  { id: 'r1280x960', label: '1280 × 960' },
+  { id: 'r1600x1200', label: '1600 × 1200' },
+  { id: 'r1920x1080', label: '1920 × 1080 (Full HD)' },
+  { id: 'r2560x1440', label: '2560 × 1440 (QHD)' },
+  { id: 'r3840x2160', label: '3840 × 2160 (UHD 4K)' },
   { id: 'sd', label: 'SD (720p)', w: 1280, h: 720 },
   { id: 'hd', label: 'HD (1080p)', w: 1920, h: 1080 },
   { id: 'uhd', label: 'UHD (4K)', w: 3840, h: 2160 },
-  { id: 'custom', label: 'Custom' }
+  { id: 'custom', label: 'Aangepast' }
 ];
 
 /** Frame-nummering: 6 cijfers 000001–999999. */
@@ -122,6 +136,7 @@ export {
   DEFAULT_FRAMES_PER_STRIP,
   STRIP_PREVIEW_MAX_DIM_OPTIONS,
   STRIP_CANVAS_MAX_DIM,
+  EXPORT_STRIP_MAX_DIM,
   DEFAULT_STRIP_PREVIEW_MAX_DIM,
   STRIP_EXTENDED_RATIO,
   GRID_TOP_SLACK_RATIO,

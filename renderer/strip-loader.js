@@ -4,7 +4,7 @@
  * Canvas wordt beperkt tot STRIP_CANVAS_MAX_DIM om browserlimieten te beperken; preview-max gelijk houden vermijdt dubbele downscale.
  */
 import { getState } from './state.js';
-import { STRIP_CANVAS_MAX_DIM } from './constants.js';
+import { STRIP_CANVAS_MAX_DIM, EXPORT_STRIP_MAX_DIM } from './constants.js';
 
 /**
  * Nearest-neighbour down/up-scale. Lange strips in één drawImage() geven op sommige GPU's/Chromium
@@ -78,10 +78,10 @@ export function loadImage(path, fileUrl) {
 }
 
 /**
- * Geef een canvas terug met de strip getekend (incl. rotatie).
+ * Strip na rotatie + spiegeling, nog niet geschaald (bron voor preview- én export-canvas).
  * @returns {HTMLCanvasElement|null}
  */
-export function getStripCanvas() {
+function buildStripCanvasRaw() {
   const s = getState();
   if (!s.image || !s.naturalWidth || !s.naturalHeight) return null;
   const w = s.naturalWidth;
@@ -117,31 +117,109 @@ export function getStripCanvas() {
   if (flipH || flipV) {
     result = copyCanvasFlipped(canvas, flipH, flipV);
   }
-  return scaleCanvasToMaxDim(result, STRIP_CANVAS_MAX_DIM);
+  return result;
+}
+
+/**
+ * Geef een canvas terug met de strip getekend (incl. rotatie), voor overlay/preview (max. STRIP_CANVAS_MAX_DIM).
+ * @returns {HTMLCanvasElement|null}
+ */
+export function getStripCanvas() {
+  const raw = buildStripCanvasRaw();
+  if (!raw) return null;
+  return scaleCanvasToMaxDim(raw, STRIP_CANVAS_MAX_DIM);
+}
+
+/**
+ * Eén keer de strip rasterizen: preview (laag) + export (volle resolutie tot EXPORT_STRIP_MAX_DIM).
+ * Raster staat in preview-pixels; export gebruikt cropFrameAtIndexForExport(exportStrip, previewStrip, i).
+ * @returns {{ preview: HTMLCanvasElement, export: HTMLCanvasElement } | null}
+ */
+export function getStripCanvasPairForExport() {
+  const raw = buildStripCanvasRaw();
+  if (!raw) return null;
+  const preview = scaleCanvasToMaxDim(raw, STRIP_CANVAS_MAX_DIM);
+  let exportCanvas = raw;
+  if (
+    EXPORT_STRIP_MAX_DIM > 0 &&
+    (raw.width > EXPORT_STRIP_MAX_DIM || raw.height > EXPORT_STRIP_MAX_DIM)
+  ) {
+    exportCanvas = scaleCanvasToMaxDim(raw, EXPORT_STRIP_MAX_DIM) || raw;
+  }
+  return { preview, export: exportCanvas };
 }
 
 /**
  * Spiegel canvas horizontaal en/of verticaal.
  * Geen translate+scale(-1): op Chromium/GPU geeft dat bij lange strips vaak een corrupte band onderaan.
- * Horizontaal: één drawImage met negatieve dest-breedte werkt op veel setups niet (geen zichtbaar effect);
- * daarom verticale stroken kopiëren met positieve breedte (zelfde idee als getegelde rotate-draws).
- * Verticaal: negatieve dest-hoogte blijft (werkt doorgaans wel); bij H+V eerst H-stroken, dan V.
+ * Horizontaal: getImageData/putImageData per band (CPU) — betrouwbaar; fallback kleine drawImage-tegels bij taint-fout.
+ * Verticaal: negatieve dest-hoogte (één draw); bij H+V eerst H, dan V.
  */
 function copyCanvasFlipped(source, flipH, flipV) {
   const cw = source.width;
   const ch = source.height;
   if (cw < 1 || ch < 1) return source;
 
+  /**
+   * Horizontaal spiegelen: eerst CPU-pad (getImageData, rijen spiegelen, putImageData).
+   * Veel GPU-paden corrupten nog steeds bij talloze kleine drawImage-kopies op lange strips (“scrambled”).
+   */
+  const flipHorizontalCPU = (src, dstCanvas) => {
+    const sctx = src.getContext('2d', { willReadFrequently: true });
+    const dctx = dstCanvas.getContext('2d', { alpha: true });
+    if (!sctx || !dctx) return false;
+    if (dctx.imageSmoothingEnabled !== undefined) dctx.imageSmoothingEnabled = false;
+    const bandH = 32;
+    for (let sy = 0; sy < ch; sy += bandH) {
+      const sh = Math.min(bandH, ch - sy);
+      let id;
+      try {
+        id = sctx.getImageData(0, sy, cw, sh);
+      } catch (_) {
+        return false;
+      }
+      const pixels = id.data;
+      const rowStride = cw * 4;
+      for (let y = 0; y < sh; y++) {
+        const rowStart = y * rowStride;
+        let left = rowStart;
+        let right = rowStart + (cw - 1) * 4;
+        while (left < right) {
+          for (let c = 0; c < 4; c++) {
+            const t = pixels[left + c];
+            pixels[left + c] = pixels[right + c];
+            pixels[right + c] = t;
+          }
+          left += 4;
+          right -= 4;
+        }
+      }
+      dctx.putImageData(id, 0, sy);
+    }
+    return true;
+  };
+
+  /** Fallback als getImageData faalt (tainting); kleinere tegels dan voorheen. */
   const flipHorizontalStripes = (src, dstCanvas) => {
     const dctx = dstCanvas.getContext('2d', { alpha: true });
     if (!dctx) return false;
     if (dctx.imageSmoothingEnabled !== undefined) dctx.imageSmoothingEnabled = false;
-    const tileW = Math.min(512, Math.max(1, cw));
-    for (let sx = 0; sx < cw; sx += tileW) {
-      const w = Math.min(tileW, cw - sx);
-      dctx.drawImage(src, sx, 0, w, ch, cw - sx - w, 0, w, ch);
+    const tileW = 64;
+    const tileH = 64;
+    for (let sy = 0; sy < ch; sy += tileH) {
+      const sh = Math.min(tileH, ch - sy);
+      for (let sx = 0; sx < cw; sx += tileW) {
+        const sw = Math.min(tileW, cw - sx);
+        const dx = cw - sx - sw;
+        dctx.drawImage(src, sx, sy, sw, sh, dx, sy, sw, sh);
+      }
     }
     return true;
+  };
+
+  const flipHorizontal = (src, dstCanvas) => {
+    if (flipHorizontalCPU(src, dstCanvas)) return true;
+    return flipHorizontalStripes(src, dstCanvas);
   };
 
   const flipVerticalOneShot = (src, dstCanvas) => {
@@ -156,7 +234,7 @@ function copyCanvasFlipped(source, flipH, flipV) {
     const out = document.createElement('canvas');
     out.width = cw;
     out.height = ch;
-    if (!flipHorizontalStripes(source, out)) return source;
+    if (!flipHorizontal(source, out)) return source;
     return out;
   }
 
@@ -172,7 +250,7 @@ function copyCanvasFlipped(source, flipH, flipV) {
     const mid = document.createElement('canvas');
     mid.width = cw;
     mid.height = ch;
-    if (!flipHorizontalStripes(source, mid)) return source;
+    if (!flipHorizontal(source, mid)) return source;
     const out = document.createElement('canvas');
     out.width = cw;
     out.height = ch;

@@ -9,7 +9,9 @@ import {
   getGridRect,
   getGridRectWithOverride,
   clampGridVerticalMarginsCanvas,
-  getLadderRowsCanvasFromMargins
+  getLadderRowsCanvasFromMargins,
+  usesSplitLowerVerticalPan,
+  resolveVerticalPivotKFromState
 } from './grid.js';
 import { STRIP_EXTENDED_RATIO, DEFAULT_STRIP_PREVIEW_MAX_DIM } from './constants.js';
 
@@ -98,6 +100,109 @@ function ladderDisplayHeightsFromRows(rowsCanvas, targetTotalDisp) {
 }
 
 /**
+ * Zelfde totaalsom als ladderDisplayHeightsFromRows, maar restpixels cyclisch 0→n−1 i.p.v. largest-remainder-sort.
+ * Voorkomt dat bij kleine split-pan (d) de sorteervolgorde van breukdelen omslaat en de referentielijn in de preview 1–2px “wandelt”.
+ */
+function ladderDisplayHeightsFromRowsRoundRobin(rowsCanvas, targetTotalDisp) {
+  const n = rowsCanvas.length;
+  const target = Math.max(1, Math.round(targetTotalDisp));
+  if (n < 1) return [target];
+  const innerC = rowsCanvas.reduce((acc, r) => acc + (Number(r.h) || 0), 0);
+  if (innerC < 1e-9) {
+    const base = Math.floor(target / n);
+    let rem = target - base * n;
+    return Array.from({ length: n }, (_, i) => base + (i < rem ? 1 : 0));
+  }
+  const ideal = rowsCanvas.map((ry) => ((Number(ry.h) || 0) / innerC) * target);
+  const out = ideal.map((x) => Math.floor(x));
+  let deficit = target - out.reduce((a, b) => a + b, 0);
+  let pos = 0;
+  while (deficit > 0) {
+    out[pos % n]++;
+    deficit--;
+    pos++;
+  }
+  if (deficit < 0) {
+    let need = -deficit;
+    let step = 0;
+    while (need > 0 && step < n * (target + 5)) {
+      const j = n - 1 - (step % n);
+      if (out[j] > 1) {
+        out[j]--;
+        need--;
+      }
+      step++;
+    }
+  }
+  return out;
+}
+
+function subDistributeHeightsForSubstrip(subRows, subTarget) {
+  const m = subRows.length;
+  const st = Math.max(m, Math.round(subTarget));
+  if (m < 1) return [];
+  const inner = subRows.reduce((a, r) => a + (Number(r.h) || 0), 0);
+  if (inner < 1e-9) {
+    const base = Math.floor(st / m);
+    let rem = st - base * m;
+    return Array.from({ length: m }, (_, i) => base + (i < rem ? 1 : 0));
+  }
+  const ideal = subRows.map((ry) => ((Number(ry.h) || 0) / inner) * st);
+  const out = ideal.map((x) => Math.floor(x));
+  let deficit = st - out.reduce((a, b) => a + b, 0);
+  let pos = 0;
+  while (deficit > 0) {
+    out[pos % m]++;
+    deficit--;
+    pos++;
+  }
+  if (deficit < 0) {
+    let need = -deficit;
+    let step = 0;
+    while (need > 0 && step < m * (st + 5)) {
+      const j = m - 1 - (step % m);
+      if (out[j] > 1) {
+        out[j]--;
+        need--;
+      }
+      step++;
+    }
+  }
+  return out;
+}
+
+/**
+ * Zorgt dat de som van display-hoogtes boven index kPin exact overeenkomt met de canvas-split
+ * (zodat de gele referentielijn niet “wandelt” bij kleine wijzigingen in d).
+ */
+function ladderDisplayHeightsPinnedSplit(rowsCanvas, targetTotalDisp, kPin) {
+  const n = rowsCanvas.length;
+  const target = Math.max(1, Math.round(targetTotalDisp));
+  if (kPin <= 0 || kPin >= n || n < 1) {
+    return ladderDisplayHeightsFromRowsRoundRobin(rowsCanvas, target);
+  }
+  const innerC = rowsCanvas.reduce((a, r) => a + (Number(r.h) || 0), 0);
+  if (innerC < 1e-9) {
+    return ladderDisplayHeightsFromRows(rowsCanvas, target);
+  }
+  const upperRows = rowsCanvas.slice(0, kPin);
+  const lowerRows = rowsCanvas.slice(kPin);
+  const sumUpperC = upperRows.reduce((a, r) => a + (Number(r.h) || 0), 0);
+  const minUpper = kPin;
+  const minLower = n - kPin;
+  let upperTarget = Math.round((sumUpperC / innerC) * target);
+  upperTarget = Math.max(minUpper, Math.min(target - minLower, upperTarget));
+  let lowerTarget = target - upperTarget;
+  if (lowerTarget < minLower) {
+    lowerTarget = minLower;
+    upperTarget = target - lowerTarget;
+  }
+  const heightsUpper = subDistributeHeightsForSubstrip(upperRows, upperTarget);
+  const heightsLower = subDistributeHeightsForSubstrip(lowerRows, lowerTarget);
+  return heightsUpper.concat(heightsLower);
+}
+
+/**
  * Bouwt alleen het grid-gedeelte van de payload (geen beeld). overrideGridOffsetX: gebruik deze X i.p.v. state (voor directe doorstuur na Hand-beweging).
  *
  * extendedDisplayHeight moet groot genoeg zijn: met gecentreerde strip geldt
@@ -139,7 +244,12 @@ export function buildGridPayload(displayWidth, displayHeight, scale, overrideGri
   const marginTop = Math.round((extendedDisplayHeight - dh) / 2);
   const oyTop = defaultAlign ? marginTop : marginTop + yTopDisp;
   const rowsCanvas = getLadderRowsCanvasFromMargins(stripCanvasH, numFrames, yTopCanvas, yBottomCanvas);
-  const heightsDisp = ladderDisplayHeightsFromRows(rowsCanvas, gridTotalHeight);
+  const splitVertPan = usesSplitLowerVerticalPan();
+  const kSplit = splitVertPan ? resolveVerticalPivotKFromState() : -1;
+  const heightsDisp =
+    splitVertPan && kSplit > 0 && kSplit < numFrames
+      ? ladderDisplayHeightsPinnedSplit(rowsCanvas, gridTotalHeight, kSplit)
+      : ladderDisplayHeightsFromRows(rowsCanvas, gridTotalHeight);
   let yAcc = oyTop;
   const gridRects = [];
   let gridRect = null;
@@ -186,10 +296,15 @@ export function buildGridPayload(displayWidth, displayHeight, scale, overrideGri
     if (si >= 0) projectScanIndex = si + 1;
   }
 
+  /** UITLIJN-venster: Y van de bovenkant van de strip-bitmap in dezelfde ruimte als gridRects (zoals scanlint-preview met margin). */
+  const extHForAlign = Math.max(dh, extendedDisplayHeight);
+  const alignStripTopY = Math.round((extHForAlign - dh) / 2);
+
   return {
     displayWidth,
     displayHeight,
     extendedDisplayHeight,
+    alignStripTopY,
     numFrames,
     activeFrameIndex: activeIndex,
     activeFrameNumber: activeIndex + 1,
@@ -210,7 +325,14 @@ export function buildGridPayload(displayWidth, displayHeight, scale, overrideGri
       const n = Math.max(1, s.numFrames || 1);
       return Math.max(0, Math.min(n, Math.round(Number(s.gridVerticalPivotCustomK) || 0)));
     })(),
-    panelLinkVerticalAnchor: s.gridPanelLinkVerticalAnchor !== false
+    panelLinkVerticalAnchor: s.gridPanelLinkVerticalAnchor !== false,
+    stripPresetId:
+      meta && meta.stripPresetId != null && typeof meta.stripPresetId === 'string' && meta.stripPresetId.trim() !== ''
+        ? meta.stripPresetId.trim()
+        : null,
+    orientLabel: s.orientLabel || '—',
+    flipHorizontal: !!s.flipHorizontal,
+    flipVertical: !!s.flipVertical
   };
 }
 

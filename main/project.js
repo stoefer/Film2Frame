@@ -54,7 +54,12 @@ async function writeProject(projectFolderPath, data) {
     filmPolarity: data.filmPolarity || 'positief',
     outputFolder: data.outputFolder || null,
     outputFormat: data.outputFormat || 'png',
-    scanDpi: data.scanDpi || 4800
+    scanDpi: data.scanDpi || 4800,
+    /** Laatst gekozen scanlint-strip-preset (id uit presets.json), voor dropdown na heropenen project. */
+    stripPresetId:
+      data.stripPresetId != null && typeof data.stripPresetId === 'string' && data.stripPresetId.trim() !== ''
+        ? data.stripPresetId.trim()
+        : null
   };
   const filePath = path.join(projectFolderPath, PROJECT_FILE);
   await fs.writeFile(filePath, JSON.stringify(out, null, 2), 'utf8');
@@ -95,11 +100,19 @@ async function listImagesInFolder(folderPath) {
  * Bepaal per scan de oriëntatie (verticaal/horizontaal) via afmetingen.
  * Langste zijde = hoogte => verticaal; breedte > hoogte => horizontaal (wordt bij laden 90° gedraaid).
  * Retourneert [{ path, width, height, orientation: 'vertical'|'horizontal', name }].
+ * @param {(current: number, total: number) => void} [onProgress] — current=verwerkte bestanden (0…total), total=aantal beelden
  */
-async function getScanInfos(folderPath) {
+async function getScanInfos(folderPath, onProgress) {
   const paths = await listImagesInFolder(folderPath);
+  const total = paths.length;
+  if (typeof onProgress === 'function') {
+    try {
+      onProgress(0, total);
+    } catch (_) {}
+  }
   const infos = [];
-  for (const filePath of paths) {
+  for (let i = 0; i < paths.length; i++) {
+    const filePath = paths[i];
     let width = 0;
     let height = 0;
     try {
@@ -118,6 +131,11 @@ async function getScanInfos(folderPath) {
       height,
       orientation
     });
+    if (typeof onProgress === 'function') {
+      try {
+        onProgress(i + 1, total);
+      } catch (_) {}
+    }
   }
   return infos;
 }

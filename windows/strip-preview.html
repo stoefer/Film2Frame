@@ -19,6 +19,36 @@
       min-width: 0;
     }
     .header h1 { margin: 0; font-size: 14px; font-weight: 600; flex: 0 1 auto; min-width: 0; }
+    .header-open-align {
+      flex-shrink: 0;
+      padding: 5px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      background: #7c2d12;
+      border: 1px solid #ea580c;
+      border-radius: 4px;
+      color: #fff7ed;
+      font-weight: 600;
+    }
+    .header-open-align:hover { background: #9a3412; border-color: #fb923c; }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .header-refresh {
+      flex-shrink: 0;
+      padding: 5px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      background: #2a2a2a;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #e8e8e8;
+      font-weight: 500;
+    }
+    .header-refresh:hover { background: #333; border-color: #666; }
     .header-filename {
       flex: 0 1 auto;
       max-width: min(520px, 55vw);
@@ -79,6 +109,43 @@
       align-items: center;
       gap: 10px 14px;
     }
+    .strip-orient-flip-group {
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px 12px;
+      padding-left: 4px;
+      border-left: 1px solid #3a3a3a;
+      margin-left: 2px;
+    }
+    .strip-orient-label-inline {
+      font-size: 12px;
+      color: #b0b0b0;
+      max-width: 200px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .btn-strip-rotate90 {
+      padding: 5px 10px;
+      font-size: 12px;
+      background: #3a3a3a;
+      color: #eee;
+      border: 1px solid #555;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .btn-strip-rotate90:hover { background: #484848; }
+    .strip-flip-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+      color: #ddd;
+    }
+    .strip-flip-label input { width: auto; margin: 0; flex-shrink: 0; }
     .toolbar-panel__spacer-right {
       flex: 1 1 auto;
       min-height: 4px;
@@ -217,6 +284,18 @@
       align-items: center;
       gap: 8px;
     }
+    /* Vorige / Volgende: duidelijke blauwe rand (Scanlint-navigatie) */
+    .toolbar .yonder-block__nav .btn-scan-nav {
+      border: 2px solid #3b82f6;
+      box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35);
+    }
+    .toolbar .yonder-block__nav .btn-scan-nav:hover {
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.45);
+    }
+    .toolbar .yonder-block__nav .btn-scan-nav:active {
+      border-color: #2563eb;
+    }
     .input-scan-goto {
       width: 52px;
       padding: 6px 6px;
@@ -303,47 +382,15 @@
       max-width: 100%;
       line-height: 1.35;
     }
-    /* Tweede vergroting: ander frame groot, zonder hoofdbeeld uit te zoomen */
-    .strip-detail-section {
-      flex-shrink: 0;
-      display: flex;
-      flex-direction: column;
-      border-top: 1px solid #444;
-      background: #181818;
-      min-height: 0;
-      max-height: 38vh;
-    }
-    .strip-detail-section.strip-detail-section--collapsed .strip-detail-viewport-wrap {
-      display: none;
-    }
-    .strip-detail-toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 10px 14px;
-      padding: 8px 12px;
-      border-bottom: 1px solid #333;
-    }
-    .strip-detail-toolbar label { color: #aaa; margin: 0; display: inline-flex; align-items: center; gap: 6px; }
-    .strip-detail-toggle { font-weight: 600; color: #ddd !important; }
-    .strip-detail-viewport-wrap {
-      flex: 1;
-      min-height: 100px;
-      max-height: calc(38vh - 48px);
-      overflow: auto;
-      padding: 10px 12px 14px;
-      background: #0d0d0d;
-    }
-    #strip-detail-canvas {
-      display: block;
-      max-width: none;
-      box-shadow: 0 0 0 1px #444;
-    }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>Scanlint – raster afstellen</h1>
+    <div class="header-actions">
+      <button type="button" id="btn-strip-refresh" class="header-refresh" title="Laatste strip opnieuw uit het hoofdvenster (bitmap + raster). Handig als het beeld leeg bleef.">Vernieuwen</button>
+      <button type="button" id="btn-open-align-window" class="header-open-align" title="Apart venster: sterke vergroting per frame (uitlijning boven/onder)">Uitlijning…</button>
+    </div>
     <span id="strip-header-filename" class="header-filename" title="">—</span>
   </div>
   <div class="toolbar">
@@ -355,8 +402,8 @@
             <input type="number" id="input-y-bottom" placeholder="0" title="Ook negatief mogelijk (raster onder het lint)" />
           </div>
           <div class="yonder-block__nav" title="Huidige scanlint en project worden eerst opgeslagen. Vorige/Volgende: zelfde raster/frames als nu (minimale correctie op lintformaat).">
-            <button type="button" id="btn-scan-prev">Vorige</button>
-            <button type="button" id="btn-scan-next">Volgende</button>
+            <button type="button" id="btn-scan-prev" class="btn-scan-nav">Vorige</button>
+            <button type="button" id="btn-scan-next" class="btn-scan-nav">Volgende</button>
             <label class="label-scan-goto" for="input-scan-goto">Nr.:</label>
             <input type="number" id="input-scan-goto" class="input-scan-goto" min="1" step="1" placeholder="1" title="Scanlint-nummer (1 = eerste in project), daarna Ga naar" />
             <button type="button" id="btn-scan-goto">Ga naar</button>
@@ -390,6 +437,12 @@
             <option value="fit-width" title="Past de breedte van de scanlint in het venster (numeriek toetsenbord *)">Scanlint breedte</option>
             <option value="fit-height" title="Past de hoogte van de scanlint in het venster (numeriek toetsenbord /)">Scanlint hoogte</option>
           </select>
+        </span>
+        <span class="strip-orient-flip-group" title="Oriëntatie en spiegeling van de scanlint">
+          <span id="strip-orient-label" class="strip-orient-label-inline" title="">—</span>
+          <button type="button" id="btn-strip-rotate90" class="btn-strip-rotate90">Draai 90°</button>
+          <label class="strip-flip-label"><input type="checkbox" id="strip-flip-h" /> Spiegel H</label>
+          <label class="strip-flip-label"><input type="checkbox" id="strip-flip-v" /> Spiegel V</label>
         </span>
       </div>
     </div>
@@ -432,7 +485,7 @@
           <button type="button" id="btn-h-Bminus" class="arrow" title="Onderrand naar beneden (verbreden)">B−</button>
           <button type="button" id="btn-h-Bplus" class="arrow" title="Onderrand naar boven (versmallen)">B+</button>
         </span>
-        <span class="step-group step-group--compress-stack" title="Duw: met koppeling aan blijft Y-onder van het raster vast (uitrekken/duwen). Bij referentie met split (0 &lt; k &lt; n) idem — geen rigide schuiven. Zonder koppeling of bij pivot boven (k=0): rigide pan. Hand ▲▼ = split. Shift+knop = tot rand.">
+        <span class="step-group step-group--compress-stack" title="Duw: met koppeling — Onderkant raster / actief-onder / custom split: Y-onder vast, inner wijzigt. Midden-boven &amp; midden-onder: alleen split (middenlijn vast op strip). Zonder koppeling of pivot boven: rigide pan. Hand ▲▼ = split. Shift+knop = tot rand.">
           <span class="compress-stack-label">Duw</span>
           <button type="button" id="btn-vert-stretch" class="btn-vert-fixed-bottom" title="Onderkant raster: langere cellen (Y-onder vast). Anders: rigide omhoog. Shift = max.">Omhoog ▲</button>
           <button type="button" id="btn-vert-compress" class="btn-vert-fixed-bottom" title="Onderkant raster: kortere cellen (Y-onder vast). Anders: rigide omlaag. Shift = max.">Omlaag ▼</button>
@@ -445,13 +498,14 @@
         <button type="button" id="btn-middle" title="Actief frame in het midden (Home)">MIDDEN</button>
         <button type="button" id="btn-bottom" title="Actief frame onderaan (PgDn)">ONDER</button>
       </div>
-      <div class="toolbar-panel__anchor-row toolbar-panel__anchor-row--right" title="Met koppeling aan: Duw past Y-boven aan (onderrand raster vast) — uitrekken/duwen, ook bij referentie met split. Hand ▲▼ past het bovenblok (split). Zonder koppeling: Duw rigide.">
+      <div class="toolbar-panel__anchor-row toolbar-panel__anchor-row--right" title="Met koppeling: Duw past bij midden-boven/midden-onder alleen split aan (referentielijn vast op strip). Anders vaak Y-boven met vaste onderrand. Hand ▲▼ = split. Zonder koppeling: Duw rigide.">
         <label for="strip-vertical-anchor">Referentielijn:</label>
         <select id="strip-vertical-anchor" class="zoom-select">
           <option value="bottomFixed">Onderkant raster</option>
           <option value="pivotTop">Bovenkant raster</option>
           <option value="pivotActive">Rand onder actief frame</option>
-          <option value="pivotMiddle">Midden raster</option>
+          <option value="pivotMiddleUpper" title="Flexibele cellen boven de lijn. Bij oneven aantal frames: lijn iets lager (ceil n/2).">Midden-boven (split boven lijn)</option>
+          <option value="pivotMiddleLower" title="Flexibele cellen onder de lijn. Bij oneven aantal frames: lijn iets hoger (floor n/2).">Midden-onder (split onder lijn)</option>
           <option value="pivotCustom">Lijn # (0–n, custom)</option>
         </select>
         <input type="number" id="strip-vertical-anchor-k" class="input-scan-goto" min="0" step="1" value="1" style="display:none;width:48px" title="Lijnindex: 0 = bovenkant raster, 1 = onder frame 1, …, n = onderkant (n = aantal frames)" />
@@ -465,28 +519,6 @@
         <img id="strip-img" alt="Scanlint" />
         <canvas id="strip-overlay" class="strip-overlay"></canvas>
       </div>
-    </div>
-  </div>
-  <div class="strip-detail-section strip-detail-section--collapsed" id="strip-detail-section" style="display:none" title="Hoofdbeeld kan op actief frame onderaan blijven; hier een willekeurig frame sterk vergroten om boven/onder uit te lijnen.">
-    <div class="strip-detail-toolbar">
-      <label class="strip-detail-toggle">
-        <input type="checkbox" id="strip-detail-enabled" />
-        <span>2e vergroting</span>
-      </label>
-      <label for="strip-detail-frame">Frame</label>
-      <select id="strip-detail-frame" class="zoom-select" aria-label="Frame voor tweede vergroting"></select>
-      <label for="strip-detail-zoom">Zoom</label>
-      <select id="strip-detail-zoom" class="zoom-select" aria-label="Zoom tweede venster">
-        <option value="1.5">150%</option>
-        <option value="2" selected>200%</option>
-        <option value="3">300%</option>
-        <option value="4">400%</option>
-        <option value="6">600%</option>
-        <option value="8">800%</option>
-      </select>
-    </div>
-    <div class="strip-detail-viewport-wrap" id="strip-detail-viewport-wrap">
-      <canvas id="strip-detail-canvas" width="1" height="1"></canvas>
     </div>
   </div>
   <script>
@@ -510,18 +542,11 @@
       const stripRightPanel = document.getElementById('strip-right-tools');
       const chkPanelLink = document.getElementById('strip-panel-vertical-anchor-link');
       const headerFilenameEl = document.getElementById('strip-header-filename');
-      const stripDetailSection = document.getElementById('strip-detail-section');
-      const chkDetailEnabled = document.getElementById('strip-detail-enabled');
-      const selDetailFrame = document.getElementById('strip-detail-frame');
-      const selDetailZoom = document.getElementById('strip-detail-zoom');
-      const canvasDetail = document.getElementById('strip-detail-canvas');
-
-      const LS_DETAIL_ON = 'stripDetailOpen';
-      const LS_DETAIL_FRAME = 'stripDetailFrame';
-      const LS_DETAIL_ZOOM = 'stripDetailZoom';
 
       let stepPx = 10;
       let lastPayload = null;
+      /** Voorkomt opnieuw laden van dezelfde data-URL bij elke grid-only merge vanuit main. */
+      let lastStripDataUrlApplied = '';
       let activeJump = null;
       /** Tijdens programmatisch scrollen geen reset van activeJump (anders zou elke auto-scroll 'manual' lijken). */
       let suppressActiveJumpClearOnScroll = false;
@@ -647,176 +672,6 @@
         }
       }
 
-      function loadDetailPrefs() {
-        try {
-          if (chkDetailEnabled && localStorage.getItem(LS_DETAIL_ON) === '1') chkDetailEnabled.checked = true;
-          var fz = localStorage.getItem(LS_DETAIL_FRAME);
-          if (fz != null && selDetailFrame) {
-            var fn = parseInt(fz, 10);
-            if (Number.isFinite(fn) && fn >= 1) selDetailFrame.dataset.pendingFrame = String(fn);
-          }
-          var zz = localStorage.getItem(LS_DETAIL_ZOOM);
-          if (zz != null && selDetailZoom) {
-            var z = parseFloat(zz);
-            if (Number.isFinite(z) && z > 0) selDetailZoom.value = String(z);
-          }
-        } catch (e) {}
-      }
-
-      function persistDetailPrefs() {
-        try {
-          if (chkDetailEnabled) localStorage.setItem(LS_DETAIL_ON, chkDetailEnabled.checked ? '1' : '0');
-          if (selDetailFrame && selDetailFrame.value) localStorage.setItem(LS_DETAIL_FRAME, selDetailFrame.value);
-          if (selDetailZoom && selDetailZoom.value) localStorage.setItem(LS_DETAIL_ZOOM, selDetailZoom.value);
-        } catch (e) {}
-      }
-
-      function updateDetailSectionLayout() {
-        if (!stripDetailSection) return;
-        if (!lastPayload) {
-          stripDetailSection.style.display = 'none';
-          return;
-        }
-        stripDetailSection.style.display = 'flex';
-        stripDetailSection.classList.toggle('strip-detail-section--collapsed', !(chkDetailEnabled && chkDetailEnabled.checked));
-      }
-
-      function syncDetailFrameOptions(p) {
-        if (!selDetailFrame || !p || !p.gridRects || p.gridRects.length === 0) return;
-        var n = p.gridRects.length;
-        var want = selDetailFrame.dataset.pendingFrame != null ? parseInt(selDetailFrame.dataset.pendingFrame, 10) : parseInt(selDetailFrame.value, 10);
-        if (!Number.isFinite(want) || want < 1) want = 1;
-        if (want > n) want = n;
-        delete selDetailFrame.dataset.pendingFrame;
-        var html = '';
-        var i;
-        for (i = 1; i <= n; i++) {
-          html += '<option value="' + i + '">' + i + '</option>';
-        }
-        selDetailFrame.innerHTML = html;
-        selDetailFrame.value = String(want);
-      }
-
-      function getImgVerticalMarginForPayload(p) {
-        var dh = Math.max(1, p.displayHeight || 1);
-        var extH = Math.max(1, p.extendedDisplayHeight || dh);
-        return extH > dh ? Math.round((extH - dh) / 2) : 0;
-      }
-
-      function drawDetailFrame() {
-        if (!canvasDetail || !chkDetailEnabled || !chkDetailEnabled.checked || !lastPayload || !selDetailFrame) return;
-        var p = lastPayload;
-        if (!p.gridRects || p.gridRects.length === 0) return;
-        if (!img.complete || img.naturalWidth < 1 || img.naturalHeight < 1) return;
-        var fn = parseInt(selDetailFrame.value, 10);
-        if (!Number.isFinite(fn) || fn < 1) fn = 1;
-        if (fn > p.gridRects.length) fn = p.gridRects.length;
-        var detailZ = parseFloat(selDetailZoom.value);
-        if (!Number.isFinite(detailZ) || detailZ <= 0) detailZ = 2;
-
-        var gr = p.gridRects.find(function (r) { return r.frameNumber === fn; }) || p.gridRects[fn - 1];
-        var w = Math.max(1, p.displayWidth || 1);
-        var dh = Math.max(1, p.displayHeight || 1);
-        var margin = getImgVerticalMarginForPayload(p);
-        var gx = Number(gr.x) || 0;
-        var gy = Number(gr.y) || 0;
-        var grw = Math.max(1, Number(gr.width) || 1);
-        var grh = Math.max(1, Number(gr.height) || 1);
-        var imgTop = margin;
-        var imgBot = margin + dh;
-        var y0 = Math.max(imgTop, gy);
-        var y1 = Math.min(imgBot, gy + grh);
-        if (y1 <= y0) {
-          var ctx0 = canvasDetail.getContext('2d');
-          if (ctx0) {
-            canvasDetail.width = Math.max(1, Math.round(w * detailZ));
-            canvasDetail.height = Math.max(1, Math.round(grh * detailZ));
-            ctx0.fillStyle = '#222';
-            ctx0.fillRect(0, 0, canvasDetail.width, canvasDetail.height);
-            ctx0.fillStyle = '#888';
-            ctx0.font = '12px system-ui';
-            ctx0.fillText('Frame buiten beeld', 8, 20);
-          }
-          return;
-        }
-
-        var nx = img.naturalWidth;
-        var ny = img.naturalHeight;
-        /* Volledige scanlintbreedte: L/R-marges en raster in context; verticaal alleen de frame-slice. */
-        var sx = 0;
-        var sw = nx;
-        var sy = ((y0 - margin) / dh) * ny;
-        var sh = ((y1 - y0) / dh) * ny;
-        var sliceH = y1 - y0;
-        var cw = Math.max(1, Math.round(w * detailZ));
-        var ch = Math.max(1, Math.round(sliceH * detailZ));
-        canvasDetail.width = cw;
-        canvasDetail.height = ch;
-        var ctx = canvasDetail.getContext('2d');
-        if (!ctx) return;
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        try {
-          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
-        } catch (e) {
-          return;
-        }
-
-        var scaleX = cw / w;
-        var scaleY = ch / sliceH;
-        var xL = gx * scaleX;
-        var xR = (gx + grw) * scaleX;
-        var frameTopLocal = gy - y0;
-        var frameBotLocal = Math.min(sliceH, gy + grh - y0);
-        var yT = Math.max(0, frameTopLocal) * scaleY;
-        var yB = Math.max(yT, frameBotLocal * scaleY);
-
-        var activeNum = p.activeFrameNumber != null ? p.activeFrameNumber : (p.activeFrameIndex != null ? p.activeFrameIndex + 1 : 1);
-        var isActive = fn === activeNum;
-        var lineW = Math.max(1, detailZ * 0.75);
-        var lineWEmph = isActive ? Math.max(2, lineW * 1.6) : lineW;
-        var strokeMain = isActive ? 'rgb(255, 60, 60)' : 'rgb(0, 255, 100)';
-
-        /* Verticaal: raster L/R over hele slice (marges links/rechts van het raster zichtbaar). */
-        ctx.strokeStyle = strokeMain;
-        ctx.lineWidth = lineWEmph;
-        ctx.beginPath();
-        ctx.moveTo(xL, 0);
-        ctx.lineTo(xL, ch);
-        ctx.moveTo(xR, 0);
-        ctx.lineTo(xR, ch);
-        ctx.stroke();
-        /* Horizontaal: boven- en onderrand van het frame (tussen L en R). */
-        ctx.beginPath();
-        ctx.moveTo(xL, yT);
-        ctx.lineTo(xR, yT);
-        ctx.moveTo(xL, yB);
-        ctx.lineTo(xR, yB);
-        ctx.stroke();
-
-        var ref = refLineDisplayFromPayload(p);
-        if (ref && Number.isFinite(ref.y) && ref.y >= y0 && ref.y <= y1) {
-          var ry = ((ref.y - y0) / sliceH) * ch;
-          ctx.strokeStyle = 'rgba(255, 220, 0, 0.95)';
-          ctx.lineWidth = Math.max(1, detailZ);
-          ctx.setLineDash([4, 3]);
-          ctx.beginPath();
-          ctx.moveTo(0, ry);
-          ctx.lineTo(cw, ry);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
-
-        var fs = Math.max(10, Math.min(22, Math.round(11 * detailZ / 2)));
-        ctx.font = 'bold ' + fs + 'px system-ui, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = isActive ? 'rgba(255,80,80,0.95)' : 'rgba(255,255,255,0.9)';
-        var cx = (xL + xR) / 2;
-        var cy = (yT + yB) / 2;
-        if (xR > xL + 4 && yB > yT + 4) ctx.fillText(String(fn), cx, cy);
-      }
-
       function refLineDisplayFromPayload(p) {
         const gr = p.gridRects;
         if (!gr || gr.length === 0) return null;
@@ -827,7 +682,11 @@
         else if (mode === 'pivotActive') {
           var an = p.activeFrameNumber != null ? p.activeFrameNumber : (p.activeFrameIndex != null ? p.activeFrameIndex + 1 : 1);
           k = Math.max(0, Math.min(n, Math.floor(Number(an)) || 1));
-        } else if (mode === 'pivotMiddle') k = Math.floor(n / 2);
+        } else if (mode === 'pivotMiddleUpper' || mode === 'pivotMiddle') {
+          k = Math.min(n, Math.max(1, Math.ceil(n / 2)));
+        } else if (mode === 'pivotMiddleLower') {
+          k = Math.min(n, Math.max(1, Math.floor(n / 2)));
+        }
         else if (mode === 'pivotCustom') {
           k = Math.floor(Number(p.verticalAnchorCustomK));
           if (!Number.isFinite(k)) k = 1;
@@ -913,7 +772,6 @@
         if (lastPayload && lastPayload.gridRects && lastPayload.gridRects.length > 0) {
           requestAnimationFrame(function () {
             drawGrid(lastPayload);
-            drawDetailFrame();
             scheduleScrollToActiveFrame();
           });
         } else {
@@ -975,31 +833,11 @@
         }
       }, { passive: true });
 
-      loadDetailPrefs();
-      if (chkDetailEnabled) {
-        chkDetailEnabled.addEventListener('change', function () {
-          persistDetailPrefs();
-          updateDetailSectionLayout();
-          drawDetailFrame();
-        });
-      }
-      if (selDetailFrame) {
-        selDetailFrame.addEventListener('change', function () {
-          persistDetailPrefs();
-          drawDetailFrame();
-        });
-      }
-      if (selDetailZoom) {
-        selDetailZoom.addEventListener('change', function () {
-          persistDetailPrefs();
-          drawDetailFrame();
-        });
-      }
-
       function syncVerticalAnchorFromPayload(payload) {
         if (!selectVerticalAnchor || !inputVerticalAnchorK || !payload) return;
-        var allowed = { bottomFixed: 1, pivotTop: 1, pivotActive: 1, pivotMiddle: 1, pivotCustom: 1 };
+        var allowed = { bottomFixed: 1, pivotTop: 1, pivotActive: 1, pivotMiddleUpper: 1, pivotMiddleLower: 1, pivotMiddle: 1, pivotCustom: 1 };
         var mode = payload.verticalAnchorMode;
+        if (mode === 'pivotMiddle') mode = 'pivotMiddleUpper';
         if (!allowed[mode]) mode = 'bottomFixed';
         if (document.activeElement !== selectVerticalAnchor) selectVerticalAnchor.value = mode;
         var n = 1;
@@ -1028,21 +866,60 @@
         updateStripPanelLinkVisual();
       }
 
+      /** Preset-dropdown gelijk houden met project.stripPresetId (uit project.json na heropenen). */
+      function syncStripPresetSelectFromPayload(payload) {
+        var sel = document.getElementById('strip-preset-list');
+        if (!sel || !payload) return;
+        if (payload.stripPresetId != null && String(payload.stripPresetId).trim() !== '') {
+          var str = String(payload.stripPresetId).trim();
+          var i;
+          for (i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].value === str) {
+              sel.value = str;
+              return;
+            }
+          }
+        }
+        sel.value = '';
+      }
+
+      function syncOrientFlipFromPayload(payload) {
+        var lab = document.getElementById('strip-orient-label');
+        var fh = document.getElementById('strip-flip-h');
+        var fv = document.getElementById('strip-flip-v');
+        if (!payload) {
+          if (lab) { lab.textContent = '—'; lab.title = ''; }
+          if (fh && document.activeElement !== fh) fh.checked = false;
+          if (fv && document.activeElement !== fv) fv.checked = false;
+          return;
+        }
+        if (lab && payload.orientLabel != null) {
+          var t = String(payload.orientLabel);
+          lab.textContent = t;
+          lab.title = t;
+        }
+        if (fh && document.activeElement !== fh) fh.checked = !!payload.flipHorizontal;
+        if (fv && document.activeElement !== fv) fv.checked = !!payload.flipVertical;
+      }
+
       api.onStripUpdate(function (payload) {
         setBusy(false);
         lastPayload = payload;
         if (!payload) {
+          lastStripDataUrlApplied = '';
           updateHeaderFilename(null);
           updateScanGotoHints(null);
+          syncOrientFlipFromPayload(null);
           placeholder.style.display = 'block';
           zoomWrapper.style.display = 'none';
-          updateDetailSectionLayout();
           return;
         }
         updateScanGotoHints(payload);
         updateHeaderFilename(payload);
         syncVerticalAnchorFromPayload(payload);
         syncPanelLinkFromPayload(payload);
+        syncStripPresetSelectFromPayload(payload);
+        syncOrientFlipFromPayload(payload);
         if (payload.stripDataUrl) {
           placeholder.style.display = 'none';
           zoomWrapper.style.display = 'block';
@@ -1051,23 +928,25 @@
           const dh = Math.max(1, payload.displayHeight || 1);
           img.style.width = dw + 'px';
           img.style.height = dh + 'px';
-          img.src = payload.stripDataUrl;
-          img.onload = function () {
-            img.onload = null;
-            if (img.naturalWidth !== dw || img.naturalHeight !== dh) {
-              console.warn(
-                '[scanlint-preview] Bitmapgrootte komt niet overeen met payload:',
-                img.naturalWidth,
-                '×',
-                img.naturalHeight,
-                'verwacht',
-                dw,
-                '×',
-                dh
-              );
-            }
-            requestAnimationFrame(drawDetailFrame);
-          };
+          if (payload.stripDataUrl !== lastStripDataUrlApplied) {
+            lastStripDataUrlApplied = payload.stripDataUrl;
+            img.src = payload.stripDataUrl;
+            img.onload = function () {
+              img.onload = null;
+              if (img.naturalWidth !== dw || img.naturalHeight !== dh) {
+                console.warn(
+                  '[scanlint-preview] Bitmapgrootte komt niet overeen met payload:',
+                  img.naturalWidth,
+                  '×',
+                  img.naturalHeight,
+                  'verwacht',
+                  dw,
+                  '×',
+                  dh
+                );
+              }
+            };
+          }
           const extH = Math.max(dh, payload.extendedDisplayHeight || dh);
           if (extH > dh) {
             const margin = Math.round((extH - dh) / 2);
@@ -1081,6 +960,7 @@
           container.style.height = extH + 'px';
         } else if (!(payload.gridRects && payload.gridRects.length > 0)) {
           img.style.display = 'none';
+          lastStripDataUrlApplied = '';
         }
         if (payload.gridRects && payload.gridRects.length > 0) {
           updateInputsFromPayload(payload);
@@ -1099,12 +979,9 @@
             }
           }
           drawGrid(payload);
-          syncDetailFrameOptions(payload);
         }
-        updateDetailSectionLayout();
         applyZoom();
         /* scroll: applyZoom plant al scheduleScrollToActiveFrame bij grid; dubbel = subpixel-springen */
-        requestAnimationFrame(drawDetailFrame);
       });
 
       inputX.addEventListener('change', applyAbsolute);
@@ -1158,6 +1035,25 @@
       document.getElementById('btn-bottom').addEventListener('click', function () { jumpToPosition('bottom'); });
       zoomSelect.addEventListener('change', applyZoom);
 
+      (function setupOrientFlipControls() {
+        var btnR = document.getElementById('btn-strip-rotate90');
+        var fh = document.getElementById('strip-flip-h');
+        var fv = document.getElementById('strip-flip-v');
+        function sendFlip() {
+          if (!fh || !fv || !api.stripSetFlip) return;
+          setBusy(true);
+          api.stripSetFlip(fh.checked, fv.checked);
+        }
+        if (btnR && api.stripRotate90) {
+          btnR.addEventListener('click', function () {
+            setBusy(true);
+            api.stripRotate90();
+          });
+        }
+        if (fh) fh.addEventListener('change', sendFlip);
+        if (fv) fv.addEventListener('change', sendFlip);
+      })();
+
       /* Dubbelklik op rastercel: frame actief. Geen lokale drawGrid — bij pivotActive verandert k en dus alle gridRects; oude rects + nieuwe activeFrame geeft verkeerde rode rand en >1px sprong tot payload komt. */
       overlay.addEventListener('dblclick', function (e) {
         if (!lastPayload || !Array.isArray(lastPayload.gridRects) || lastPayload.gridRects.length === 0) return;
@@ -1182,7 +1078,6 @@
             e.preventDefault();
             var frameNum = r.frameNumber != null ? r.frameNumber : i + 1;
             api.setActiveFrameByNumber(frameNum);
-            if (selDetailFrame) selDetailFrame.dataset.pendingFrame = String(frameNum);
             return;
           }
         }
@@ -1192,49 +1087,116 @@
         if (zoomSelect.value === 'fit-width' || zoomSelect.value === 'fit-height') applyZoom();
       });
 
-      document.addEventListener('keydown', function (e) {
-        if (document.activeElement === inputX || document.activeElement === inputY || document.activeElement === inputYBottom || document.activeElement === inputScanGoto || document.activeElement === zoomSelect || document.activeElement === selectVerticalAnchor || document.activeElement === inputVerticalAnchorK) return;
-        var code = e.code || '';
-        var key = e.key || '';
-        if (!isTextLikeFocused()) {
-          if (code === 'NumpadMultiply') {
+      var stripKb = { order: [], bindings: {} };
+      function applyStripShortcutsPayload(payload) {
+        if (!payload || !payload.bindings) return;
+        stripKb.order = payload.order || [];
+        stripKb.bindings = payload.bindings;
+      }
+      function eventMatchesStripBinding(e, b) {
+        if (!b || !b.code || e.code !== b.code) return false;
+        if (b.ctrl !== undefined && !!e.ctrlKey !== !!b.ctrl) return false;
+        if (b.shift !== undefined && !!e.shiftKey !== !!b.shift) return false;
+        if (b.alt !== undefined && !!e.altKey !== !!b.alt) return false;
+        if (b.meta !== undefined && !!e.metaKey !== !!b.meta) return false;
+        return true;
+      }
+      function findStripShortcutAction(e) {
+        var ord = stripKb.order;
+        var bnd = stripKb.bindings;
+        for (var i = 0; i < ord.length; i++) {
+          if (eventMatchesStripBinding(e, bnd[ord[i]])) return ord[i];
+        }
+        return null;
+      }
+      function stripShortcutTargetsInput() {
+        if (document.activeElement === inputX || document.activeElement === inputY || document.activeElement === inputYBottom || document.activeElement === inputScanGoto || document.activeElement === zoomSelect || document.activeElement === selectVerticalAnchor || document.activeElement === inputVerticalAnchorK) return true;
+        return isTextLikeFocused();
+      }
+      function dispatchStripShortcut(action, e) {
+        if (!action) return false;
+        switch (action) {
+          case 'handLeft':
+            e.preventDefault();
+            sendDelta(-stepPx, 0);
+            return true;
+          case 'handRight':
+            e.preventDefault();
+            sendDelta(stepPx, 0);
+            return true;
+          case 'handUp':
+            e.preventDefault();
+            sendDelta(0, -stepPx);
+            return true;
+          case 'handDown':
+            e.preventDefault();
+            sendDelta(0, stepPx);
+            return true;
+          case 'zoomFitWidth':
             e.preventDefault();
             zoomSelect.value = 'fit-width';
             applyZoom();
-            return;
-          }
-          if (code === 'NumpadDivide') {
+            return true;
+          case 'zoomFitHeight':
             e.preventDefault();
             zoomSelect.value = 'fit-height';
             applyZoom();
-            return;
-          }
-          if (code === 'PageUp' || key === 'PageUp') {
+            return true;
+          case 'jumpFrameTop':
             e.preventDefault();
             jumpToPosition('top');
-            return;
-          }
-          if (code === 'PageDown' || key === 'PageDown') {
+            return true;
+          case 'jumpFrameBottom':
             e.preventDefault();
             jumpToPosition('bottom');
-            return;
-          }
-          if ((code === 'Home' || key === 'Home') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            return true;
+          case 'jumpFrameMiddle':
             e.preventDefault();
             jumpToPosition('middle');
-            return;
-          }
+            return true;
+          case 'scanPrev':
+            e.preventDefault();
+            if (api.navigateProjectScan) {
+              setBusy(true);
+              api.navigateProjectScan('prev');
+            }
+            return true;
+          case 'scanNext':
+            e.preventDefault();
+            if (api.navigateProjectScan) {
+              setBusy(true);
+              api.navigateProjectScan('next');
+            }
+            return true;
+          case 'resetGrid':
+            e.preventDefault();
+            if (api.resetGridToDefault) {
+              setBusy(true);
+              api.resetGridToDefault();
+            }
+            return true;
+          case 'rotate90':
+            e.preventDefault();
+            if (api.stripRotate90) {
+              setBusy(true);
+              api.stripRotate90();
+            }
+            return true;
+          default:
+            return false;
         }
-        var dx = 0, dy = 0;
-        if (e.key === 'ArrowLeft') { dx = -stepPx; dy = 0; }
-        else if (e.key === 'ArrowRight') { dx = stepPx; dy = 0; }
-        else if (e.key === 'ArrowUp') { dx = 0; dy = -stepPx; }
-        else if (e.key === 'ArrowDown') { dx = 0; dy = stepPx; }
-        if (dx !== 0 || dy !== 0) {
-          e.preventDefault();
-          sendDelta(dx, dy);
-        }
+      }
+      document.addEventListener('keydown', function (e) {
+        if (stripShortcutTargetsInput()) return;
+        var action = findStripShortcutAction(e);
+        if (dispatchStripShortcut(action, e)) return;
       });
+      if (api.getStripShortcuts) {
+        api.getStripShortcuts().then(applyStripShortcutsPayload).catch(function () {});
+      }
+      if (api.onStripShortcutsUpdated) {
+        api.onStripShortcutsUpdated(applyStripShortcutsPayload);
+      }
 
       img.addEventListener('load', function () {
         if (lastPayload && lastPayload.gridRects && lastPayload.gridRects.length > 0) {
@@ -1273,6 +1235,7 @@
             }
           }
         } catch (e) {}
+        if (lastPayload) syncStripPresetSelectFromPayload(lastPayload);
       }
 
       function sendVerticalAnchorFromUi() {
@@ -1324,7 +1287,7 @@
         if (e.shiftKey && api.applyVerticalRigidPanBoundary) {
           api.applyVerticalRigidPanBoundary(true);
         } else if (api.applyVerticalFixedBottomStep) {
-          api.applyVerticalFixedBottomStep(stepPx);
+          api.applyVerticalFixedBottomStep(stepPx, 'compress');
         }
       });
       document.getElementById('btn-vert-stretch').addEventListener('click', function (e) {
@@ -1332,7 +1295,7 @@
         if (e.shiftKey && api.applyVerticalRigidPanBoundary) {
           api.applyVerticalRigidPanBoundary(false);
         } else if (api.applyVerticalFixedBottomStep) {
-          api.applyVerticalFixedBottomStep(-stepPx);
+          api.applyVerticalFixedBottomStep(stepPx, 'stretch');
         }
       });
       document.getElementById('btn-scan-prev').addEventListener('click', function () {
@@ -1373,6 +1336,20 @@
       });
       if (api.onPresetsUpdated) api.onPresetsUpdated(function () { refreshStripPresetList(); });
       refreshStripPresetList();
+
+      var btnAlignWin = document.getElementById('btn-open-align-window');
+      if (btnAlignWin && api.openAlignPreview) {
+        btnAlignWin.addEventListener('click', function () {
+          api.openAlignPreview().catch(function () {});
+        });
+      }
+      var btnStripRefresh = document.getElementById('btn-strip-refresh');
+      if (btnStripRefresh && api.requestStripRefresh) {
+        btnStripRefresh.addEventListener('click', function () {
+          setBusy(true);
+          api.requestStripRefresh();
+        });
+      }
 
       updateActiveButtons();
     })();

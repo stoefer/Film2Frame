@@ -10,6 +10,8 @@ const prefs = require('./prefs');
 const presets = require('./presets');
 const gridPresets = require('./grid-presets');
 const version = require('./version');
+const locales = require('./locales');
+const videoExport = require('./video-export');
 
 const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp'];
 
@@ -33,8 +35,8 @@ function registerIPC() {
     const win = windows.getMainWindow();
     const { lastProjectFolder, lastFileLocation } = prefs.getLastPaths();
     const type = options?.type;
-    let defaultPath = null;
-    if (type === 'projectFolder') {
+    let defaultPath = options?.defaultPath || null;
+    if (!defaultPath && type === 'projectFolder') {
       if (lastProjectFolder) defaultPath = lastProjectFolder;
       else {
         try {
@@ -42,7 +44,7 @@ function registerIPC() {
           fs.mkdirSync(defaultPath, { recursive: true });
         } catch (_) {}
       }
-    } else if (type === 'fileLocation' && lastFileLocation) defaultPath = lastFileLocation;
+    } else if (!defaultPath && type === 'fileLocation' && lastFileLocation) defaultPath = lastFileLocation;
     const result = await dialog.showOpenDialog(win || null, {
       properties: ['openDirectory'],
       title: options?.title || 'Kies map',
@@ -73,7 +75,8 @@ function registerIPC() {
         filmPolarity: filmPolarity || 'positief',
         outputFolder: outputFolder || null,
         outputFormat: outputFormat || 'png',
-        scanDpi: scanDpi || 4800
+        scanDpi: scanDpi || 4800,
+        stripPresetId: null
       };
       await project.writeProject(projectFolderPath, data);
       prefs.setLastProjectPath(projectFolderPath);
@@ -89,6 +92,16 @@ function registerIPC() {
 
   ipcMain.handle('get-app-version', () => {
     return { buildVersion: version.getBuildVersion() };
+  });
+
+  ipcMain.handle('get-locale', () => prefs.getLocale());
+  ipcMain.handle('set-locale', (_, locale) => {
+    if (['en', 'nl'].includes(String(locale))) prefs.setLocale(locale);
+  });
+  ipcMain.handle('get-translations', () => {
+    const locale = prefs.getLocale();
+    const dict = locales.loadLocale(locale);
+    return dict || locales.loadLocale('en') || {};
   });
 
   ipcMain.handle('open-project-by-path', async (_, projectFolderPath) => {
@@ -147,7 +160,19 @@ function registerIPC() {
   });
 
   ipcMain.handle('save-project', async (_, payload) => {
-    const { projectFolderPath, state, lintStates, currentLintPath, scanInfos, filmFormat, filmPolarity, outputFolder, outputFormat, scanDpi } = payload || {};
+    const {
+      projectFolderPath,
+      state,
+      lintStates,
+      currentLintPath,
+      scanInfos,
+      filmFormat,
+      filmPolarity,
+      outputFolder,
+      outputFormat,
+      scanDpi,
+      stripPresetId
+    } = payload || {};
     if (!projectFolderPath) return { ok: false, error: 'Geen project geopend' };
     try {
       const existing = await project.readProject(projectFolderPath);
@@ -165,7 +190,13 @@ function registerIPC() {
         filmPolarity: filmPolarity ?? existing?.filmPolarity ?? 'positief',
         outputFolder: outputFolder ?? existing?.outputFolder ?? null,
         outputFormat: outputFormat ?? existing?.outputFormat ?? 'png',
-        scanDpi: scanDpi ?? existing?.scanDpi ?? 4800
+        scanDpi: scanDpi ?? existing?.scanDpi ?? 4800,
+        stripPresetId:
+          stripPresetId !== undefined
+            ? stripPresetId != null && typeof stripPresetId === 'string' && stripPresetId.trim() !== ''
+              ? stripPresetId.trim()
+              : null
+            : existing?.stripPresetId ?? null
       };
       await project.writeProject(projectFolderPath, data);
       prefs.setLastProjectPath(projectFolderPath);
@@ -229,8 +260,13 @@ function registerIPC() {
     return project.countImagesInFolder(folderPath);
   });
 
-  ipcMain.handle('get-scan-infos', async (_, folderPath) => {
-    return project.getScanInfos(folderPath);
+  ipcMain.handle('get-scan-infos', async (event, folderPath) => {
+    const wc = event.sender;
+    return project.getScanInfos(folderPath, (current, total) => {
+      if (!wc.isDestroyed()) {
+        wc.send('scan-infos-progress', { current, total });
+      }
+    });
   });
 
   ipcMain.handle('select-scan-file', async () => {
@@ -283,6 +319,24 @@ function registerIPC() {
     return { ok: true };
   });
 
+  ipcMain.handle('open-align-preview', () => {
+    try {
+      const base = path.join(__dirname, '..');
+      const preload = path.join(base, 'preloads', 'align-preview.js');
+      const html = path.join(base, 'windows', 'align-preview.html');
+      if (!fs.existsSync(html)) return { ok: false, error: 'align-preview.html not found' };
+      if (!fs.existsSync(preload)) return { ok: false, error: 'align-preview preload not found' };
+      windows.createAlignPreviewWindow(preload, html);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || 'open-align-preview failed' };
+    }
+  });
+
+  ipcMain.handle('close-align-preview', () => {
+    windows.closeAlignPreviewWindow();
+  });
+
   ipcMain.handle('close-output-preview', () => {
     windows.closeOutputPreviewWindow();
   });
@@ -292,7 +346,11 @@ function registerIPC() {
   });
 
   ipcMain.on('send-strip-update', (_, payload) => {
-    windows.sendToStripPreview('strip-update', payload);
+    const merged = windows.setLastStripUpdatePayload(payload);
+    if (merged) {
+      windows.sendToStripPreview('strip-update', merged);
+      windows.sendToAlignPreview('align-preview-update', merged);
+    }
   });
 
   ipcMain.handle('set-frame-window-size', (event, width, height) => {
@@ -312,9 +370,21 @@ function registerIPC() {
 
   /** Strip-preview vraagt om opnieuw strip-data (na reload of bij eerste load). */
   ipcMain.on('request-strip-refresh', () => {
+    windows.resendLastStripPayloadToStripPreview();
+    windows.resendLastStripPayloadToAlignPreview();
     const mainWin = windows.getMainWindow();
     if (mainWin && !mainWin.isDestroyed()) {
       mainWin.webContents.send('strip-preview-ready');
+    }
+  });
+
+  /** Uitlijning-venster: zelfde strip-payload ophalen als scanlint-preview. */
+  ipcMain.on('request-align-preview-refresh', () => {
+    windows.resendLastStripPayloadToStripPreview();
+    windows.resendLastStripPayloadToAlignPreview();
+    const mainWin = windows.getMainWindow();
+    if (mainWin && !mainWin.isDestroyed()) {
+      mainWin.webContents.send('align-preview-ready');
     }
   });
 
@@ -414,7 +484,8 @@ function registerIPC() {
     if (mainWin && !mainWin.isDestroyed()) {
       const p = payload && typeof payload === 'object' ? payload : {};
       mainWin.webContents.send('strip-vertical-fixed-bottom-step', {
-        delta: p.delta != null ? Number(p.delta) : 0
+        delta: p.delta != null ? Number(p.delta) : 0,
+        duwKind: p.duwKind === 'compress' || p.duwKind === 'stretch' ? p.duwKind : undefined
       });
     }
   });
@@ -451,6 +522,21 @@ function registerIPC() {
   ipcMain.on('strip-preset-delete', (_, id) => {
     const mainWin = windows.getMainWindow();
     if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('strip-preset-do-delete', id);
+  });
+  /** Scanlint-preview: draai 90° / spiegelen — zelfde state als hoofdvenster. */
+  ipcMain.on('strip-rotate-90', () => {
+    const mainWin = windows.getMainWindow();
+    if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('strip-rotate-90');
+  });
+  ipcMain.on('strip-set-flip', (_, payload) => {
+    const mainWin = windows.getMainWindow();
+    const p = payload && typeof payload === 'object' ? payload : {};
+    if (mainWin && !mainWin.isDestroyed()) {
+      mainWin.webContents.send('strip-set-flip', {
+        flipHorizontal: !!p.flipHorizontal,
+        flipVertical: !!p.flipVertical
+      });
+    }
   });
   ipcMain.on('notify-strip-presets-updated', () => {
     windows.sendToStripPreview('presets-updated');
@@ -493,71 +579,101 @@ function registerIPC() {
   ipcMain.handle('get-app-settings', () => prefs.getAllSettings());
   ipcMain.handle('set-app-settings', (_, settings) => {
     prefs.setSettings(settings);
+    if (settings && settings.stripPreviewShortcuts !== undefined) {
+      const stripShortcuts = require('./strip-shortcuts');
+      const user = prefs.getAllSettings().stripPreviewShortcuts || {};
+      windows.sendToStripPreview('strip-shortcuts-updated', stripShortcuts.getPayloadForStrip(user));
+    }
     return { ok: true };
+  });
+
+  ipcMain.handle('get-strip-shortcuts', () => {
+    const stripShortcuts = require('./strip-shortcuts');
+    const user = prefs.getAllSettings().stripPreviewShortcuts || {};
+    return stripShortcuts.getPayloadForStrip(user);
+  });
+
+  ipcMain.handle('get-strip-shortcut-config', () => {
+    const stripShortcuts = require('./strip-shortcuts');
+    const user = prefs.getAllSettings().stripPreviewShortcuts || {};
+    return stripShortcuts.getShortcutConfigForSettings(user);
   });
 
   ipcMain.handle('arrange-windows', () => {
-    const { screen } = require('electron');
-    const display = screen.getPrimaryDisplay();
-    const work = display.workArea;
-    const mainWin = windows.getMainWindow();
-    const stripWin = windows.getStripPreviewWindow();
-    const outputWin = windows.getOutputPreviewWindow();
-    const gap = 8;
-    const layout = prefs.getAllSettings().windowArrangement || 'left-center-right';
-
-    function setBounds(win, x, y, w, h) {
-      if (!win || win.isDestroyed()) return;
-      win.setBounds({ x, y, width: w, height: h });
-      win.setVisibleOnAllWorkspaces(true);
-      win.setVisibleOnAllWorkspaces(false);
-    }
-
-    const W = work.width;
-    const H = work.height;
-    const X = work.x;
-    const Y = work.y;
-
-    // Standaard: links = output preview, midden = scanlint preview, rechts = hoofdpaneel
-    if (layout === 'left-center-right') {
-      const w = Math.floor((W - 2 * gap) / 3);
-      let x = X;
-      setBounds(outputWin, x, Y, w, H);
-      x += w + gap;
-      setBounds(stripWin, x, Y, w, H);
-      x += w + gap;
-      setBounds(mainWin, x, Y, w, H);
-    } else if (layout === 'left-rightstack') {
-      const wLeft = Math.floor((W - gap) / 2);
-      const wRight = W - wLeft - gap;
-      const hHalf = Math.floor((H - gap) / 2);
-      setBounds(outputWin, X, Y, wLeft, H);
-      setBounds(stripWin, X + wLeft + gap, Y, wRight, hHalf);
-      setBounds(mainWin, X + wLeft + gap, Y + hHalf + gap, wRight, H - hHalf - gap);
-    } else if (layout === 'top-middle-bottom') {
-      const h = Math.floor((H - 2 * gap) / 3);
-      setBounds(outputWin, X, Y, W, h);
-      setBounds(stripWin, X, Y + h + gap, W, h);
-      setBounds(mainWin, X, Y + 2 * (h + gap), W, H - 2 * (h + gap));
-    } else if (layout === 'left-right-bottom') {
-      const wLeft = Math.floor((W - gap) / 2);
-      const wRight = W - wLeft - gap;
-      const hTop = Math.floor((H - gap) / 2);
-      const hBottom = H - hTop - gap;
-      setBounds(outputWin, X, Y, wLeft, hTop);
-      setBounds(stripWin, X + wLeft + gap, Y, wRight, hTop);
-      setBounds(mainWin, X, Y + hTop + gap, W, hBottom);
-    } else {
-      const w = Math.floor((W - 2 * gap) / 3);
-      let x = X;
-      setBounds(outputWin, x, Y, w, H);
-      x += w + gap;
-      setBounds(stripWin, x, Y, w, H);
-      x += w + gap;
-      setBounds(mainWin, x, Y, w, H);
-    }
+    const windowArrange = require('./window-arrange');
+    windowArrange.arrangeWindows(prefs.getAllSettings().windowArrangement);
     return { ok: true };
   });
+
+  ipcMain.handle('select-video-output-file', async (_, formatId) => {
+    const win = windows.getMainWindow();
+    const formats = videoExport.getVideoFormats();
+    const preset = formats[formatId] || formats.h264;
+    const ext = preset.ext;
+    const result = await dialog.showSaveDialog(win || null, {
+      title: 'Video bestand opslaan',
+      defaultPath: `output.${ext}`,
+      filters: [{ name: `${ext.toUpperCase()} Video`, extensions: [ext] }]
+    });
+    if (result.canceled || !result.filePath) return null;
+    return result.filePath;
+  });
+
+  ipcMain.handle('get-temp-video-folder', async () => {
+    const dir = path.join(require('os').tmpdir(), `film2frame-video-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  });
+
+  ipcMain.handle('create-video-from-frames', async (_, opts) => {
+    const { tempFolder, outputPath, fps, formatId } = opts || {};
+    if (!tempFolder || !outputPath) return { ok: false, error: 'Ontbrekende parameters' };
+    try {
+      const result = await videoExport.createVideo({
+        framesFolder: tempFolder,
+        outputPath,
+        fps: Number(fps) || 24,
+        formatId: formatId || 'h264',
+        onProgress: (phase, detail) => {
+          const win = windows.getMainWindow();
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('video-export-progress', { phase, detail });
+          }
+        }
+      });
+      videoExport.removeTempFolder(tempFolder);
+      return result;
+    } catch (err) {
+      videoExport.removeTempFolder(tempFolder);
+      return { ok: false, error: err.message || 'Video maken mislukt' };
+    }
+  });
+
+  ipcMain.handle('create-video-from-folder', async (_, opts) => {
+    const { folderPath, outputPath, fps, formatId } = opts || {};
+    if (!folderPath || !outputPath) return { ok: false, error: 'Ontbrekende parameters' };
+    try {
+      const imagePaths = await project.listImagesInFolder(folderPath);
+      if (!imagePaths.length) return { ok: false, error: 'Geen beeldbestanden in deze map' };
+      const sendProgress = (phase, detail) => {
+        const win = windows.getMainWindow();
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('video-export-progress', { phase, detail });
+        }
+      };
+      return await videoExport.createVideoFromImagePaths({
+        imagePaths,
+        outputPath,
+        fps: Number(fps) || 24,
+        formatId: formatId || 'h264',
+        onProgress: sendProgress
+      });
+    } catch (err) {
+      return { ok: false, error: err.message || 'Video maken mislukt' };
+    }
+  });
+
+  ipcMain.handle('check-ffmpeg-available', () => videoExport.checkFfmpegAvailable());
 }
 
 module.exports = { registerIPC };

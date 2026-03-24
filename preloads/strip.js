@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('stripApi', {
   onStripUpdate: (cb) => { ipcRenderer.on('strip-update', (_, p) => cb && cb(p)); },
   requestStripRefresh: () => { ipcRenderer.send('request-strip-refresh'); },
+  openAlignPreview: () => ipcRenderer.invoke('open-align-preview'),
   sendGridOffsetDelta: (deltaX, deltaY, tool) => { ipcRenderer.send('from-frame-grid-offset', { deltaX: Number(deltaX) || 0, deltaY: Number(deltaY) || 0, tool: tool || 'hand' }); },
   setGridOffsetAbsolute: (gridOffsetX, gridOffsetY, gridOffsetYBottom) => { ipcRenderer.send('set-grid-offset-absolute', { gridOffsetX: Number(gridOffsetX) || 0, gridOffsetY: Number(gridOffsetY) || 0, gridOffsetYBottom: Number.isFinite(Number(gridOffsetYBottom)) ? Number(gridOffsetYBottom) : 0 }); },
   applyWidthNarrow: () => { ipcRenderer.send('strip-apply-width-narrow'); },
@@ -20,8 +21,16 @@ contextBridge.exposeInMainWorld('stripApi', {
   applyVerticalRigidPanBoundary: (towardCompress) => {
     ipcRenderer.send('strip-vertical-rigid-pan-boundary', { towardCompress: !!towardCompress });
   },
-  /** delta preview-px: rigide verticale pan (zelfde als Hand ▲▼), geen celhoogte-wijziging */
-  applyVerticalFixedBottomStep: (delta) => { ipcRenderer.send('strip-vertical-fixed-bottom-step', { delta: Number(delta) || 0 }); },
+  /**
+   * Verticale Duw-stap (preview-px). Optioneel tweede arg: 'compress' = Omlaag ▼, 'stretch' = Omhoog ▲
+   * (dan is delta het stapbedrag, altijd positief). Legacy: alleen getekende delta zoals vroeger.
+   */
+  applyVerticalFixedBottomStep: (delta, duwKind) => {
+    const d = Number(delta) || 0;
+    const payload = { delta: d };
+    if (duwKind === 'compress' || duwKind === 'stretch') payload.duwKind = duwKind;
+    ipcRenderer.send('strip-vertical-fixed-bottom-step', payload);
+  },
   setVerticalAnchor: (mode, customK) => {
     ipcRenderer.send('strip-vertical-anchor', {
       mode: typeof mode === 'string' ? mode : 'bottomFixed',
@@ -32,11 +41,24 @@ contextBridge.exposeInMainWorld('stripApi', {
     ipcRenderer.send('strip-panel-link-vertical-anchor', { link: !!link });
   },
   navigateProjectScan: (direction) => { ipcRenderer.send('strip-navigate-scan', { direction: direction === 'next' ? 'next' : 'prev' }); },
+  getLocale: () => ipcRenderer.invoke('get-locale'),
+  getTranslations: () => ipcRenderer.invoke('get-translations'),
   /** Spring naar scanlint op positie 1..n (zelfde als vorige/volgende: eerst project opslaan). */
   gotoProjectScan: (index) => { ipcRenderer.send('strip-navigate-scan', { index: Number(index) }); },
   presetsList: () => ipcRenderer.invoke('presets-list'),
   stripPresetSave: (name) => ipcRenderer.send('strip-preset-save', typeof name === 'string' ? name : ''),
   stripPresetLoad: (id) => ipcRenderer.send('strip-preset-load', id),
   stripPresetDelete: (id) => ipcRenderer.send('strip-preset-delete', id),
-  onPresetsUpdated: (cb) => { ipcRenderer.on('presets-updated', () => cb && cb()); }
+  onPresetsUpdated: (cb) => { ipcRenderer.on('presets-updated', () => cb && cb()); },
+  stripRotate90: () => { ipcRenderer.send('strip-rotate-90'); },
+  getStripShortcuts: () => ipcRenderer.invoke('get-strip-shortcuts'),
+  onStripShortcutsUpdated: (cb) => {
+    ipcRenderer.on('strip-shortcuts-updated', (_, payload) => cb && cb(payload));
+  },
+  stripSetFlip: (flipHorizontal, flipVertical) => {
+    ipcRenderer.send('strip-set-flip', {
+      flipHorizontal: !!flipHorizontal,
+      flipVertical: !!flipVertical
+    });
+  }
 });

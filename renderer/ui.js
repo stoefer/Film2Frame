@@ -1,13 +1,14 @@
 /**
  * UI-binding – koppelt DOM aan state en preview. Enige module die getElementById gebruikt.
  */
-import { getState, setStrip, setRotation90, setFineRotation, setNumFrames, setActiveFrameIndex, setZoomFrames, setFramePreviewVisibleFrames, setStripPreviewMaxDim, setExportFolderPath, setExportBaseName, setExportPauseSeconds, setGridOffset, setGridOffsetXMargins, setGridOffsetYOnly, setGridOffsetYBottom, setDirty, setFlipHorizontal, setFlipVertical, setTimecodeFps, setFilmFormat, setFilmPolarity, setTiltPivot, setOutputFormat, setScanDpi, setArrowStepPx, setArrowStepShiftPx, getLintStateSnapshot, getGridGeometrySnapshot, applyGridGeometrySnapshot, setLintStateForPath, updateProjectScanInfos, applyLintState, setGridVerticalAnchorMode, setGridVerticalPivotCustomK, setGridSplitLowerPanCanvas, setGridPanelLinkVerticalAnchor } from './state.js';
-import { loadImage, getStripCanvas, getStripCanvasDimensions } from './strip-loader.js';
+import { getState, setStrip, setRotation90, setFineRotation, setNumFrames, setActiveFrameIndex, setZoomFrames, setFramePreviewVisibleFrames, setStripPreviewMaxDim, setExportFolderPath, setExportBaseName, setExportPauseSeconds, setVideoOutputPath,
+  setVideoFramesFolderPath, setGridOffset, setGridOffsetXMargins, setGridOffsetYOnly, setGridOffsetYBottom, setDirty, setFlipHorizontal, setFlipVertical, setTimecodeFps, setFilmFormat, setFilmPolarity, setTiltPivot, setOutputFormat, setScanDpi, setArrowStepPx, setArrowStepShiftPx, getLintStateSnapshot, getGridGeometrySnapshot, applyGridGeometrySnapshot, setLintStateForPath, updateProjectScanInfos, applyLintState, setGridVerticalAnchorMode, setGridVerticalPivotCustomK, setGridSplitLowerPanCanvas, setGridPanelLinkVerticalAnchor, setStripPresetId } from './state.js';
+import { loadImage, getStripCanvas, getStripCanvasDimensions, getStripCanvasPairForExport } from './strip-loader.js';
 import {
   getFrameDimensions,
   getEffectiveGridOffsetX,
   getDefaultGridOffsetX,
-  cropFrameAtIndex,
+  cropFrameAtIndexForExport,
   clampGridMarginsCanvas,
   clampGridVerticalMarginsCanvas,
   getEffectiveGridMargins,
@@ -31,6 +32,8 @@ import { hasProject, getProjectMeta, getProjectPath, isDirty, createProject, ope
 import { getFromCache, prefetch, clearCache } from './strip-cache.js';
 
 import { updateStatus } from './status.js';
+import { getScanInfosWithProgressOverlay } from './scan-folder-overlay.js';
+import { t, init as initI18n, setLocale as setI18nLocale, applyToDOM, getLocale } from './i18n.js';
 import {
   MIN_FRAMES,
   MAX_FRAMES,
@@ -44,6 +47,8 @@ import {
 const ids = {
   projectInfo: 'project-info',
   projectDirty: 'project-dirty',
+  locale: 'f2f-locale',
+  buildVersion: 'f2f-build-version',
   projectFirstStep: 'project-first-step',
   projectStats: 'project-stats',
   statScanCount: 'f2f-stat-scan-count',
@@ -72,11 +77,7 @@ const ids = {
   openProject: 'f2f-open-project',
   saveProject: 'f2f-save-project',
   deleteProject: 'f2f-delete-project',
-  flipH: 'f2f-flip-h',
-  flipV: 'f2f-flip-v',
   filename: 'f2f-filename',
-  orientLabel: 'f2f-orient',
-  rotate90: 'f2f-rotate90',
   fineRotation: 'f2f-fine-rotation',
   fineRotationValue: 'f2f-fine-value',
   fineMinusCoarse: 'f2f-fine-minus-coarse',
@@ -114,11 +115,23 @@ const ids = {
   exportBatchRange: 'f2f-export-batch-range',
   exportCurrent: 'f2f-export-current',
   exportBatch: 'f2f-export-batch',
+  pickFramesFolder: 'f2f-pick-frames-folder',
+  videoFramesFolderPath: 'f2f-video-frames-folder-path',
+  videoFormat: 'f2f-video-format',
+  pickVideoOutput: 'f2f-pick-video-output',
+  videoOutputPath: 'f2f-video-output-path',
+  videoFps: 'f2f-video-fps',
+  videoScanFrom: 'f2f-video-scan-from',
+  videoScanTo: 'f2f-video-scan-to',
+  exportVideo: 'f2f-export-video',
+  videoExportProgressWrap: 'f2f-video-export-progress-wrap',
+  videoExportProgress: 'f2f-video-export-progress',
   prevScan: 'f2f-prev-scan',
   nextScan: 'f2f-next-scan',
   goToScan: 'f2f-go-to-scan',
   loadLint: 'f2f-load-lint',
   openStrip: 'f2f-open-strip',
+  openAlignPreview: 'f2f-open-align-preview',
   openOutputPreview: 'f2f-open-output-preview',
   closeStrip: 'f2f-close-strip',
   filmFormat: 'f2f-film-format',
@@ -136,14 +149,20 @@ const ids = {
   settingDefaultFrames: 'f2f-setting-default-frames',
   settingOutputFormat: 'f2f-setting-output-format',
   settingOutputRes: 'f2f-setting-output-res',
+  exportOutputRes: 'f2f-export-output-res',
   settingCustomResWrap: 'f2f-setting-custom-res-wrap',
   settingCustomW: 'f2f-setting-custom-w',
   settingCustomH: 'f2f-setting-custom-h',
   settingPreviewRes: 'f2f-setting-preview-res',
   settingDarkMode: 'f2f-setting-dark-mode',
   settingWindowArrangement: 'f2f-setting-window-arrangement',
+  settingArrangeOnStartup: 'f2f-setting-arrange-on-startup',
+  arrangeGrid: 'f2f-arrange-grid',
+  arrangeGridHsu: 'f2f-arrange-grid-hsu',
   settingArrowStepPx: 'f2f-setting-arrow-step-px',
   settingArrowStepShiftPx: 'f2f-setting-arrow-step-shift-px',
+  stripShortcutsTbody: 'f2f-strip-shortcuts-tbody',
+  stripShortcutsResetAll: 'f2f-strip-shortcuts-reset-all',
   arrangeWindowsBtn: 'f2f-arrange-windows',
   buildVersion: 'f2f-build-version',
   aboutBtn: 'f2f-about-btn',
@@ -221,12 +240,12 @@ function updateProjectUI() {
     if (projectInfo) projectInfo.textContent = infoText;
     if (projectDirty) {
       projectDirty.classList.toggle('hidden', !isDirty());
-      projectDirty.textContent = ' (niet opgeslagen)';
+      projectDirty.textContent = ' ' + t('project.unsavedSuffix');
     }
     if (firstStep) firstStep.classList.add('hidden');
     if (lintPanel) lintPanel.classList.remove('hidden');
   } else {
-    if (projectInfo) projectInfo.textContent = 'Geen project geopend';
+    if (projectInfo) projectInfo.textContent = t('project.noProjectOpen');
     if (projectDirty) projectDirty.classList.add('hidden');
     if (refreshScanListBtn) refreshScanListBtn.classList.add('hidden');
     const deleteProjectBtn = el(ids.deleteProject);
@@ -241,7 +260,6 @@ function updateUI() {
   const s = getState();
   const n = Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, s.numFrames));
   if (el(ids.filename)) el(ids.filename).textContent = s.path ? s.path.replace(/^.*[/\\]/, '') : '—';
-  if (el(ids.orientLabel)) el(ids.orientLabel).textContent = s.orientLabel || '—';
   if (el(ids.numFrames)) el(ids.numFrames).value = String(n);
   if (el(ids.gridMmFrames)) el(ids.gridMmFrames).value = String(n);
   if (el(ids.activeFrame)) {
@@ -276,7 +294,7 @@ function updateUI() {
   if (scanCountEl) {
     const meta = getProjectMeta();
     const total = (Array.isArray(meta?.scanInfos) && meta.scanInfos.length) ? meta.scanInfos.length : (Number(meta?.numberOfScans) || 0);
-    scanCountEl.textContent = hasProject() && total > 0 ? `Scans in project: ${total}` : '—';
+    scanCountEl.textContent = hasProject() && total > 0 ? t('frameGenerator.scansInProject', { total }) : t('frameGenerator.scanCountPlaceholder');
   }
   const fromEl = el(ids.exportScanFrom);
   const toEl = el(ids.exportScanTo);
@@ -289,8 +307,19 @@ function updateUI() {
     if (total > 0 && (Number(toEl.value) || 0) > maxScan) toEl.value = String(maxScan);
     if (total > 0 && (Number(fromEl.value) || 0) > maxScan) fromEl.value = String(maxScan);
   }
-  if (el(ids.flipH)) el(ids.flipH).checked = !!s.flipHorizontal;
-  if (el(ids.flipV)) el(ids.flipV).checked = !!s.flipVertical;
+  if (el(ids.videoOutputPath)) el(ids.videoOutputPath).textContent = s.videoOutputPath ? (s.videoOutputPath.length > 50 ? '...' + s.videoOutputPath.slice(-47) : s.videoOutputPath) : '—';
+  if (el(ids.videoFramesFolderPath)) el(ids.videoFramesFolderPath).textContent = s.videoFramesFolderPath ? (s.videoFramesFolderPath.length > 50 ? '...' + s.videoFramesFolderPath.slice(-47) : s.videoFramesFolderPath) : '—';
+  const videoFromEl = el(ids.videoScanFrom);
+  const videoToEl = el(ids.videoScanTo);
+  if (videoFromEl && videoToEl) {
+    const meta = getProjectMeta();
+    const total = (Array.isArray(meta?.scanInfos) && meta.scanInfos.length) ? meta.scanInfos.length : (Number(meta?.numberOfScans) || 0);
+    const maxScan = Math.max(1, total);
+    videoFromEl.max = String(maxScan);
+    videoToEl.max = String(maxScan);
+    if (total > 0 && (Number(videoToEl.value) || 0) > maxScan) videoToEl.value = String(maxScan);
+    if (total > 0 && (Number(videoFromEl.value) || 0) > maxScan) videoFromEl.value = String(maxScan);
+  }
   const filmFormatEl = el(ids.filmFormat);
   if (filmFormatEl && filmFormatEl.value !== s.filmFormat) filmFormatEl.value = s.filmFormat || '16mm-double';
   if (el(ids.polarityPos)) el(ids.polarityPos).checked = s.filmPolarity === 'positief';
@@ -405,7 +434,7 @@ async function loadScanByPath(lintPath, opts = {}) {
   if (img) {
     setStrip(lintPath, img, stripOpts);
     if (hasProject() && !preserveGrid) {
-      applySavedLintState(lintPath);
+      await applySavedLintState(lintPath);
     }
     if (preserveGrid) {
       clampCurrentGridToStrip();
@@ -431,7 +460,7 @@ async function loadScanByPath(lintPath, opts = {}) {
   }
   setStrip(lintPath, img, stripOpts);
   if (hasProject() && !preserveGrid) {
-    applySavedLintState(lintPath);
+    await applySavedLintState(lintPath);
   }
   if (preserveGrid) {
     clampCurrentGridToStrip();
@@ -584,14 +613,19 @@ function onNumFrames() {
 
 function onActiveFrame() {
   const n = parseInt(el(ids.activeFrame)?.value, 10);
-  if (!Number.isNaN(n)) setActiveFrameIndex(n - 1);
-  syncGridSplitLowerPanClamp();
+  if (!Number.isNaN(n)) {
+    /* Eerst huidige k clammen → map[k] klopt; daarna wisselen (anders gaat split-pan per pivot verloren). */
+    syncGridSplitLowerPanClamp();
+    setActiveFrameIndex(n - 1);
+    syncGridSplitLowerPanClamp();
+  }
   setDirty();
   updateUI();
   refreshPreviewsGridOnly();
 }
 
 function onPrevFrame() {
+  syncGridSplitLowerPanClamp();
   setActiveFrameIndex(getState().activeFrameIndex - 1);
   syncGridSplitLowerPanClamp();
   setDirty();
@@ -600,6 +634,7 @@ function onPrevFrame() {
 }
 
 function onNextFrame() {
+  syncGridSplitLowerPanClamp();
   setActiveFrameIndex(getState().activeFrameIndex + 1);
   syncGridSplitLowerPanClamp();
   setDirty();
@@ -719,20 +754,6 @@ function applyGridOffsetPreset(presetKey) {
   refreshPreviewsGridOnly();
 }
 
-function onFlipH() {
-  setFlipHorizontal(el(ids.flipH)?.checked);
-  setDirty();
-  updateUI();
-  refreshPreviews();
-}
-
-function onFlipV() {
-  setFlipVertical(el(ids.flipV)?.checked);
-  setDirty();
-  updateUI();
-  refreshPreviews();
-}
-
 function onFilmFormatChange() {
   const v = el(ids.filmFormat)?.value;
   if (v) setFilmFormat(v);
@@ -768,28 +789,85 @@ async function onOpenOutputPreview() {
   if (window.api?.openOutputPreview) await window.api.openOutputPreview();
 }
 
-const OUTPUT_RES_DIMENSIONS = { sd: [1280, 720], hd: [1920, 1080], uhd: [3840, 2160] };
+/** Vaste doelformaten voor frame-export (ook omhoog schalen van kleine rasteruitsnedes). */
+const RESOLUTION_ID_TO_DIMS = {
+  sd: [1280, 720],
+  hd: [1920, 1080],
+  uhd: [3840, 2160],
+  r1024x768: [1024, 768],
+  r1280x720: [1280, 720],
+  r1280x960: [1280, 960],
+  r1600x1200: [1600, 1200],
+  r1920x1080: [1920, 1080],
+  r2560x1440: [2560, 1440],
+  r3840x2160: [3840, 2160]
+};
 
-function getOutputDimensionsFromSettings(settings) {
-  if (!settings || settings.outputResolution === 'original') return null;
-  if (settings.outputResolution === 'custom') {
-    const w = Math.max(1, Number(settings.customOutputWidth) || 1920);
-    const h = Math.max(1, Number(settings.customOutputHeight) || 1080);
-    return { w, h };
-  }
-  const dims = OUTPUT_RES_DIMENSIONS[settings.outputResolution];
-  if (!dims) return null;
-  return { w: dims[0], h: dims[1] };
+const VALID_OUTPUT_RESOLUTION_IDS = new Set([
+  'original',
+  'custom',
+  'sd',
+  'hd',
+  'uhd',
+  ...Object.keys(RESOLUTION_ID_TO_DIMS)
+]);
+
+/** Oude voorkeuren (sd/hd/uhd) mappen naar expliciete presets. */
+function normalizeOutputResolutionId(raw) {
+  const r = String(raw || 'original').trim();
+  const legacy = { sd: 'r1280x720', hd: 'r1920x1080', uhd: 'r3840x2160' };
+  const id = legacy[r] || r;
+  return VALID_OUTPUT_RESOLUTION_IDS.has(id) ? id : 'original';
 }
 
-function scaleCanvasToSize(sourceCanvas, targetW, targetH) {
+function syncOutputResolutionSelects(sourceEl) {
+  const v = sourceEl && sourceEl.value != null ? sourceEl.value : 'original';
+  const norm = normalizeOutputResolutionId(v);
+  const setting = el(ids.settingOutputRes);
+  const exportSel = el(ids.exportOutputRes);
+  if (setting && setting !== sourceEl) setting.value = norm;
+  if (exportSel && exportSel !== sourceEl) exportSel.value = norm;
+  const wrap = el(ids.settingCustomResWrap);
+  if (wrap) wrap.classList.toggle('hidden', norm !== 'custom');
+}
+
+/**
+ * Doelafmetingen voor export: leest actieve keuze (Frame generator of Instellingen), daarna prefs.
+ * @returns {{ w: number, h: number, allowUpscale: boolean } | null} null = geen schaling (native rasterpixels)
+ */
+function getExportOutputDimensions(appSettings) {
+  const rawId =
+    el(ids.exportOutputRes)?.value ||
+    el(ids.settingOutputRes)?.value ||
+    appSettings?.outputResolution ||
+    'original';
+  const id = normalizeOutputResolutionId(rawId);
+  if (id === 'original') return null;
+  if (id === 'custom') {
+    const w = Math.max(
+      1,
+      Number(el(ids.settingCustomW)?.value || appSettings?.customOutputWidth) || 1920
+    );
+    const h = Math.max(
+      1,
+      Number(el(ids.settingCustomH)?.value || appSettings?.customOutputHeight) || 1080
+    );
+    return { w, h, allowUpscale: true };
+  }
+  const dims = RESOLUTION_ID_TO_DIMS[id];
+  if (!dims) return null;
+  return { w: dims[0], h: dims[1], allowUpscale: true };
+}
+
+function scaleCanvasToSize(sourceCanvas, targetW, targetH, allowUpscale = true) {
   const sw = sourceCanvas.width;
   const sh = sourceCanvas.height;
   if (sw < 1 || sh < 1 || targetW < 1 || targetH < 1) return sourceCanvas;
-  const scale = Math.min(targetW / sw, targetH / sh, 1);
-  const outW = Math.round(sw * scale);
-  const outH = Math.round(sh * scale);
-  if (outW === sw && outH === sh) return sourceCanvas;
+  const scaleFit = Math.min(targetW / sw, targetH / sh);
+  const scale = allowUpscale ? scaleFit : Math.min(scaleFit, 1);
+  const outW = Math.max(1, Math.round(sw * scale));
+  const outH = Math.max(1, Math.round(sh * scale));
+  if (!allowUpscale && outW === sw && outH === sh) return sourceCanvas;
   const out = document.createElement('canvas');
   out.width = targetW;
   out.height = targetH;
@@ -804,10 +882,192 @@ function scaleCanvasToSize(sourceCanvas, targetW, targetH) {
   return out;
 }
 
+/** Scanlint-preview: instelbare sneltoetsen (Instellingen). */
+let stripShortcutCaptureCleanup = null;
+
+function stripCodeToLabel(code) {
+  if (!code) return '';
+  const map = {
+    ArrowLeft: '←',
+    ArrowRight: '→',
+    ArrowUp: '↑',
+    ArrowDown: '↓',
+    NumpadMultiply: 'Num *',
+    NumpadDivide: 'Num /',
+    PageUp: 'Page ↑',
+    PageDown: 'Page ↓',
+    Home: 'Home',
+    Space: 'Spatie',
+    Enter: 'Enter',
+    Escape: 'Esc',
+    Tab: 'Tab',
+    Backquote: '`',
+    BracketLeft: '[',
+    BracketRight: ']'
+  };
+  if (map[code]) return map[code];
+  if (code.startsWith('Key') && code.length === 4) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  if (code.startsWith('Numpad')) return 'Num ' + code.slice(6);
+  return code;
+}
+
+function formatStripBindingDisplay(b) {
+  if (!b || !b.code) return '— (geen)';
+  const parts = [];
+  if (b.ctrl) parts.push('Ctrl');
+  if (b.meta) parts.push('Win');
+  if (b.alt) parts.push('Alt');
+  if (b.shift) parts.push('Shift');
+  parts.push(stripCodeToLabel(b.code));
+  return parts.join('+');
+}
+
+function updateStripShortcutRowBinding(tr, binding) {
+  const cell = tr.querySelector('.strip-sc-display');
+  if (!cell) return;
+  tr._stripBinding =
+    binding === null || binding === undefined ? null : { ...binding };
+  cell.textContent =
+    tr._stripBinding && tr._stripBinding.code
+      ? formatStripBindingDisplay(tr._stripBinding)
+      : '— (geen)';
+}
+
+function startStripShortcutCapture(tr) {
+  if (stripShortcutCaptureCleanup) stripShortcutCaptureCleanup();
+  document.body.classList.add('f2f-strip-sc-capturing');
+  tr.classList.add('strip-sc-row-capturing');
+  function cleanup() {
+    document.body.classList.remove('f2f-strip-sc-capturing');
+    tr.classList.remove('strip-sc-row-capturing');
+    window.removeEventListener('keydown', onKeyDown, true);
+    stripShortcutCaptureCleanup = null;
+  }
+  function onKeyDown(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      cleanup();
+      return;
+    }
+    const ignoreKeys = ['Shift', 'Control', 'Alt', 'Meta'];
+    if (ignoreKeys.includes(e.key)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const b = {
+      code: e.code,
+      ctrl: !!e.ctrlKey,
+      shift: !!e.shiftKey,
+      alt: !!e.altKey,
+      meta: !!e.metaKey
+    };
+    if (!b.code) {
+      cleanup();
+      return;
+    }
+    updateStripShortcutRowBinding(tr, b);
+    cleanup();
+  }
+  stripShortcutCaptureCleanup = cleanup;
+  window.addEventListener('keydown', onKeyDown, true);
+}
+
+async function buildStripShortcutsSettingsTable() {
+  const tbody = el(ids.stripShortcutsTbody);
+  if (!tbody || !window.api?.getStripShortcutConfig) return;
+  let cfg;
+  try {
+    cfg = await window.api.getStripShortcutConfig();
+  } catch (_) {
+    return;
+  }
+  if (!cfg || !Array.isArray(cfg.actions)) return;
+  tbody.innerHTML = '';
+  cfg.actions.forEach((a) => {
+    const tr = document.createElement('tr');
+    tr.dataset.actionId = a.id;
+    const td0 = document.createElement('td');
+    td0.textContent = a.label || a.id;
+    const td1 = document.createElement('td');
+    td1.className = 'strip-sc-display';
+    const td2 = document.createElement('td');
+    td2.className = 'strip-sc-btns';
+    const btnCh = document.createElement('button');
+    btnCh.type = 'button';
+    btnCh.className = 'btn btn-secondary small';
+    btnCh.textContent = 'Wijzig…';
+    const btnCl = document.createElement('button');
+    btnCl.type = 'button';
+    btnCl.className = 'btn btn-secondary small';
+    btnCl.textContent = 'Wissen';
+    btnCh.addEventListener('click', () => startStripShortcutCapture(tr));
+    btnCl.addEventListener('click', () => updateStripShortcutRowBinding(tr, null));
+    td2.appendChild(btnCh);
+    td2.appendChild(document.createTextNode(' '));
+    td2.appendChild(btnCl);
+    tr.appendChild(td0);
+    tr.appendChild(td1);
+    tr.appendChild(td2);
+    tbody.appendChild(tr);
+    const b = cfg.bindings && cfg.bindings[a.id];
+    if (b && b.code) {
+      updateStripShortcutRowBinding(tr, { ...b });
+    } else {
+      updateStripShortcutRowBinding(tr, null);
+    }
+  });
+}
+
+function collectStripShortcutsFromSettingsUI() {
+  const out = {};
+  const tbody = el(ids.stripShortcutsTbody);
+  if (!tbody) return out;
+  tbody.querySelectorAll('tr[data-action-id]').forEach((tr) => {
+    const id = tr.dataset.actionId;
+    if (!id) return;
+    out[id] = tr._stripBinding == null || !tr._stripBinding.code ? null : { ...tr._stripBinding };
+  });
+  return out;
+}
+
+async function resetAllStripShortcutsToDefaults() {
+  const tbody = el(ids.stripShortcutsTbody);
+  if (!tbody || !window.api?.getStripShortcutConfig) return;
+  let cfg;
+  try {
+    cfg = await window.api.getStripShortcutConfig();
+  } catch (_) {
+    return;
+  }
+  if (!cfg || !Array.isArray(cfg.actions)) return;
+  tbody.querySelectorAll('tr[data-action-id]').forEach((tr) => {
+    const id = tr.dataset.actionId;
+    const a = cfg.actions.find((x) => x.id === id);
+    const def = a && a.default && a.default.code ? { ...a.default } : null;
+    updateStripShortcutRowBinding(tr, def);
+  });
+}
+
 function applyTheme(darkMode) {
   if (document.body) {
     document.body.classList.toggle('theme-light', !darkMode);
   }
+}
+
+/** Sync hidden input + actieve cel in het 3×3-schikkingraster. */
+function syncArrangementGridUI(layout) {
+  const canonical = layout && typeof layout === 'string' ? layout.trim() : 'horiz-osm';
+  const hidden = el(ids.settingWindowArrangement);
+  if (hidden) hidden.value = canonical || 'horiz-osm';
+  [ids.arrangeGrid, ids.arrangeGridHsu].forEach((gridId) => {
+    const grid = el(gridId);
+    if (grid) {
+      grid.querySelectorAll('.f2f-arrange-cell').forEach((btn) => {
+        const d = btn.getAttribute('data-layout');
+        btn.classList.toggle('f2f-arrange-cell--active', d === canonical);
+      });
+    }
+  });
 }
 
 async function loadAppSettings() {
@@ -823,7 +1083,9 @@ async function loadAppSettings() {
     set(ids.settingDpi, String(s.scanDpi));
     set(ids.settingDefaultFrames, String(s.defaultFramesPerStrip));
     set(ids.settingOutputFormat, s.outputFormat || 'png');
-    set(ids.settingOutputRes, s.outputResolution || 'original');
+    const outNorm = normalizeOutputResolutionId(s.outputResolution);
+    set(ids.settingOutputRes, outNorm);
+    if (el(ids.exportOutputRes)) el(ids.exportOutputRes).value = outNorm;
     set(ids.settingCustomW, String(s.customOutputWidth || 1920));
     set(ids.settingCustomH, String(s.customOutputHeight || 1080));
     const previewRes = Math.max(512, Math.min(8192, Number(s.stripPreviewRes) || DEFAULT_STRIP_PREVIEW_MAX_DIM));
@@ -837,7 +1099,8 @@ async function loadAppSettings() {
       stripResMain.value = String(closest);
     }
     set(ids.settingDarkMode, s.darkMode, 'checked');
-    set(ids.settingWindowArrangement, s.windowArrangement || 'left-center-right');
+    syncArrangementGridUI(s.windowArrangement || 'horiz-osm');
+    set(ids.settingArrangeOnStartup, !!s.arrangeWindowsOnStartup, 'checked');
     const arrowPx = (s.arrowStepPx != null && Number(s.arrowStepPx) >= 1) ? Math.min(10, Number(s.arrowStepPx)) : 1;
     const arrowShiftPx = (s.arrowStepShiftPx != null && Number(s.arrowStepShiftPx) >= 10) ? Math.min(100, Number(s.arrowStepShiftPx)) : 10;
     set(ids.settingArrowStepPx, String(arrowPx));
@@ -846,13 +1109,18 @@ async function loadAppSettings() {
     setArrowStepPx(arrowPx);
     setArrowStepShiftPx(arrowShiftPx);
     const wrap = el(ids.settingCustomResWrap);
-    if (wrap) wrap.classList.toggle('hidden', s.outputResolution !== 'custom');
+    if (wrap) wrap.classList.toggle('hidden', outNorm !== 'custom');
+    await buildStripShortcutsSettingsTable();
     updateUI();
   } catch (_) {}
 }
 
 async function saveAppSettings() {
-  const outRes = el(ids.settingOutputRes)?.value || 'original';
+  const outRes = normalizeOutputResolutionId(
+    el(ids.exportOutputRes)?.value || el(ids.settingOutputRes)?.value || 'original'
+  );
+  if (el(ids.settingOutputRes)) el(ids.settingOutputRes).value = outRes;
+  if (el(ids.exportOutputRes)) el(ids.exportOutputRes).value = outRes;
   const arrowPx = Math.max(1, Math.min(10, parseInt(el(ids.settingArrowStepPx)?.value, 10) || 1));
   const arrowShiftPx = Math.max(10, Math.min(100, parseInt(el(ids.settingArrowStepShiftPx)?.value, 10) || 10));
   const settings = {
@@ -864,10 +1132,15 @@ async function saveAppSettings() {
     customOutputHeight: parseInt(el(ids.settingCustomH)?.value, 10) || 1080,
     stripPreviewRes: parseInt(el(ids.settingPreviewRes)?.value, 10) || DEFAULT_STRIP_PREVIEW_MAX_DIM,
     darkMode: !!el(ids.settingDarkMode)?.checked,
-    windowArrangement: el(ids.settingWindowArrangement)?.value || 'left-center-right',
+    windowArrangement: el(ids.settingWindowArrangement)?.value || 'horiz-osm',
+    arrangeWindowsOnStartup: !!el(ids.settingArrangeOnStartup)?.checked,
     arrowStepPx: arrowPx,
     arrowStepShiftPx: arrowShiftPx
   };
+  const tbodySc = el(ids.stripShortcutsTbody);
+  if (tbodySc && tbodySc.querySelector('tr[data-action-id]')) {
+    settings.stripPreviewShortcuts = collectStripShortcutsFromSettingsUI();
+  }
   await window.api?.setAppSettings?.(settings);
   applyTheme(settings.darkMode);
   setScanDpi(settings.scanDpi);
@@ -877,6 +1150,12 @@ async function saveAppSettings() {
   setArrowStepShiftPx(settings.arrowStepShiftPx);
   updateUI();
   if (getState().image) refreshPreviews();
+  /* Direct de gekozen paneelschikking toepassen (zelfde als knop Vensters schikken). */
+  if (window.api?.arrangeWindows) {
+    try {
+      await window.api.arrangeWindows();
+    } catch (_) {}
+  }
 }
 
 function toggleSettingsPanel() {
@@ -915,7 +1194,9 @@ async function savePresetWithName(name) {
   const data = buildPresetPayloadFromState();
   const result = await window.api.presetSave(trimmed, data);
   if (result?.ok) {
+    if (result.preset?.id) setStripPresetId(result.preset.id);
     window.api?.notifyStripPresetsUpdated?.();
+    refreshPreviews();
   } else if (result?.error) alert(result.error);
   return result || { ok: false };
 }
@@ -944,6 +1225,8 @@ async function onStripPresetDoLoad(id) {
   if (!id || !window.api?.presetLoad) return;
   const data = await window.api.presetLoad(id);
   await applyLoadedPresetData(data);
+  setStripPresetId(id);
+  refreshPreviews();
 }
 
 async function onStripPresetDoDelete(id) {
@@ -954,7 +1237,12 @@ async function onStripPresetDoDelete(id) {
   if (!confirm('Deze preset definitief wissen?')) return;
   if (!window.api?.presetDelete) return;
   await window.api.presetDelete(id);
+  const meta = getProjectMeta();
+  if (meta?.stripPresetId != null && String(meta.stripPresetId) === String(id)) {
+    setStripPresetId(null);
+  }
   window.api?.notifyStripPresetsUpdated?.();
+  refreshPreviews();
 }
 
 async function refreshGridPresetList() {
@@ -1026,14 +1314,26 @@ async function onGridPresetDeleteClick() {
   await refreshGridPresetList();
 }
 
+/** Voortgang scanlint-map → zelfde percentage als modal (toolbar “Belasting”). */
+function scanInfosProgressToStatus(d) {
+  const current = Number(d?.current) || 0;
+  const total = Number(d?.total) || 0;
+  if (total > 0) {
+    updateStatus(Math.round((100 * current) / total), `Scanlint ${current} / ${total}`);
+  }
+}
+
 async function onRefreshScanList() {
   if (!hasProject()) return;
   const meta = getProjectMeta();
   const location = meta?.location;
-  if (!location) return;
-  updateStatus(50, 'Scanlijst vernieuwen…');
+  if (!location || !window.api?.getScanInfos) return;
   try {
-    const infos = await window.api?.getScanInfos?.(location);
+    const infos = await getScanInfosWithProgressOverlay(
+      location,
+      window.api.getScanInfos.bind(window.api),
+      scanInfosProgressToStatus
+    );
     if (Array.isArray(infos)) {
       updateProjectScanInfos(infos);
       setDirty();
@@ -1078,11 +1378,14 @@ async function onPickLocation() {
 
 async function updateScanCountAndOrient(folderPath) {
   const path = folderPath || el(ids.locationPath)?.getAttribute('data-path');
-  if (!path) return;
-  updateStatus(50, 'Scanlints tellen…');
+  if (!path || !window.api?.getScanInfos) return;
   let infos;
   try {
-    infos = await window.api?.getScanInfos?.(path);
+    infos = await getScanInfosWithProgressOverlay(
+      path,
+      window.api.getScanInfos.bind(window.api),
+      scanInfosProgressToStatus
+    );
   } finally {
     updateStatus(0, '—');
   }
@@ -1258,8 +1561,9 @@ function onNewProjectClick() {
 function syncGridSplitLowerPanClamp() {
   const s = getState();
   if (!usesSplitLowerVerticalPan()) {
-    /* pivotActive: tijdelijk laatste frame (k=n) of rand — split uit; d bewaren voor terugkeren naar middenframes */
-    if ((s.gridVerticalAnchorMode || 'bottomFixed') === 'pivotActive') {
+    /* pivotActive / pivotCustom: k=n of k=0 — geen split; d niet op 0 zetten, map blijft per lijn geldig */
+    const m = s.gridVerticalAnchorMode || 'bottomFixed';
+    if (m === 'pivotActive' || m === 'pivotCustom') {
       return;
     }
     setGridSplitLowerPanCanvas(0);
@@ -1275,6 +1579,44 @@ function syncGridSplitLowerPanClamp() {
   const k = resolveVerticalPivotKFromState();
   const d = clampGridSplitLowerPanCanvas(frameHeight, n, cv.top, cv.bottom, k, s.gridSplitLowerPanCanvas);
   setGridSplitLowerPanCanvas(d);
+}
+
+/** Midden-boven/onder + koppeling: alleen split, geen Y-marges (anders schuift de referentielijn op het lint). */
+function isMiddleSplitVerticalRefWithLink() {
+  const s = getState();
+  const mode = s.gridVerticalAnchorMode || 'bottomFixed';
+  return (
+    panelUsesVerticalAnchorLink() &&
+    usesSplitLowerVerticalPan() &&
+    (mode === 'pivotMiddleUpper' || mode === 'pivotMiddleLower')
+  );
+}
+
+function applyMiddleSplitPanFromStripControls(frameHeight, n, curTop, curBottom, splitStepCanvas) {
+  const s = getState();
+  ensurePivotFrozenLowerCellHeight(frameHeight, n);
+  const k = resolveVerticalPivotKFromState();
+  const dNew = applySplitLowerPanStepCanvas(
+    frameHeight,
+    n,
+    curTop,
+    curBottom,
+    k,
+    s.gridSplitLowerPanCanvas,
+    splitStepCanvas
+  );
+  setGridSplitLowerPanCanvas(dNew);
+  syncGridSplitLowerPanClamp();
+}
+
+async function onOpenAlignPreview() {
+  try {
+    if (window.api?.openAlignPreview) {
+      const r = await window.api.openAlignPreview();
+      if (r && !r.ok && r.error) console.warn('[Film2Frame] Uitlijning-venster:', r.error);
+    }
+  } catch (_) {}
+  refreshPreviews();
 }
 
 async function onOpenStrip() {
@@ -1536,9 +1878,24 @@ function onStripAdjustHeightEdge(payload) {
   let stepC = Math.round(deltaDisplay * scaleY);
   if (stepC === 0) stepC = deltaDisplay > 0 ? 1 : -1;
 
-  let top = Number(s.gridOffsetY) || 0;
-  let bottom = Number.isFinite(Number(s.gridOffsetYBottom)) ? Math.round(s.gridOffsetYBottom) : 0;
+  const curTop = Number(s.gridOffsetY) || 0;
+  const curBottom = Number.isFinite(Number(s.gridOffsetYBottom)) ? Math.round(s.gridOffsetYBottom) : 0;
 
+  if (isMiddleSplitVerticalRefWithLink()) {
+    applyMiddleSplitPanFromStripControls(frameHeight, n, curTop, curBottom, stepC);
+    setDirty();
+    updateUI();
+    if (canvas && dim && dim.width >= 1 && dim.height >= 1 && canvas.height > 0) {
+      const scale = dim.height / canvas.height;
+      refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale));
+    } else {
+      refreshPreviewsGridOnly();
+    }
+    return;
+  }
+
+  let top = curTop;
+  let bottom = curBottom;
   if (edge === 'top') {
     top += stepC;
   } else {
@@ -1597,11 +1954,16 @@ function onStripVerticalRigidPanBoundaryFromPreview(towardCompress) {
 
 /**
  * Duw Omhoog/Omlaag: bij referentie Onderkant raster = onder vast, alleen Y-boven (celhoogte varieert).
+ * Bij midden-boven / midden-onder mét koppeling: alleen split-pan (zelfde inner en middenlijn op strip-Y).
  * Anders = rigide pan zoals Hand in niet-split-modus.
+ *
+ * Payload: { delta } (getekend, legacy) of { delta, duwKind: 'compress'|'stretch' } met delta = stap (≥0).
  */
-function onStripVerticalFixedBottomStep(deltaDisplay) {
-  const d = Number(deltaDisplay) || 0;
-  if (d === 0) return;
+function onStripVerticalFixedBottomStep(payload) {
+  const p = payload && typeof payload === 'object' ? payload : { delta: payload };
+  const d = p.delta != null ? Number(p.delta) : 0;
+  const duwKind = p.duwKind === 'compress' || p.duwKind === 'stretch' ? p.duwKind : null;
+  if (!duwKind && d === 0) return;
 
   const s = getState();
   const n = Math.max(1, s.numFrames || 1);
@@ -1628,17 +1990,46 @@ function onStripVerticalFixedBottomStep(deltaDisplay) {
   if (frameHeight < 1) return;
   if (!Number.isFinite(scaleY) || scaleY <= 0) scaleY = 1;
 
-  let stepC = Math.round(d * scaleY);
-  if (stepC === 0) stepC = d > 0 ? 1 : -1;
-
   const curTop = Number(s.gridOffsetY) || 0;
   const bottom = Number.isFinite(Number(s.gridOffsetYBottom)) ? Math.round(s.gridOffsetYBottom) : 0;
   const mode = s.gridVerticalAnchorMode || 'bottomFixed';
   const link = panelUsesVerticalAnchorLink();
+
+  /*
+   * Midden-boven / midden-onder + koppeling: geen Y-marges wijzigen — dat verschuift de middenlijn op het lint.
+   * Duw = zelfde als Hand split: alleen gridSplitLowerPanCanvas binnen het flexibele blok.
+   */
+  const middleSplitDuw =
+    link &&
+    usesSplitLowerVerticalPan() &&
+    (mode === 'pivotMiddleUpper' || mode === 'pivotMiddleLower');
+
+  const mag = Math.max(1, Math.round(Math.abs(d) * scaleY));
+  let stepC;
+  if (duwKind) {
+    /* Strip: positieve stap + soort — zelfde teken als vroeger (+ = Omlaag/compress, − = Omhoog/stretch). */
+    stepC = duwKind === 'compress' ? mag : -mag;
+  } else {
+    stepC = Math.round(d * scaleY);
+    if (stepC === 0) stepC = d > 0 ? 1 : -1;
+  }
+
+  if (middleSplitDuw) {
+    applyMiddleSplitPanFromStripControls(frameHeight, n, curTop, bottom, stepC);
+    setDirty();
+    updateUI();
+    if (canvas && dim && dim.width >= 1 && dim.height >= 1 && canvas.height > 0) {
+      const scale = dim.height / canvas.height;
+      refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale));
+    } else {
+      refreshPreviewsGridOnly();
+    }
+    return;
+  }
+
   /*
    * Koppeling uit: Duw altijd rigide.
-   * Koppeling aan: Y-onder van het raster vast, alleen Y-boven aanpassen (celhoogte uitrekken/duwen) bij:
-   *   Onderkant raster, pivot met lijn op strip-onder, of elke modus met split (0 < k < n) — niet rigide schuiven.
+   * Koppeling aan: Y-onder vast + Y-boven (inner varieert) bij Onderkant raster, pivot-onder, of overige split (actief/custom).
    * Anders (o.a. pivotTop k=0): rigide pan.
    */
   const useBottomAnchoredDuw =
@@ -1729,8 +2120,6 @@ function bind() {
   el(ids.timecodeFps)?.addEventListener('change', onTimecodeFpsChange);
   el(ids.timecodeFps)?.addEventListener('input', onTimecodeFpsChange);
   el(ids.createProject)?.addEventListener('click', onCreateProject);
-  el(ids.flipH)?.addEventListener('change', onFlipH);
-  el(ids.flipV)?.addEventListener('change', onFlipV);
   el(ids.cancelNewProject)?.addEventListener('click', onCancelNewProject);
   el(ids.prevScan)?.addEventListener('click', onPrevScan);
   el(ids.nextScan)?.addEventListener('click', onNextScan);
@@ -1743,13 +2132,23 @@ function bind() {
   el(ids.outputFormat)?.addEventListener('change', onOutputFormatChange);
   el(ids.openOutputPreview)?.addEventListener('click', onOpenOutputPreview);
   el(ids.settingsToggle)?.addEventListener('click', toggleSettingsPanel);
-  el(ids.settingOutputRes)?.addEventListener('change', function () {
-    const wrap = el(ids.settingCustomResWrap);
-    if (wrap) wrap.classList.toggle('hidden', el(ids.settingOutputRes)?.value !== 'custom');
-  });
+  function onOutputResolutionChange(ev) {
+    syncOutputResolutionSelects(ev?.target || el(ids.settingOutputRes));
+  }
+  el(ids.settingOutputRes)?.addEventListener('change', onOutputResolutionChange);
+  el(ids.exportOutputRes)?.addEventListener('change', onOutputResolutionChange);
   el(ids.arrangeWindowsBtn)?.addEventListener('click', onArrangeWindows);
+  function onArrangeGridPick(e) {
+    const btn = e.target.closest('.f2f-arrange-cell');
+    if (!btn || !btn.dataset.layout) return;
+    syncArrangementGridUI(btn.dataset.layout);
+  }
+  el(ids.arrangeGrid)?.addEventListener('click', onArrangeGridPick);
+  el(ids.arrangeGridHsu)?.addEventListener('click', onArrangeGridPick);
   el(ids.settingsSaveBtn)?.addEventListener('click', saveAppSettings);
-  el(ids.rotate90)?.addEventListener('click', onRotate90);
+  el(ids.stripShortcutsResetAll)?.addEventListener('click', () => {
+    resetAllStripShortcutsToDefaults();
+  });
   el(ids.fineRotation)?.addEventListener('input', onFineRotation);
   el(ids.fineRotationValue)?.addEventListener('input', onFineRotation);
   el(ids.fineRotationValue)?.addEventListener('change', onFineRotation);
@@ -1790,7 +2189,11 @@ function bind() {
   el(ids.exportCurrent)?.addEventListener('click', onExportCurrentScan);
   el(ids.exportBatch)?.addEventListener('click', onExportBatch);
   el(ids.exportBatchRange)?.addEventListener('click', onExportBatchRange);
+  el(ids.pickFramesFolder)?.addEventListener('click', onPickFramesFolder);
+  el(ids.pickVideoOutput)?.addEventListener('click', onPickVideoOutput);
+  el(ids.exportVideo)?.addEventListener('click', onExportVideo);
   el(ids.openStrip)?.addEventListener('click', onOpenStrip);
+  el(ids.openAlignPreview)?.addEventListener('click', () => onOpenAlignPreview().catch(() => {}));
 
   document.addEventListener('keydown', function (e) {
     const active = document.activeElement;
@@ -1842,6 +2245,22 @@ function registerQuitSaveHandler() {
 
 async function init() {
   bind();
+  if (window.api?.getTranslations) {
+    await initI18n(window.api);
+    const localeEl = el(ids.locale);
+    if (localeEl) {
+      localeEl.value = getLocale();
+      localeEl.addEventListener('change', async () => {
+        const v = localeEl.value;
+        if (v === 'en' || v === 'nl') {
+          await setI18nLocale(window.api, v);
+          applyToDOM();
+          updateProjectUI();
+          updateUI();
+        }
+      });
+    }
+  }
   registerQuitSaveHandler();
   refreshGridPresetList().catch(() => {});
   updateUI();
@@ -1863,6 +2282,7 @@ async function init() {
       } catch (_) {}
     }
   }
+  syncArrangementGridUI(el(ids.settingWindowArrangement)?.value || 'horiz-osm');
   loadAppSettings().catch(() => {});
   const v = await window.api?.getAppVersion?.().catch(() => null);
   const buildVer = v?.buildVersion || '—';
@@ -1881,6 +2301,10 @@ async function init() {
     refreshPreviews();
     setTimeout(() => refreshPreviews(), 400);
   });
+  window.api?.onAlignPreviewReady?.(() => {
+    refreshPreviews();
+    setTimeout(() => refreshPreviews(), 400);
+  });
   window.api?.onOutputPreviewClosed?.(() => {});
   window.api?.onFrameGridOffsetUpdate?.(onFrameGridOffsetFromPreview);
   window.api?.onSetGridOffsetAbsolute?.(onSetGridOffsetAbsolute);
@@ -1888,6 +2312,14 @@ async function init() {
   window.api?.onSetActiveFrame?.(onSetActiveFrameFromPreview);
   window.api?.onResetGrid?.(resetGridToDefault);
   window.api?.onStatusFromStrip?.(function (d) { updateStatus(d?.percent, d?.operation); });
+  window.api?.onStripRotate90?.(function () { onRotate90(); });
+  window.api?.onStripSetFlip?.(function (p) {
+    setFlipHorizontal(!!p?.flipHorizontal);
+    setFlipVertical(!!p?.flipVertical);
+    setDirty();
+    updateUI();
+    refreshPreviews();
+  });
   window.api?.onStripApplyWidthNarrow?.(onWidthNarrow);
   window.api?.onStripApplyWidthWiden?.(onWidthWiden);
   window.api?.onStripAdjustWidthEdge?.(onStripAdjustWidthEdge);
@@ -1900,7 +2332,7 @@ async function init() {
   });
   window.api?.onStripVerticalFixedBottomStep?.((payload) => {
     const p = payload && typeof payload === 'object' ? payload : {};
-    onStripVerticalFixedBottomStep(p.delta != null ? Number(p.delta) : 0);
+    onStripVerticalFixedBottomStep(p);
   });
   window.api?.onStripVerticalAnchor?.((payload) => {
     onStripVerticalAnchorFromPreview(payload);
@@ -1971,6 +2403,7 @@ function applyGridFromMm() {
 function onFramePreviewJump(position) {
   const s = getState();
   const n = Math.max(1, s.numFrames);
+  syncGridSplitLowerPanClamp();
   if (position === 'top') setActiveFrameIndex(0);
   else if (position === 'middle') setActiveFrameIndex(Math.floor((n - 1) / 2));
   else if (position === 'bottom') setActiveFrameIndex(n - 1);
@@ -1982,6 +2415,7 @@ function onFramePreviewJump(position) {
 function onSetActiveFrameFromPreview(frameNumber) {
   const n = Math.max(1, getState().numFrames);
   const index = Math.max(0, Math.min(n - 1, Math.floor(Number(frameNumber) || 1) - 1));
+  syncGridSplitLowerPanClamp();
   setActiveFrameIndex(index);
   syncGridSplitLowerPanClamp();
   updateUI();
@@ -1996,24 +2430,143 @@ async function onPickExportFolder() {
   }
 }
 
-/** Exporteert alle frames van de huidige scan naar de doelmap. Nummering 000001–999999, geen overschrijven. Uitvoerresolutie uit instellingen. */
+async function onPickFramesFolder() {
+  const defaultPath = getState().exportFolderPath;
+  const folder = await window.api?.selectFolder?.({ defaultPath, title: t('videoExport.framesFolderDialogTitle') });
+  if (folder) {
+    setVideoFramesFolderPath(folder);
+    updateUI();
+  }
+}
+
+async function onPickVideoOutput() {
+  const formatId = el(ids.videoFormat)?.value || 'h264';
+  const filePath = await window.api?.selectVideoOutputFile?.(formatId);
+  if (filePath) {
+    setVideoOutputPath(filePath);
+    updateUI();
+  }
+}
+
+/** Exporteert frames naar MP4 via ffmpeg. Gebruikt map met frames indien gekozen, anders projectscans. */
+async function onExportVideo() {
+  const outputPath = getState().videoOutputPath;
+  if (!outputPath) {
+    alert(t('videoExport.pickFileFirst'));
+    return;
+  }
+  const fps = Math.max(1, Math.min(60, parseInt(el(ids.videoFps)?.value, 10) || 24));
+  const progressWrap = el(ids.videoExportProgressWrap);
+  const progressEl = el(ids.videoExportProgress);
+  if (progressWrap) progressWrap.classList.remove('hidden');
+  const setProgress = (msg) => { if (progressEl) progressEl.textContent = msg || '—'; };
+  try {
+    const framesFolder = getState().videoFramesFolderPath;
+    if (framesFolder) {
+      setProgress(t('videoExport.progressCopy'));
+      window.api?.onVideoExportProgress?.(({ phase }) => {
+        if (phase === 'copy') setProgress(t('videoExport.progressCopy'));
+        if (phase === 'encoding') setProgress(t('videoExport.progressEncoding'));
+        if (phase === 'done') setProgress(t('videoExport.progressDone'));
+      });
+      const formatId = el(ids.videoFormat)?.value || 'h264';
+      const result = await window.api?.createVideoFromFolder?.({ folderPath: framesFolder, outputPath, fps, formatId });
+      if (result?.ok) {
+        setProgress('');
+        alert(t('videoExport.success', { path: outputPath }));
+      } else throw new Error(result?.error || 'Video maken mislukt');
+      return;
+    }
+    const paths = await getProjectScanPaths();
+    if (!paths.length) {
+      alert(t('videoExport.noScans'));
+      return;
+    }
+    const fromVal = parseInt(el(ids.videoScanFrom)?.value, 10);
+    const toVal = parseInt(el(ids.videoScanTo)?.value, 10);
+    const from = Number.isFinite(fromVal) && fromVal >= 1 ? fromVal : 1;
+    const to = Number.isFinite(toVal) && toVal >= 1 ? toVal : 1;
+    const fromIdx = Math.min(from, to);
+    const toIdx = Math.max(from, to);
+    const scanPaths = paths.slice(fromIdx - 1, toIdx);
+    if (!scanPaths.length) {
+      alert(t('videoExport.noScansInRange'));
+      return;
+    }
+    setProgress(t('videoExport.progressFrames'));
+    const tempFolder = await window.api?.getTempVideoFolder?.();
+    if (!tempFolder) throw new Error('Tijdelijke map maken mislukt');
+    const appSettings = await window.api?.getAppSettings?.().catch(() => null);
+    const outDims = getExportOutputDimensions(appSettings);
+    const total = scanPaths.length;
+    let frameIndex = 1;
+    const writeFrame = window.api?.writeFrame || window.api?.writeFramePng;
+    for (let scanIdx = 0; scanIdx < total; scanIdx++) {
+      setProgress(t('videoExport.progressScan', { current: scanIdx + 1, total }));
+      const ok = await loadScanByPath(scanPaths[scanIdx]);
+      if (!ok) continue;
+      const pair = getStripCanvasPairForExport();
+      if (!pair) continue;
+      const { preview: previewStrip, export: exportStrip } = pair;
+      const n = Math.max(1, getState().numFrames);
+      for (let i = 0; i < n; i++) {
+        let canvas = cropFrameAtIndexForExport(exportStrip, previewStrip, i);
+        if (!canvas) continue;
+        if (outDims) {
+          canvas = scaleCanvasToSize(canvas, outDims.w, outDims.h, outDims.allowUpscale !== false);
+        }
+        const dataUrl = canvas.toDataURL('image/png');
+        if (writeFrame) {
+          await window.api.writeFrame(tempFolder, 'frame', frameIndex, dataUrl, 'png');
+        } else {
+          await window.api?.writeFramePng?.(tempFolder, 'frame', frameIndex, dataUrl);
+        }
+        frameIndex++;
+      }
+    }
+    if (frameIndex <= 1) {
+      throw new Error(t('videoExport.noFramesExtracted'));
+    }
+    setProgress(t('videoExport.progressEncoding'));
+    window.api?.onVideoExportProgress?.(({ phase }) => {
+      if (phase === 'encoding') setProgress(t('videoExport.progressEncoding'));
+      if (phase === 'done') setProgress(t('videoExport.progressDone'));
+    });
+    const formatId = el(ids.videoFormat)?.value || 'h264';
+    const result = await window.api?.createVideoFromFrames?.({ tempFolder, outputPath, fps, formatId });
+    if (result?.ok) {
+      setProgress('');
+      alert(t('videoExport.success', { path: outputPath }));
+    } else {
+      throw new Error(result?.error || 'Video maken mislukt');
+    }
+  } catch (e) {
+    alert(t('videoExport.error') + ': ' + (e?.message || e));
+  } finally {
+    if (progressWrap) progressWrap.classList.add('hidden');
+    setProgress('');
+  }
+}
+
+/** Exporteert alle frames van de huidige scan naar de doelmap. Nummering 000001–999999, geen overschrijven. Uitsnede uit volle strip (tot EXPORT_STRIP_MAX_DIM); daarna optioneel schalen via instellingen (SD/HD/UHD/custom). */
 async function onExportCurrentScan() {
   const folder = getState().exportFolderPath;
   if (!folder) {
     alert('Kies eerst een doelmap (Frame uitsnijden en bewaren).');
     return;
   }
-  const stripCanvas = getStripCanvas();
-  if (!stripCanvas) {
+  const pair = getStripCanvasPairForExport();
+  if (!pair) {
     alert('Geen scanlint geladen.');
     return;
   }
+  const { preview: previewStrip, export: exportStrip } = pair;
   const s = getState();
   const n = Math.max(1, s.numFrames);
   const baseName = s.exportBaseName || 'frame';
   const ext = (s.outputFormat || 'png').toLowerCase().replace(/^\./, '');
   const appSettings = await window.api?.getAppSettings?.().catch(() => null);
-  const outDims = appSettings ? getOutputDimensionsFromSettings(appSettings) : null;
+  const outDims = getExportOutputDimensions(appSettings);
   updateStatus(5, 'Volgende framenummer ophalen…');
   let startIndex = 1;
   try {
@@ -2026,9 +2579,11 @@ async function onExportCurrentScan() {
   try {
     const writeFrame = window.api?.writeFrame || window.api?.writeFramePng;
     for (let i = 0; i < n; i++) {
-      let canvas = cropFrameAtIndex(stripCanvas, i);
+      let canvas = cropFrameAtIndexForExport(exportStrip, previewStrip, i);
       if (!canvas) continue;
-      if (outDims) canvas = scaleCanvasToSize(canvas, outDims.w, outDims.h);
+      if (outDims) {
+        canvas = scaleCanvasToSize(canvas, outDims.w, outDims.h, outDims.allowUpscale !== false);
+      }
       const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png';
       const dataUrl = canvas.toDataURL(mime);
       const idx = startIndex + i;
@@ -2049,14 +2604,14 @@ async function onExportCurrentScan() {
   }
 }
 
-/** Voert frame-export uit voor een lijst scanpaden. Nummering loopt door vanaf laatste in uitvoermap. Uitvoerresolutie uit instellingen. */
+/** Voert frame-export uit voor een lijst scanpaden. Nummering loopt door vanaf laatste in uitvoermap. Uitsnede uit volle strip; daarna optioneel uit instellingen schalen. */
 async function exportPaths(paths) {
   const folder = getState().exportFolderPath;
   const baseName = getState().exportBaseName || 'frame';
   const ext = (getState().outputFormat || 'png').toLowerCase().replace(/^\./, '');
   const pauseSec = Math.max(0, getState().exportPauseSeconds || 0);
   const appSettings = await window.api?.getAppSettings?.().catch(() => null);
-  const outDims = appSettings ? getOutputDimensionsFromSettings(appSettings) : null;
+  const outDims = getExportOutputDimensions(appSettings);
   let fileNumber = 0;
   let startIndex = 1;
   try {
@@ -2072,14 +2627,17 @@ async function exportPaths(paths) {
     updateStatus(5 + Math.round((70 * scanIdx) / total), `Scan ${scanIdx + 1}/${total} laden…`);
     const ok = await loadScanByPath(paths[scanIdx]);
     if (!ok) continue;
-    const stripCanvas = getStripCanvas();
-    if (!stripCanvas) continue;
+    const pair = getStripCanvasPairForExport();
+    if (!pair) continue;
+    const { preview: previewStrip, export: exportStrip } = pair;
     const n = Math.max(1, getState().numFrames);
     const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png';
     for (let i = 0; i < n; i++) {
-      let canvas = cropFrameAtIndex(stripCanvas, i);
+      let canvas = cropFrameAtIndexForExport(exportStrip, previewStrip, i);
       if (!canvas) continue;
-      if (outDims) canvas = scaleCanvasToSize(canvas, outDims.w, outDims.h);
+      if (outDims) {
+        canvas = scaleCanvasToSize(canvas, outDims.w, outDims.h, outDims.allowUpscale !== false);
+      }
       fileNumber++;
       const dataUrl = canvas.toDataURL(mime);
       if (writeFrame) {

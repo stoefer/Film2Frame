@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('api', {
   getFileUrl: (p) => ipcRenderer.invoke('get-file-url', p),
   openStripPreview: () => ipcRenderer.invoke('open-strip-preview'),
   closeStripPreview: () => ipcRenderer.invoke('close-strip-preview'),
+  openAlignPreview: () => ipcRenderer.invoke('open-align-preview'),
+  closeAlignPreview: () => ipcRenderer.invoke('close-align-preview'),
   sendStripUpdate: (payload) => ipcRenderer.send('send-strip-update', payload),
   createProject: (payload) => ipcRenderer.invoke('create-project', payload),
   openProject: () => ipcRenderer.invoke('open-project'),
@@ -18,8 +20,23 @@ contextBridge.exposeInMainWorld('api', {
   deleteProject: (projectFolderPath) => ipcRenderer.invoke('delete-project', projectFolderPath),
   listFolderImages: (path) => ipcRenderer.invoke('list-folder-images', path),
   countFolderImages: (path) => ipcRenderer.invoke('count-folder-images', path),
-  getScanInfos: (path) => ipcRenderer.invoke('get-scan-infos', path),
+  getScanInfos: (folderPath, onProgress) => {
+    let handler = null;
+    if (typeof onProgress === 'function') {
+      handler = (_, d) => onProgress(d);
+      ipcRenderer.on('scan-infos-progress', handler);
+    }
+    return ipcRenderer.invoke('get-scan-infos', folderPath).finally(() => {
+      if (handler) ipcRenderer.removeListener('scan-infos-progress', handler);
+    });
+  },
   selectExportFolder: () => ipcRenderer.invoke('select-export-folder'),
+  selectVideoOutputFile: (formatId) => ipcRenderer.invoke('select-video-output-file', formatId),
+  getTempVideoFolder: () => ipcRenderer.invoke('get-temp-video-folder'),
+  createVideoFromFrames: (opts) => ipcRenderer.invoke('create-video-from-frames', opts),
+  createVideoFromFolder: (opts) => ipcRenderer.invoke('create-video-from-folder', opts),
+  checkFfmpegAvailable: () => ipcRenderer.invoke('check-ffmpeg-available'),
+  onVideoExportProgress: (cb) => { ipcRenderer.on('video-export-progress', (_, d) => cb && cb(d)); },
   getNextFrameNumber: (opts) => ipcRenderer.invoke('get-next-frame-number', opts),
   writeFramePng: (folder, baseName, index, dataUrl) => ipcRenderer.invoke('write-frame-png', { folder, baseName, index, dataUrl }),
   writeFrame: (folder, baseName, index, dataUrl, ext) => ipcRenderer.invoke('write-frame', { folder, baseName, index, dataUrl, ext }),
@@ -28,6 +45,7 @@ contextBridge.exposeInMainWorld('api', {
   sendOutputPreviewImage: (dataUrl) => ipcRenderer.invoke('send-output-preview-image', dataUrl),
   onStripPreviewClosed: (cb) => { ipcRenderer.on('strip-preview-closed', () => cb && cb()); },
   onStripPreviewReady: (cb) => { ipcRenderer.on('strip-preview-ready', () => cb && cb()); },
+  onAlignPreviewReady: (cb) => { ipcRenderer.on('align-preview-ready', () => cb && cb()); },
   onOutputPreviewClosed: (cb) => { ipcRenderer.on('output-preview-closed', () => cb && cb()); },
   onFrameGridOffsetUpdate: (cb) => { ipcRenderer.on('frame-grid-offset-update', (_, payload) => cb && cb(payload)); },
   onSetGridOffsetAbsolute: (cb) => { ipcRenderer.on('set-grid-offset-absolute', (_, payload) => cb && cb(payload)); },
@@ -60,8 +78,14 @@ contextBridge.exposeInMainWorld('api', {
   gridPresetDelete: (id) => ipcRenderer.invoke('grid-preset-delete', id),
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
   setAppSettings: (settings) => ipcRenderer.invoke('set-app-settings', settings),
+  getStripShortcutConfig: () => ipcRenderer.invoke('get-strip-shortcut-config'),
   arrangeWindows: () => ipcRenderer.invoke('arrange-windows'),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  getLocale: () => ipcRenderer.invoke('get-locale'),
+  setLocale: (locale) => ipcRenderer.invoke('set-locale', locale),
+  getTranslations: () => ipcRenderer.invoke('get-translations'),
+  onStripRotate90: (cb) => { ipcRenderer.on('strip-rotate-90', () => cb && cb()); },
+  onStripSetFlip: (cb) => { ipcRenderer.on('strip-set-flip', (_, p) => cb && cb(p)); },
   onRequestQuitSave: (cb) => {
     ipcRenderer.on('request-quit-save', () => {
       if (typeof cb === 'function') cb();

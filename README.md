@@ -22,8 +22,8 @@ d:\CURSOR AI\film2frame-app
 
 - **Filmformaten**: 16mm (dubbel/enkel perf), Super 16, 8mm, Super 8, 9,5mm, 35mm. Positief/negatief.
 - **Overlay-raster**: groen met rood kader rond actief frame, nummering 1–99. Hand (pijltjes), breedte (L/R), hoogte (T/B). **Samendruk ▼** in scanlint-preview: Y-onder blijft zoals ingesteld; alle frames gelijke hoogte met maximale verticale samendrukking vanaf boven (tot minimum celhoogte). Kantelpunten voor fijne draaiing (±1°), Numpad +/- voor 0,01° / 0,1°.
-- **Export**: frames 000001–999999, geen overschrijven; nummering loopt door vanaf laatste in uitvoermap. PNG of JPG. Batch convert met opgeslagen uitlijning.
-- **Preview-vensters**: scanlint-preview (apart venster, vergroot/verklein/sluit), output-preview (laatste weggeschreven frame).
+- **Export**: frames 000001–999999, geen overschrijven; nummering loopt door vanaf laatste in uitvoermap. PNG of JPG. **Resolutie**: *Raster (native pixels)* = exacte uitsnede (volle strip-export); of vaste kaders 1024×768 t/m **UHD 4K** (past binnen kader, zwarte balken; mag ook **opschalen** als de uitsnede kleiner is). Instellingen en Frame generator delen dezelfde keuze.
+- **Preview-vensters**: scanlint-preview (apart venster, vergroot/verklein/sluit), **uitlijning** (apart venster, één frame sterk vergroot i.h.k.v. raster), output-preview (laatste weggeschreven frame). **Sneltoetsen scanlint** zijn instelbaar onder *Programma-instellingen* (Hand, zoom passend, springen naar boven/midden/onder, vorige/volgende scanlint, raster reset, 90° draaien).
 - **Raster-presets** (naam bewaren/laden): via het venster **Scanlint – raster afstellen**; opgeslagen in app-gegevens (`userData`). Het hoofdvenster heeft wel **snelle offset-knoppen** per filmtype (%) en **raster uit mm**.
 - **Tijdcode**: speelduur bij 12–60 fps (standaard 24).
 
@@ -37,7 +37,7 @@ d:\CURSOR AI\film2frame-app
   - `presets.js` – preset opslaan/laden
   - `prefs.js` – laatste mappen, laatst project
 - **renderer/** – state, grid, strip-loader, preview, ui, project
-- **windows/** – strip-preview.html, output-preview.html
+  - **windows/** – strip-preview.html, align-preview.html, output-preview.html
 - **preloads/** – strip.js, output.js
 - **styles/** – main.css (incl. knop-feedback, info-paneel)
 

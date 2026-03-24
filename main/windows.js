@@ -6,39 +6,60 @@ const path = require('path');
 const constants = require('./constants');
 const prefs = require('./prefs');
 
-/** Minimum vensterbreedte scanlint: minstens 1/3 werkgebied (en minimaal STRIP_PREVIEW_MIN_WIDTH). */
-function getStripPreviewMinWidthPx() {
+/** Zijkant- en tussenruimte zodat Scanlint, Uitlijning en Output naast elkaar in het werkgebied passen. */
+const PREVIEW_TILE_SIDE_PAD = 10;
+const PREVIEW_TILE_GAP = 8;
+const PREVIEW_TILE_BOTTOM_MARGIN = 24;
+
+/**
+ * Eén tegelmaat voor alle drie preview-vensters: breedte = (werkbreedte − padding − 2×gap) / 3.
+ * @returns {{ work: Electron.Rectangle, width: number, height: number, x0: number, y: number, avail: number }}
+ */
+function getUnifiedPreviewTileSize() {
   try {
     const display = screen.getPrimaryDisplay();
     const work = display.workArea || display.bounds;
-    const w = work.width != null ? work.width : 1400;
-    return Math.max(constants.STRIP_PREVIEW_MIN_WIDTH || 320, Math.floor(w / 3));
+    const W = work.width != null ? work.width : 1400;
+    const H = work.height != null ? work.height : 900;
+    /** Ruimte voor 3×breedte + 2×gap tussen de kolommen. */
+    const avail = W - 2 * PREVIEW_TILE_SIDE_PAD;
+    let width = Math.floor((avail - 2 * PREVIEW_TILE_GAP) / 3);
+    width = Math.max(240, width);
+    while (3 * width + 2 * PREVIEW_TILE_GAP > avail && width > 200) width -= 1;
+    const height = Math.max(400, H - PREVIEW_TILE_BOTTOM_MARGIN);
+    const x0 = (work.x != null ? work.x : 0) + PREVIEW_TILE_SIDE_PAD;
+    const y = work.y != null ? work.y : 0;
+    return { work, width, height, x0, y, avail };
   } catch (_) {
-    return Math.max(constants.STRIP_PREVIEW_MIN_WIDTH || 320, 400);
+    return {
+      work: { x: 0, y: 0, width: 1400, height: 900 },
+      width: 400,
+      height: 600,
+      x0: 10,
+      y: 0,
+      avail: 1200
+    };
   }
 }
 
-/** Strip-preview: 1/3 schermbreedte, maximale hoogte, gecentreerd in het scherm. */
-function getStripPreviewBounds() {
-  try {
-    const display = screen.getPrimaryDisplay();
-    const work = display.workArea || display.bounds;
-    const w = work.width != null ? work.width : 1400;
-    const h = work.height != null ? work.height : 900;
-    const margin = 24;
-    const width = Math.max(constants.STRIP_PREVIEW_MIN_WIDTH || 320, Math.floor(w / 3));
-    const height = Math.max(400, h - margin);
-    const x = work.x != null ? work.x + Math.floor((w - width) / 2) : 0;
-    const y = work.y != null ? work.y : 0;
-    return { x, y, width, height };
-  } catch (_) {
-    return {
-      x: 0,
-      y: 0,
-      width: constants.STRIP_PREVIEW_MAX_WIDTH || 480,
-      height: constants.STRIP_PREVIEW_DEFAULT.height
-    };
-  }
+/**
+ * Standaardpositie voor preview-tegel: 0 = Scanlint (links), 1 = Uitlijning (midden), 2 = Output (rechts).
+ */
+function getUnifiedPreviewSlotBounds(slotIndex) {
+  const s = Math.max(0, Math.min(2, Math.floor(Number(slotIndex)) || 0));
+  const { width, height, x0, y } = getUnifiedPreviewTileSize();
+  return {
+    x: x0 + s * (width + PREVIEW_TILE_GAP),
+    y,
+    width,
+    height
+  };
+}
+
+/** Min-breedte: niet groter dan de tegel (anders past “drie naast elkaar” niet meer). */
+function getUnifiedPreviewMinWidthPx() {
+  const { width } = getUnifiedPreviewTileSize();
+  return Math.min(constants.STRIP_PREVIEW_MIN_WIDTH || 320, Math.max(240, width));
 }
 
 /** Bounds binnen werkgebied van een scherm houden. */
@@ -62,10 +83,94 @@ function clampBoundsToDisplay(bounds) {
 let mainWindow = null;
 let stripPreviewWindow = null;
 let outputPreviewWindow = null;
+let alignPreviewWindow = null;
+
+/** Laatste strip-payload; UITLIJN opent na IPC → eerste updates kunnen verloren gaan → opnieuw sturen bij load. */
+let lastStripUpdatePayload = null;
+
+/**
+ * Los van lastStripUpdatePayload: één mislukte merge (bijv. 1 px verschil in display-hoogte) mocht de PNG
+ * niet permanent uit de cache wissen. Scanlint hield dan het oude <img>, maar UITLIJN + resend kregen
+ * nooit meer een stripDataUrl.
+ */
+let lastCommittedStripDataUrl = null;
+let lastCommittedStripDispW = 0;
+let lastCommittedStripDispH = 0;
+
+/** Toegestane afwijking displayWidth/Height t.o.v. de laatst opgeslagen bitmap (afronding / code-paden). */
+const STRIP_PREVIEW_DIM_MATCH_TOL = 2;
+
+function displayDimsMatchCommittedBitmap(w, h) {
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w < 1 || h < 1) return false;
+  if (!Number.isFinite(lastCommittedStripDispW) || !Number.isFinite(lastCommittedStripDispH)) return false;
+  if (lastCommittedStripDispW < 1 || lastCommittedStripDispH < 1) return false;
+  return (
+    Math.abs(w - lastCommittedStripDispW) <= STRIP_PREVIEW_DIM_MATCH_TOL &&
+    Math.abs(h - lastCommittedStripDispH) <= STRIP_PREVIEW_DIM_MATCH_TOL
+  );
+}
+
+/** Voegt stripDataUrl toe uit vaste bitmap-cache wanneer de grid-update die niet meestuurt. */
+function attachCommittedStripBitmap(next) {
+  if (!next || next.stripDataUrl) return next;
+  const hasGrid = Array.isArray(next.gridRects) && next.gridRects.length > 0;
+  if (!hasGrid || !lastCommittedStripDataUrl) return next;
+  const w = Number(next.displayWidth);
+  const h = Number(next.displayHeight);
+  if (!displayDimsMatchCommittedBitmap(w, h)) return next;
+  return { ...next, stripDataUrl: lastCommittedStripDataUrl };
+}
+
+/**
+ * Grid-only updates hebben geen stripDataUrl; scanlint-preview houdt het oude <img>.
+ * Bitmap blijft in lastCommittedStripDataUrl; payload wordt aangevuld zolang de preview-afmetingen kloppen.
+ */
+function setLastStripUpdatePayload(p) {
+  if (p == null || typeof p !== 'object') {
+    lastStripUpdatePayload = null;
+    lastCommittedStripDataUrl = null;
+    lastCommittedStripDispW = 0;
+    lastCommittedStripDispH = 0;
+    return null;
+  }
+  let next = { ...p };
+  const hasGrid = Array.isArray(next.gridRects) && next.gridRects.length > 0;
+
+  if (next.stripDataUrl && typeof next.stripDataUrl === 'string' && next.stripDataUrl.length > 0) {
+    lastCommittedStripDataUrl = next.stripDataUrl;
+    lastCommittedStripDispW = Number(next.displayWidth);
+    lastCommittedStripDispH = Number(next.displayHeight);
+  } else if (!hasGrid && !next.stripDataUrl) {
+    lastCommittedStripDataUrl = null;
+    lastCommittedStripDispW = 0;
+    lastCommittedStripDispH = 0;
+  }
+
+  next = attachCommittedStripBitmap(next);
+  lastStripUpdatePayload = next;
+  return next;
+}
+
+function resendLastStripPayloadToAlignPreview() {
+  if (!lastStripUpdatePayload || !alignPreviewWindow || alignPreviewWindow.isDestroyed()) return;
+  const toSend = attachCommittedStripBitmap(lastStripUpdatePayload);
+  try {
+    alignPreviewWindow.webContents.send('align-preview-update', toSend);
+  } catch (_) {}
+}
+
+function resendLastStripPayloadToStripPreview() {
+  if (!lastStripUpdatePayload || !stripPreviewWindow || stripPreviewWindow.isDestroyed()) return;
+  const toSend = attachCommittedStripBitmap(lastStripUpdatePayload);
+  try {
+    stripPreviewWindow.webContents.send('strip-update', toSend);
+  } catch (_) {}
+}
 
 function getMainWindow() { return mainWindow; }
 function getStripPreviewWindow() { return stripPreviewWindow; }
 function getOutputPreviewWindow() { return outputPreviewWindow; }
+function getAlignPreviewWindow() { return alignPreviewWindow; }
 
 function createMainWindow(preloadPath) {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
@@ -97,11 +202,15 @@ function createMainWindow(preloadPath) {
     }
     state.stripPreviewOpen = !!(stripPreviewWindow && !stripPreviewWindow.isDestroyed());
     state.outputPreviewOpen = !!(outputPreviewWindow && !outputPreviewWindow.isDestroyed());
+    state.alignPreviewOpen = !!(alignPreviewWindow && !alignPreviewWindow.isDestroyed());
     if (stripPreviewWindow && !stripPreviewWindow.isDestroyed()) {
       state.stripPreviewBounds = stripPreviewWindow.getBounds();
     }
     if (outputPreviewWindow && !outputPreviewWindow.isDestroyed()) {
       state.outputPreviewBounds = outputPreviewWindow.getBounds();
+    }
+    if (alignPreviewWindow && !alignPreviewWindow.isDestroyed()) {
+      state.alignPreviewBounds = alignPreviewWindow.getBounds();
     }
     prefs.setWindowState(state);
 
@@ -109,11 +218,13 @@ function createMainWindow(preloadPath) {
       mainWindow._f2fAllowClose = false;
       closeStripPreviewWindow();
       closeOutputPreviewWindow();
+      closeAlignPreviewWindow();
       return;
     }
     e.preventDefault();
     closeStripPreviewWindow();
     closeOutputPreviewWindow();
+    closeAlignPreviewWindow();
     mainWindow._f2fQuitSavePending = true;
     if (mainWindow._f2fQuitSaveTimer) {
       clearTimeout(mainWindow._f2fQuitSaveTimer);
@@ -149,8 +260,8 @@ function createStripPreviewWindow(preloadPath, htmlPath) {
   }
   const winState = prefs.getWindowState();
   const saved = winState.stripPreviewBounds ? clampBoundsToDisplay(winState.stripPreviewBounds) : null;
-  const minW = getStripPreviewMinWidthPx();
-  const base = saved || getStripPreviewBounds();
+  const minW = getUnifiedPreviewMinWidthPx();
+  const base = saved || getUnifiedPreviewSlotBounds(0);
   const bounds = { ...base, width: Math.max(minW, base.width) };
   stripPreviewWindow = new BrowserWindow({
     x: bounds.x,
@@ -168,9 +279,13 @@ function createStripPreviewWindow(preloadPath, htmlPath) {
   });
   stripPreviewWindow.loadFile(htmlPath);
   stripPreviewWindow.webContents.on('did-finish-load', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('strip-preview-ready');
-    }
+    /* Na inline script + preload listeners: voorkomt race waarbij eerste resend geen handler heeft. */
+    setImmediate(() => {
+      resendLastStripPayloadToStripPreview();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('strip-preview-ready');
+      }
+    });
   });
   stripPreviewWindow.on('close', () => {
     const state = prefs.getWindowState();
@@ -212,11 +327,13 @@ function createOutputPreviewWindow(preloadPath, htmlPath) {
   }
   const winState = prefs.getWindowState();
   const saved = winState.outputPreviewBounds ? clampBoundsToDisplay(winState.outputPreviewBounds) : null;
+  const defaultBounds = getUnifiedPreviewSlotBounds(2);
+  const minW = getUnifiedPreviewMinWidthPx();
   const opts = {
-    width: saved?.width ?? 640,
-    height: saved?.height ?? 480,
-    minWidth: 320,
-    minHeight: 240,
+    width: saved?.width ?? defaultBounds.width,
+    height: saved?.height ?? defaultBounds.height,
+    minWidth: minW,
+    minHeight: 400,
     title: constants.APP_NAME + ' – Output preview',
     webPreferences: {
       preload: preloadPath,
@@ -227,6 +344,9 @@ function createOutputPreviewWindow(preloadPath, htmlPath) {
   if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
     opts.x = saved.x;
     opts.y = saved.y;
+  } else {
+    opts.x = defaultBounds.x;
+    opts.y = defaultBounds.y;
   }
   outputPreviewWindow = new BrowserWindow(opts);
   outputPreviewWindow.loadFile(htmlPath);
@@ -261,23 +381,97 @@ function sendToOutputPreview(channel, payload) {
   }
 }
 
-/** Herstel scanlint- en output-preview vensters als ze bij vorige sessie open stonden. */
-function restorePreviewWindowsIfNeeded(stripPreload, stripHtmlPath, outputPreload, outputHtmlPath) {
+function createAlignPreviewWindow(preloadPath, htmlPath) {
+  if (alignPreviewWindow && !alignPreviewWindow.isDestroyed()) {
+    alignPreviewWindow.focus();
+    return alignPreviewWindow;
+  }
+  const winState = prefs.getWindowState();
+  const saved = winState.alignPreviewBounds ? clampBoundsToDisplay(winState.alignPreviewBounds) : null;
+  /** Zelfde tegelmaat en rij als Scanlint (slot 0) en Output (slot 2). */
+  const minW = getUnifiedPreviewMinWidthPx();
+  const base = saved || getUnifiedPreviewSlotBounds(1);
+  const bounds = { ...base, width: Math.max(minW, base.width) };
+  const opts = {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    minWidth: minW,
+    minHeight: 400,
+    title: constants.APP_NAME + ' – UITLIJN',
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  };
+  alignPreviewWindow = new BrowserWindow(opts);
+  alignPreviewWindow.loadFile(htmlPath);
+  alignPreviewWindow.webContents.on('did-finish-load', () => {
+    setImmediate(() => {
+      resendLastStripPayloadToAlignPreview();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('align-preview-ready');
+      }
+    });
+  });
+  alignPreviewWindow.on('close', () => {
+    const state = prefs.getWindowState();
+    state.alignPreviewOpen = false;
+    if (alignPreviewWindow && !alignPreviewWindow.isDestroyed()) {
+      state.alignPreviewBounds = alignPreviewWindow.getBounds();
+    }
+    prefs.setWindowState(state);
+  });
+  alignPreviewWindow.on('closed', () => {
+    alignPreviewWindow = null;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('align-preview-closed');
+    }
+  });
+  prefs.setWindowState({ ...prefs.getWindowState(), alignPreviewOpen: true });
+  return alignPreviewWindow;
+}
+
+function closeAlignPreviewWindow() {
+  if (alignPreviewWindow && !alignPreviewWindow.isDestroyed()) {
+    alignPreviewWindow.close();
+    alignPreviewWindow = null;
+  }
+}
+
+function sendToAlignPreview(channel, payload) {
+  if (alignPreviewWindow && !alignPreviewWindow.isDestroyed()) {
+    alignPreviewWindow.webContents.send(channel, payload);
+  }
+}
+
+/** Herstel scanlint-, output- en uitlijning-preview vensters als ze bij vorige sessie open stonden. */
+function restorePreviewWindowsIfNeeded(stripPreload, stripHtmlPath, outputPreload, outputHtmlPath, alignPreload, alignHtmlPath) {
   const state = prefs.getWindowState();
   if (state.stripPreviewOpen && stripHtmlPath && stripPreload) createStripPreviewWindow(stripPreload, stripHtmlPath);
   if (state.outputPreviewOpen && outputHtmlPath && outputPreload) createOutputPreviewWindow(outputPreload, outputHtmlPath);
+  if (state.alignPreviewOpen && alignHtmlPath && alignPreload) createAlignPreviewWindow(alignPreload, alignHtmlPath);
 }
 
 module.exports = {
   getMainWindow,
   getStripPreviewWindow,
   getOutputPreviewWindow,
+  getAlignPreviewWindow,
+  setLastStripUpdatePayload,
+  resendLastStripPayloadToStripPreview,
+  resendLastStripPayloadToAlignPreview,
   createMainWindow,
   createStripPreviewWindow,
   createOutputPreviewWindow,
+  createAlignPreviewWindow,
   closeStripPreviewWindow,
   closeOutputPreviewWindow,
+  closeAlignPreviewWindow,
   sendToStripPreview,
   sendToOutputPreview,
+  sendToAlignPreview,
   restorePreviewWindowsIfNeeded
 };

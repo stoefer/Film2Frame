@@ -39,24 +39,24 @@ const state = {
   gridOffsetYBottom: 0,
   /**
    * Strip-preview: referentielijn (gele lijn). bottomFixed = heel raster schuift tegelijk.
-   * pivot* (met 0 < k < n): cellen onder lijn k houden vaste canvas-hoogte; alleen het bovenblok reageert op split-pan en marge.
+   * pivotMiddleUpper: k≈ceil(n/2), flexibel boven lijn; pivotMiddleLower: k≈floor(n/2), flexibel onder lijn (bij oneven n wijkt k 1 rij).
    */
   gridVerticalAnchorMode: 'bottomFixed',
   /** Bij pivotCustom: lijnindex 0=boven raster … n=onder raster */
   gridVerticalPivotCustomK: 1,
   /**
-   * Bij referentielijn (niet bottomFixed): verschuiving van het blok onder lijn k in canvas-px.
-   * Randcel k-1 past in hoogte; frames k…n-1 schuiven als geheel mee t.o.v. de film.
+   * Split-pan in canvas-px: bij pivotMiddleUpper e.d. verdeelt d het bovenblok (tot lijn k); bij pivotMiddleLower het onderblok.
+   * Randcel bij de split past in hoogte; de andere helft blijft visueel gelijk per rij (star band).
    */
   gridSplitLowerPanCanvas: 0,
   /**
-   * Bij split-referentie (0 < k < n): vaste canvas-hoogte per cel onder lijn k.
-   * Alleen cellen boven de lijn volgen split-pan / marge-aanpassingen; onderblok blijft visueel gelijk.
+   * Bij split-referentie (0 < k < n): vaste band — per cel onder lijn k (pivotMiddleUpper e.d.), of per cel boven lijn k (pivotMiddleLower: star bovenblok).
+   * De flexibele helft reageert op split-pan (gridSplitLowerPanCanvas).
    */
   gridFrozenLowerCellHeightPx: null,
   /**
-   * Alleen pivotActive: split-pan d per referentielijn-index k (string "1"…"n−1").
-   * Eén globale gridSplitLowerPanCanvas hoort bij het huidige k; zonder map ging die waarde bij frame-wissel verloren.
+   * pivotActive en pivotCustom: split-pan d per referentielijn-index k (string "1"…"n−1").
+   * Eén globale gridSplitLowerPanCanvas hoort bij het huidige k; zonder map ging die waarde bij wissel actief frame of custom-lijn verloren.
    */
   gridSplitLowerPanByPivotK: null,
   /**
@@ -90,7 +90,11 @@ const state = {
   /** Pijltjesstap (px) voor raster in scanlint-preview (1–10). */
   arrowStepPx: 1,
   /** Pijltjesstap met Shift (px) voor raster in scanlint-preview (10–100). */
-  arrowStepShiftPx: 10
+  arrowStepShiftPx: 10,
+  /** Pad naar uitvoerbestand voor MP4-export (bijv. C:\output\video.mp4). */
+  videoOutputPath: null,
+  /** Map met frames voor video-export (leeg = gebruik projectscans). */
+  videoFramesFolderPath: null
 };
 
 function clampNumFrames(n) {
@@ -165,12 +169,26 @@ function ensurePivotSplitMap() {
   }
 }
 
-/** Na laden snapshot/preset: canvas-split gelijk trekken met map voor huidig k (pivotActive). */
-export function syncPivotActiveSplitCanvasFromMap() {
-  if ((state.gridVerticalAnchorMode || 'bottomFixed') !== 'pivotActive') return;
+function resolveSplitPanPivotKFromState() {
+  const mode = state.gridVerticalAnchorMode || 'bottomFixed';
   const n = Math.max(1, state.numFrames || 1);
-  const k = Math.max(0, Math.min(n, (state.activeFrameIndex || 0) + 1));
-  if (k <= 0 || k >= n) return;
+  if (mode === 'pivotActive') {
+    return Math.max(0, Math.min(n, (state.activeFrameIndex || 0) + 1));
+  }
+  if (mode === 'pivotCustom') {
+    return Math.max(0, Math.min(n, Math.round(Number(state.gridVerticalPivotCustomK) || 0)));
+  }
+  return -1;
+}
+
+/** Na laden snapshot/preset: canvas-split gelijk trekken met map voor huidig k (pivotActive / pivotCustom). */
+export function syncPivotActiveSplitCanvasFromMap() {
+  const mode = state.gridVerticalAnchorMode || 'bottomFixed';
+  if (mode !== 'pivotActive' && mode !== 'pivotCustom') return;
+  const n = Math.max(1, state.numFrames || 1);
+  const k = resolveSplitPanPivotKFromState();
+  /* k === n: geen split in raster, maar canvas-waarde uit map houden i.p.v. vroeg afbreken. */
+  if (k <= 0 || k > n) return;
   if (!state.gridSplitLowerPanByPivotK || typeof state.gridSplitLowerPanByPivotK !== 'object') {
     const cur = Math.round(Number(state.gridSplitLowerPanCanvas) || 0);
     if (cur !== 0) {
@@ -256,6 +274,14 @@ export function setArrowStepShiftPx(px) {
   if (Number.isFinite(v)) state.arrowStepShiftPx = Math.max(10, Math.min(100, Math.round(v)));
 }
 
+export function setVideoOutputPath(p) {
+  state.videoOutputPath = p != null ? String(p) : null;
+}
+
+export function setVideoFramesFolderPath(p) {
+  state.videoFramesFolderPath = p != null ? String(p) : null;
+}
+
 export function setGridOffset(x, y) {
   state.gridOffsetX = Number(x) || 0;
   const yy = Number(y);
@@ -288,17 +314,30 @@ const VERTICAL_ANCHOR_MODES = new Set([
   'bottomFixed',
   'pivotTop',
   'pivotActive',
-  'pivotMiddle',
+  'pivotMiddleUpper',
+  'pivotMiddleLower',
   'pivotCustom'
 ]);
 
 export function setGridVerticalAnchorMode(mode) {
-  if (typeof mode === 'string' && VERTICAL_ANCHOR_MODES.has(mode)) {
-    state.gridVerticalAnchorMode = mode;
-    if (mode === 'bottomFixed') {
+  let m = typeof mode === 'string' ? mode.trim() : 'bottomFixed';
+  if (m === 'pivotMiddle') m = 'pivotMiddleUpper';
+  if (VERTICAL_ANCHOR_MODES.has(m)) {
+    const prev = state.gridVerticalAnchorMode || 'bottomFixed';
+    state.gridVerticalAnchorMode = m;
+    if (m === 'bottomFixed') {
       state.gridSplitLowerPanCanvas = 0;
       state.gridFrozenLowerCellHeightPx = null;
       state.gridSplitLowerPanByPivotK = null;
+    } else if (prev !== m && (m === 'pivotMiddleUpper' || m === 'pivotMiddleLower')) {
+      /* Schone start: oude d (b.v. stap 10) en frozen veroorzaken sprong + verkeerde bandhoogte. */
+      state.gridSplitLowerPanCanvas = 0;
+      state.gridFrozenLowerCellHeightPx = null;
+    } else if (
+      prev !== m &&
+      (prev === 'pivotMiddleUpper' || prev === 'pivotMiddleLower')
+    ) {
+      state.gridFrozenLowerCellHeightPx = null;
     }
   }
 }
@@ -306,9 +345,10 @@ export function setGridVerticalAnchorMode(mode) {
 export function setGridSplitLowerPanCanvas(delta) {
   const v = Math.round(Number(delta) || 0);
   state.gridSplitLowerPanCanvas = v;
-  if ((state.gridVerticalAnchorMode || 'bottomFixed') === 'pivotActive') {
+  const mode = state.gridVerticalAnchorMode || 'bottomFixed';
+  if (mode === 'pivotActive' || mode === 'pivotCustom') {
     const n = Math.max(1, state.numFrames || 1);
-    const k = Math.max(0, Math.min(n, (state.activeFrameIndex || 0) + 1));
+    const k = resolveSplitPanPivotKFromState();
     if (k > 0 && k < n) {
       ensurePivotSplitMap();
       state.gridSplitLowerPanByPivotK[String(k)] = v;
@@ -336,10 +376,35 @@ export function setGridPanelLinkVerticalAnchor(value) {
   state.gridPanelLinkVerticalAnchor = value !== false;
 }
 
-export function setGridVerticalPivotCustomK(k) {
+/**
+ * @param {number} k
+ * @param {{ skipSplitHandoff?: boolean }} [options] skipSplitHandoff: preset/snapshot laden — geen bewaren/ophalen uit map
+ */
+export function setGridVerticalPivotCustomK(k, options = {}) {
+  const skipSplitHandoff = options && options.skipSplitHandoff === true;
   const v = Math.round(Number(k) || 0);
   const n = Math.max(1, state.numFrames || 1);
-  state.gridVerticalPivotCustomK = Math.max(0, Math.min(n, v));
+  const clampedNew = Math.max(0, Math.min(n, v));
+  const mode = state.gridVerticalAnchorMode || 'bottomFixed';
+
+  if (!skipSplitHandoff && mode === 'pivotCustom') {
+    const kOld = Math.max(0, Math.min(n, Math.round(Number(state.gridVerticalPivotCustomK) || 0)));
+    if (kOld > 0 && kOld < n) {
+      ensurePivotSplitMap();
+      state.gridSplitLowerPanByPivotK[String(kOld)] = Math.round(Number(state.gridSplitLowerPanCanvas) || 0);
+    }
+    state.gridVerticalPivotCustomK = clampedNew;
+    const kNew = state.gridVerticalPivotCustomK;
+    if (kNew > 0 && kNew < n) {
+      ensurePivotSplitMap();
+      const raw = state.gridSplitLowerPanByPivotK[String(kNew)];
+      state.gridSplitLowerPanCanvas =
+        raw != null && Number.isFinite(Number(raw)) ? Math.round(Number(raw)) : 0;
+    }
+    return;
+  }
+
+  state.gridVerticalPivotCustomK = clampedNew;
 }
 
 /** Zet raster naar standaard: 75% breedte scanlint, geen verticale offset. */
@@ -390,12 +455,24 @@ export function updateProjectScanInfos(scanInfos) {
   state.projectMeta.numberOfScans = state.projectMeta.scanInfos.length;
 }
 
+/** Welke scanlint-preset (id) hoort bij dit project; null = geen keuze. */
+export function setStripPresetId(id) {
+  if (!state.projectMeta) return;
+  const v = id != null && typeof id === 'string' && id.trim() !== '' ? id.trim() : null;
+  state.projectMeta.stripPresetId = v;
+  state.isDirty = true;
+}
+
 export function setProject(projectPath, meta) {
   state.projectPath = projectPath;
   state.projectMeta = meta ? {
     ...meta,
     lintStates: Array.isArray(meta.lintStates) ? [...meta.lintStates] : [],
-    scanInfos: Array.isArray(meta.scanInfos) ? [...meta.scanInfos] : []
+    scanInfos: Array.isArray(meta.scanInfos) ? [...meta.scanInfos] : [],
+    stripPresetId:
+      meta.stripPresetId != null && typeof meta.stripPresetId === 'string' && meta.stripPresetId.trim() !== ''
+        ? meta.stripPresetId.trim()
+        : null
   } : null;
   state.isDirty = false;
   state.lintStates = state.projectMeta?.lintStates ? [...state.projectMeta.lintStates] : [];
@@ -478,7 +555,7 @@ export function getGridGeometrySnapshot() {
     gridVerticalPivotCustomK: s.gridVerticalPivotCustomK,
     gridSplitLowerPanCanvas: s.gridSplitLowerPanCanvas,
     gridSplitLowerPanByPivotK:
-      s.gridVerticalAnchorMode === 'pivotActive' &&
+      (s.gridVerticalAnchorMode === 'pivotActive' || s.gridVerticalAnchorMode === 'pivotCustom') &&
       s.gridSplitLowerPanByPivotK &&
       typeof s.gridSplitLowerPanByPivotK === 'object'
         ? { ...s.gridSplitLowerPanByPivotK }
@@ -510,16 +587,17 @@ export function applyGridGeometrySnapshot(grid) {
     setGridOffsetYBottom(Number.isFinite(vb) ? vb : 0);
   }
 
-  if (grid.gridVerticalAnchorMode != null && VERTICAL_ANCHOR_MODES.has(grid.gridVerticalAnchorMode)) {
+  if (grid.gridVerticalAnchorMode != null) {
     setGridVerticalAnchorMode(grid.gridVerticalAnchorMode);
   }
   if (grid.gridVerticalPivotCustomK != null) {
-    setGridVerticalPivotCustomK(grid.gridVerticalPivotCustomK);
+    setGridVerticalPivotCustomK(grid.gridVerticalPivotCustomK, { skipSplitHandoff: true });
   }
+  const anchorAfter = state.gridVerticalAnchorMode || 'bottomFixed';
   if (
     grid.gridSplitLowerPanByPivotK != null &&
     typeof grid.gridSplitLowerPanByPivotK === 'object' &&
-    (state.gridVerticalAnchorMode || 'bottomFixed') === 'pivotActive'
+    (anchorAfter === 'pivotActive' || anchorAfter === 'pivotCustom')
   ) {
     state.gridSplitLowerPanByPivotK = {};
     for (const [key, val] of Object.entries(grid.gridSplitLowerPanByPivotK)) {
@@ -565,18 +643,21 @@ export function applyLintState(snapshot) {
     const vb = Number(snapshot.gridOffsetYBottom);
     state.gridOffsetYBottom = Number.isFinite(vb) ? Math.max(0, Math.round(vb)) : 0;
   } else state.gridOffsetYBottom = 0;
-  if (snapshot.gridVerticalAnchorMode != null && VERTICAL_ANCHOR_MODES.has(snapshot.gridVerticalAnchorMode)) {
-    state.gridVerticalAnchorMode = snapshot.gridVerticalAnchorMode;
+  if (snapshot.gridVerticalAnchorMode != null) {
+    const raw = String(snapshot.gridVerticalAnchorMode).trim();
+    const gm = raw === 'pivotMiddle' ? 'pivotMiddleUpper' : raw;
+    if (VERTICAL_ANCHOR_MODES.has(gm)) state.gridVerticalAnchorMode = gm;
   }
   if (snapshot.gridVerticalPivotCustomK != null) {
     const pk = Math.round(Number(snapshot.gridVerticalPivotCustomK) || 0);
     const n = Math.max(1, state.numFrames || 1);
     state.gridVerticalPivotCustomK = Math.max(0, Math.min(n, pk));
   }
+  const lintAnchor = state.gridVerticalAnchorMode || 'bottomFixed';
   if (
     snapshot.gridSplitLowerPanByPivotK != null &&
     typeof snapshot.gridSplitLowerPanByPivotK === 'object' &&
-    (state.gridVerticalAnchorMode || 'bottomFixed') === 'pivotActive'
+    (lintAnchor === 'pivotActive' || lintAnchor === 'pivotCustom')
   ) {
     state.gridSplitLowerPanByPivotK = {};
     for (const [key, val] of Object.entries(snapshot.gridSplitLowerPanByPivotK)) {
