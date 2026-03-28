@@ -22,6 +22,7 @@
   "build": {
     "appId": "com.film2frame.app",
     "productName": "Film2Frame",
+    "icon": "build/icon.png",
     "directories": {
       "output": "dist"
     },

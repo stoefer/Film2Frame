@@ -2,9 +2,31 @@
  * Window factory – alle vensters op één plek. Posities en groottes worden bewaard in prefs.
  */
 const { BrowserWindow, screen } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const constants = require('./constants');
 const prefs = require('./prefs');
+const locales = require('./locales');
+
+/** Venster- en taakbalkicoon (PNG in repo); ontbreekt het bestand, dan laat Electron de standaard zien. */
+function getAppIconPath() {
+  try {
+    const p = path.join(__dirname, '..', 'build', 'icon.png');
+    if (fs.existsSync(p)) return p;
+  } catch (_) {}
+  return undefined;
+}
+
+function applyWindowIcon(opts) {
+  const icon = getAppIconPath();
+  if (icon) opts.icon = icon;
+}
+
+function localizedAuxWindowTitle(dictKey, fallbackSuffix) {
+  const d = locales.loadLocale(prefs.getLocale()) || locales.loadLocale('en') || {};
+  const suf = typeof d[dictKey] === 'string' && d[dictKey].trim() ? d[dictKey].trim() : fallbackSuffix;
+  return `${constants.APP_NAME} – ${suf}`;
+}
 
 /** Zijkant- en tussenruimte zodat Scanlint, Uitlijning en Output naast elkaar in het werkgebied passen. */
 const PREVIEW_TILE_SIDE_PAD = 10;
@@ -78,6 +100,89 @@ function clampBoundsToDisplay(bounds) {
   } catch (_) {
     return null;
   }
+}
+
+/** Maximale inhoudshoogte (px) zodat het venster in het werkgebied blijft. */
+function getMaxContentHeightForWindow(win) {
+  try {
+    if (!win || win.isDestroyed()) return 1200;
+    const outer = win.getBounds();
+    const content = win.getContentBounds();
+    const chromeY = outer.height - content.height;
+    const display = screen.getDisplayMatching(outer);
+    const work = display.workArea || display.bounds;
+    return Math.max(320, work.height - chromeY - 8);
+  } catch (_) {
+    return 1200;
+  }
+}
+
+/**
+ * Verhoogt zo nodig de inhoudshoogte zodat vaste UI (toolbar, RASTER-balk, …) + minimale preview zichtbaar zijn.
+ * Verkleint niet t.o.v. de huidige hoogte (gebruiker mag hoger venster bewaren).
+ */
+async function fitWindowContentHeightIfNeeded(win, measureScript, minContentH) {
+  if (!win || win.isDestroyed()) return;
+  const floor = Math.max(200, Number(minContentH) || 400);
+  try {
+    const raw = await win.webContents.executeJavaScript(measureScript);
+    const needed = Math.ceil(Number(raw));
+    if (!Number.isFinite(needed) || needed < 240) return;
+    const [cw, ch] = win.getContentSize();
+    const target = Math.max(floor, Math.max(ch, needed));
+    const maxH = getMaxContentHeightForWindow(win);
+    const nextH = Math.min(maxH, target);
+    if (nextH <= ch + 1) return;
+    win.setContentSize(cw, nextH);
+    const nb = win.getBounds();
+    const display = screen.getDisplayMatching(nb);
+    const work = display.workArea || display.bounds;
+    if (nb.y + nb.height > work.y + work.height - 4) {
+      const y = Math.max(work.y, work.y + work.height - nb.height);
+      win.setPosition(nb.x, y);
+    }
+  } catch (_) {}
+}
+
+const MEASURE_STRIP_PREVIEW_HEIGHT = `(function(){
+  function h(el){ return el && el.offsetHeight ? el.offsetHeight : 0; }
+  var a = h(document.querySelector('.header'));
+  var b = h(document.querySelector('.toolbar'));
+  var c = h(document.querySelector('.raster-subpanel'));
+  var minVp = 380;
+  return a + b + c + minVp;
+})()`;
+
+const MEASURE_ALIGN_PREVIEW_HEIGHT = `(function(){
+  function ht(el){ return el && el.offsetHeight ? el.offsetHeight : 0; }
+  var t = ht(document.querySelector('.toolbar'));
+  var minVp = 420;
+  return t + minVp;
+})()`;
+
+const MEASURE_OUTPUT_PREVIEW_HEIGHT = `(function(){
+  var cap = document.querySelector('.caption');
+  var minVp = 360;
+  return (cap ? cap.offsetHeight : 28) + 20 + minVp;
+})()`;
+
+const MEASURE_MAIN_WINDOW_HEIGHT = `(function(){
+  var hdr = document.querySelector('header.toolbar');
+  var main = document.querySelector('main.content');
+  var h0 = hdr && hdr.offsetHeight ? hdr.offsetHeight : 52;
+  var h1 = main && main.scrollHeight ? main.scrollHeight : 640;
+  var pad = 40;
+  return Math.min(5600, h0 + h1 + pad);
+})()`;
+
+function scheduleFitWindowContent(win, measureScript, minH, delaysMs) {
+  if (!win || win.isDestroyed()) return;
+  const delays = Array.isArray(delaysMs) && delaysMs.length ? delaysMs : [80, 280];
+  delays.forEach((ms) => {
+    setTimeout(() => {
+      if (!win.isDestroyed()) fitWindowContentHeightIfNeeded(win, measureScript, minH).catch(() => {});
+    }, ms);
+  });
 }
 
 let mainWindow = null;
@@ -167,6 +272,41 @@ function resendLastStripPayloadToStripPreview() {
   } catch (_) {}
 }
 
+/**
+ * Hoofd-, scanlint-, output- en uitlijning-venster: geen verslepen/verkleinen/maximaliseren wanneer locked.
+ * Na ontgrendelen worden minimale afmetingen teruggezet (Electron onthoudt die niet automatisch).
+ */
+function applyWindowGeometryLock(locked) {
+  const L = !!locked;
+  const applyOne = (win) => {
+    if (!win || win.isDestroyed()) return;
+    try {
+      win.setMovable(!L);
+      win.setResizable(!L);
+      win.setMaximizable(!L);
+    } catch (_) {}
+  };
+  applyOne(mainWindow);
+  applyOne(stripPreviewWindow);
+  applyOne(outputPreviewWindow);
+  applyOne(alignPreviewWindow);
+  if (!L) {
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setMinimumSize(constants.MIN_WIDTH, constants.MIN_HEIGHT);
+      }
+      const minW = getUnifiedPreviewMinWidthPx();
+      [stripPreviewWindow, outputPreviewWindow, alignPreviewWindow].forEach((w) => {
+        if (w && !w.isDestroyed()) w.setMinimumSize(minW, 400);
+      });
+    } catch (_) {}
+  }
+}
+
+function applyWindowGeometryLockFromPrefs() {
+  applyWindowGeometryLock(!!prefs.getAllSettings().windowsGeometryLocked);
+}
+
 function getMainWindow() { return mainWindow; }
 function getStripPreviewWindow() { return stripPreviewWindow; }
 function getOutputPreviewWindow() { return outputPreviewWindow; }
@@ -192,6 +332,7 @@ function createMainWindow(preloadPath) {
     opts.x = savedMain.x;
     opts.y = savedMain.y;
   }
+  applyWindowIcon(opts);
   mainWindow = new BrowserWindow(opts);
   mainWindow.loadFile(path.join(__dirname, '..', 'index.html'));
   mainWindow.on('close', (e) => {
@@ -250,6 +391,10 @@ function createMainWindow(preloadPath) {
     }
   });
   mainWindow.on('closed', () => { mainWindow = null; });
+  applyWindowGeometryLockFromPrefs();
+  mainWindow.webContents.once('did-finish-load', () => {
+    scheduleFitWindowContent(mainWindow, MEASURE_MAIN_WINDOW_HEIGHT, constants.MIN_HEIGHT, [120, 420]);
+  });
   return mainWindow;
 }
 
@@ -263,20 +408,22 @@ function createStripPreviewWindow(preloadPath, htmlPath) {
   const minW = getUnifiedPreviewMinWidthPx();
   const base = saved || getUnifiedPreviewSlotBounds(0);
   const bounds = { ...base, width: Math.max(minW, base.width) };
-  stripPreviewWindow = new BrowserWindow({
+  const stripOpts = {
     x: bounds.x,
     y: bounds.y,
     width: bounds.width,
     height: bounds.height,
     minWidth: minW,
     minHeight: 400,
-    title: constants.APP_NAME + ' – Scanlint',
+    title: localizedAuxWindowTitle('window.rasterSetupTitleSuffix', 'RASTER SETUP'),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false
     }
-  });
+  };
+  applyWindowIcon(stripOpts);
+  stripPreviewWindow = new BrowserWindow(stripOpts);
   stripPreviewWindow.loadFile(htmlPath);
   stripPreviewWindow.webContents.on('did-finish-load', () => {
     /* Na inline script + preload listeners: voorkomt race waarbij eerste resend geen handler heeft. */
@@ -286,6 +433,7 @@ function createStripPreviewWindow(preloadPath, htmlPath) {
         mainWindow.webContents.send('strip-preview-ready');
       }
     });
+    scheduleFitWindowContent(stripPreviewWindow, MEASURE_STRIP_PREVIEW_HEIGHT, 520, [60, 240]);
   });
   stripPreviewWindow.on('close', () => {
     const state = prefs.getWindowState();
@@ -304,6 +452,7 @@ function createStripPreviewWindow(preloadPath, htmlPath) {
   (function markStripOpen() {
     prefs.setWindowState({ ...prefs.getWindowState(), stripPreviewOpen: true });
   })();
+  applyWindowGeometryLockFromPrefs();
   return stripPreviewWindow;
 }
 
@@ -348,8 +497,12 @@ function createOutputPreviewWindow(preloadPath, htmlPath) {
     opts.x = defaultBounds.x;
     opts.y = defaultBounds.y;
   }
+  applyWindowIcon(opts);
   outputPreviewWindow = new BrowserWindow(opts);
   outputPreviewWindow.loadFile(htmlPath);
+  outputPreviewWindow.webContents.once('did-finish-load', () => {
+    scheduleFitWindowContent(outputPreviewWindow, MEASURE_OUTPUT_PREVIEW_HEIGHT, 400, [40, 200]);
+  });
   outputPreviewWindow.on('close', () => {
     const state = prefs.getWindowState();
     state.outputPreviewOpen = false;
@@ -365,6 +518,7 @@ function createOutputPreviewWindow(preloadPath, htmlPath) {
     }
   });
   prefs.setWindowState({ ...prefs.getWindowState(), outputPreviewOpen: true });
+  applyWindowGeometryLockFromPrefs();
   return outputPreviewWindow;
 }
 
@@ -399,13 +553,14 @@ function createAlignPreviewWindow(preloadPath, htmlPath) {
     height: bounds.height,
     minWidth: minW,
     minHeight: 400,
-    title: constants.APP_NAME + ' – UITLIJN',
+    title: localizedAuxWindowTitle('window.rasterPreviewTitleSuffix', 'RASTER PREVIEW'),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false
     }
   };
+  applyWindowIcon(opts);
   alignPreviewWindow = new BrowserWindow(opts);
   alignPreviewWindow.loadFile(htmlPath);
   alignPreviewWindow.webContents.on('did-finish-load', () => {
@@ -415,6 +570,7 @@ function createAlignPreviewWindow(preloadPath, htmlPath) {
         mainWindow.webContents.send('align-preview-ready');
       }
     });
+    scheduleFitWindowContent(alignPreviewWindow, MEASURE_ALIGN_PREVIEW_HEIGHT, 480, [60, 240]);
   });
   alignPreviewWindow.on('close', () => {
     const state = prefs.getWindowState();
@@ -431,6 +587,7 @@ function createAlignPreviewWindow(preloadPath, htmlPath) {
     }
   });
   prefs.setWindowState({ ...prefs.getWindowState(), alignPreviewOpen: true });
+  applyWindowGeometryLockFromPrefs();
   return alignPreviewWindow;
 }
 
@@ -473,5 +630,7 @@ module.exports = {
   sendToStripPreview,
   sendToOutputPreview,
   sendToAlignPreview,
-  restorePreviewWindowsIfNeeded
+  restorePreviewWindowsIfNeeded,
+  applyWindowGeometryLock,
+  applyWindowGeometryLockFromPrefs
 };
