@@ -14,6 +14,7 @@ import {
   resolveVerticalPivotKFromState
 } from './grid.js';
 import { STRIP_EXTENDED_RATIO, DEFAULT_STRIP_PREVIEW_MAX_DIM } from './constants.js';
+import { refreshFramePixelEditor } from './frame-pixel-editor.js';
 
 /** Standaard max. zijde als state nog niet gezet is (= strip-cap, één schaalstap). */
 const STRIP_PREVIEW_MAX_DIM_DEFAULT = DEFAULT_STRIP_PREVIEW_MAX_DIM;
@@ -100,97 +101,85 @@ function ladderDisplayHeightsFromRows(rowsCanvas, targetTotalDisp) {
 }
 
 /**
- * Zelfde totaalsom als ladderDisplayHeightsFromRows, maar restpixels cyclisch 0→n−1 i.p.v. largest-remainder-sort.
- * Voorkomt dat bij kleine split-pan (d) de sorteervolgorde van breukdelen omslaat en de referentielijn in de preview 1–2px “wandelt”.
+ * Gehele rijhoogtes in preview-pixels, som = target, proportioneel aan weights. Gebruikt
+ * floor(target*cum[i+1]/W) − floor(target*cum[i]/W) zodat de cumulatieve onderkant van rij i exact
+ * floor(i*target/n) is bij gelijke gewichten — geen stapeling van +1px vanaf het bovenste frame.
+ * (Oude round-robin vanaf index 0 gaf op lange strips een systematische drift t.o.v. de bitmap.)
  */
-function ladderDisplayHeightsFromRowsRoundRobin(rowsCanvas, targetTotalDisp) {
-  const n = rowsCanvas.length;
+function proportionalIntHeightsFromWeights(targetTotalDisp, weights) {
+  const n = weights.length;
   const target = Math.max(1, Math.round(targetTotalDisp));
   if (n < 1) return [target];
-  const innerC = rowsCanvas.reduce((acc, r) => acc + (Number(r.h) || 0), 0);
-  if (innerC < 1e-9) {
+  const w = weights.map((x) => Math.max(0, Number(x) || 0));
+  const W = w.reduce((a, b) => a + b, 0);
+  if (W < 1e-9) {
     const base = Math.floor(target / n);
     let rem = target - base * n;
     return Array.from({ length: n }, (_, i) => base + (i < rem ? 1 : 0));
   }
-  const ideal = rowsCanvas.map((ry) => ((Number(ry.h) || 0) / innerC) * target);
-  const out = ideal.map((x) => Math.floor(x));
-  let deficit = target - out.reduce((a, b) => a + b, 0);
-  let pos = 0;
-  while (deficit > 0) {
-    out[pos % n]++;
-    deficit--;
-    pos++;
-  }
-  if (deficit < 0) {
-    let need = -deficit;
-    let step = 0;
-    while (need > 0 && step < n * (target + 5)) {
-      const j = n - 1 - (step % n);
-      if (out[j] > 1) {
-        out[j]--;
-        need--;
-      }
-      step++;
-    }
+  let cum = 0;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const next = cum + w[i];
+    const hi = Math.floor((target * next) / W) - Math.floor((target * cum) / W);
+    out.push(hi);
+    cum = next;
   }
   return out;
+}
+
+/**
+ * Display-hoogtes proportioneel aan canvas-ladderrijen; som exact targetTotalDisp.
+ * (Vroeger: round-robin restpixels vanaf frame 0 → cumulatieve drift op lange strips.)
+ */
+function ladderDisplayHeightsProportionalToRows(rowsCanvas, targetTotalDisp) {
+  const n = rowsCanvas.length;
+  if (n < 1) return [Math.max(1, Math.round(targetTotalDisp))];
+  const weights = rowsCanvas.map((ry) => Number(ry.h) || 0);
+  return proportionalIntHeightsFromWeights(targetTotalDisp, weights);
 }
 
 function subDistributeHeightsForSubstrip(subRows, subTarget) {
   const m = subRows.length;
   const st = Math.max(m, Math.round(subTarget));
   if (m < 1) return [];
-  const inner = subRows.reduce((a, r) => a + (Number(r.h) || 0), 0);
-  if (inner < 1e-9) {
-    const base = Math.floor(st / m);
-    let rem = st - base * m;
-    return Array.from({ length: m }, (_, i) => base + (i < rem ? 1 : 0));
-  }
-  const ideal = subRows.map((ry) => ((Number(ry.h) || 0) / inner) * st);
-  const out = ideal.map((x) => Math.floor(x));
-  let deficit = st - out.reduce((a, b) => a + b, 0);
-  let pos = 0;
-  while (deficit > 0) {
-    out[pos % m]++;
-    deficit--;
-    pos++;
-  }
-  if (deficit < 0) {
-    let need = -deficit;
-    let step = 0;
-    while (need > 0 && step < m * (st + 5)) {
-      const j = m - 1 - (step % m);
-      if (out[j] > 1) {
-        out[j]--;
-        need--;
-      }
-      step++;
-    }
-  }
-  return out;
+  const weights = subRows.map((ry) => Number(ry.h) || 0);
+  return proportionalIntHeightsFromWeights(st, weights);
 }
 
 /**
  * Zorgt dat de som van display-hoogtes boven index kPin exact overeenkomt met de canvas-split
  * (zodat de gele referentielijn niet “wandelt” bij kleine wijzigingen in d).
+ *
+ * innerCanvasPx: S − T − B uit marges (gezaghebbend). Zonder die waarde gebruikt de oude som(h)-ratio,
+ * die bij float-afronding per d-stap kan oscilleren en upperTarget ±1 px laat springen.
  */
-function ladderDisplayHeightsPinnedSplit(rowsCanvas, targetTotalDisp, kPin) {
+function ladderDisplayHeightsPinnedSplit(rowsCanvas, targetTotalDisp, kPin, innerCanvasPx) {
   const n = rowsCanvas.length;
   const target = Math.max(1, Math.round(targetTotalDisp));
   if (kPin <= 0 || kPin >= n || n < 1) {
-    return ladderDisplayHeightsFromRowsRoundRobin(rowsCanvas, target);
+    return ladderDisplayHeightsProportionalToRows(rowsCanvas, target);
   }
-  const innerC = rowsCanvas.reduce((a, r) => a + (Number(r.h) || 0), 0);
-  if (innerC < 1e-9) {
-    return ladderDisplayHeightsFromRows(rowsCanvas, target);
-  }
+  const r0 = rowsCanvas[0];
+  const rLast = rowsCanvas[n - 1];
+  const innerTop = Number(r0?.y) || 0;
   const upperRows = rowsCanvas.slice(0, kPin);
   const lowerRows = rowsCanvas.slice(kPin);
-  const sumUpperC = upperRows.reduce((a, r) => a + (Number(r.h) || 0), 0);
+  /* Zelfde basis als canvas-ladder: som rij-hoogtes i.p.v. ySplit−T (voorkomt ±1 px bij k-wissel door float-afronding). */
+  const upperInnerSum = upperRows.reduce((a, r) => a + (Number(r.h) || 0), 0);
+  const innerSum = rowsCanvas.reduce((a, r) => a + (Number(r.h) || 0), 0);
+  let innerAuth =
+    innerSum > 1e-9
+      ? innerSum
+      : innerCanvasPx != null && Number(innerCanvasPx) > 0
+        ? Number(innerCanvasPx)
+        : Math.max(0, (Number(rLast?.y) || 0) + (Number(rLast?.h) || 0) - innerTop);
+  if (innerAuth < 1e-9) {
+    return ladderDisplayHeightsFromRows(rowsCanvas, target);
+  }
   const minUpper = kPin;
   const minLower = n - kPin;
-  let upperTarget = Math.round((sumUpperC / innerC) * target);
+  let upperTarget = Math.round((upperInnerSum / innerAuth) * target);
   upperTarget = Math.max(minUpper, Math.min(target - minLower, upperTarget));
   let lowerTarget = target - upperTarget;
   if (lowerTarget < minLower) {
@@ -208,8 +197,10 @@ function ladderDisplayHeightsPinnedSplit(rowsCanvas, targetTotalDisp, kPin) {
  * extendedDisplayHeight moet groot genoeg zijn: met gecentreerde strip geldt
  * grid-onderkant = (E−dh)/2 + yTopDisp + gridTotalHeight ≤ E. Anders valt het raster buiten de container
  * en kunnen browsers onderaan vreemd tekenen (uitgesmeerde frames).
+ *
+ * @param {number} [stripCanvasWidth] - Echte breedte van het strip-canvas (px); zelfde als getStripCanvas().width. Voorkomt rasterbreedte-sprongen bij fijne rotatie wanneer round(W·s) en round(H·s) licht uit aspect vallen.
  */
-export function buildGridPayload(displayWidth, displayHeight, scale, overrideGridOffsetX) {
+export function buildGridPayload(displayWidth, displayHeight, scale, overrideGridOffsetX, stripCanvasWidth) {
   const s = getState();
   const numFrames = Math.max(1, s.numFrames);
   const activeIndex = Math.max(0, Math.min(numFrames - 1, s.activeFrameIndex));
@@ -244,19 +235,25 @@ export function buildGridPayload(displayWidth, displayHeight, scale, overrideGri
   const marginTop = Math.round((extendedDisplayHeight - dh) / 2);
   const oyTop = defaultAlign ? marginTop : marginTop + yTopDisp;
   const rowsCanvas = getLadderRowsCanvasFromMargins(stripCanvasH, numFrames, yTopCanvas, yBottomCanvas);
+  const innerCanvasPx = Math.max(0, stripCanvasH - yTopCanvas - yBottomCanvas);
   const splitVertPan = usesSplitLowerVerticalPan();
   const kSplit = splitVertPan ? resolveVerticalPivotKFromState() : -1;
-  const heightsDisp =
-    splitVertPan && kSplit > 0 && kSplit < numFrames
-      ? ladderDisplayHeightsPinnedSplit(rowsCanvas, gridTotalHeight, kSplit)
-      : ladderDisplayHeightsFromRows(rowsCanvas, gridTotalHeight);
+  /*
+   * Altijd pinned split bij 2≤k<n (ook bij d=0 / gelijke canvas-rijen). Wisselen tussen algoritmes
+   * (d=0 vs d≠0) gaf na Lijn #-wissel + eerste Duw-klik een grote pixelverschuiving; tweede klik
+   * leek te corrigeren doordat het algoritme dan stabiel bleef.
+   */
+  const usePinnedSplit = splitVertPan && kSplit > 1 && kSplit < numFrames;
+  const heightsDisp = usePinnedSplit
+    ? ladderDisplayHeightsPinnedSplit(rowsCanvas, gridTotalHeight, kSplit, innerCanvasPx)
+    : ladderDisplayHeightsProportionalToRows(rowsCanvas, gridTotalHeight);
   let yAcc = oyTop;
   const gridRects = [];
   let gridRect = null;
   for (let i = 0; i < numFrames; i++) {
     const ry = rowsCanvas[i];
     const hRowDisp = Math.max(1, heightsDisp[i] ?? 1);
-    const gr = getGridRectWithOverride(displayWidth, hRowDisp, scale, overrideGridOffsetX);
+    const gr = getGridRectWithOverride(displayWidth, hRowDisp, scale, overrideGridOffsetX, stripCanvasWidth);
     if (i === 0) gridRect = gr;
     gridRects.push({
       x: gr.x,
@@ -269,7 +266,7 @@ export function buildGridPayload(displayWidth, displayHeight, scale, overrideGri
   }
   if (!gridRect) {
     const gridHeight = Math.max(1, gridTotalHeight) / numFrames;
-    gridRect = getGridRectWithOverride(displayWidth, gridHeight, scale, overrideGridOffsetX);
+    gridRect = getGridRectWithOverride(displayWidth, gridHeight, scale, overrideGridOffsetX, stripCanvasWidth);
   }
   /* Strip-bitmap is in getStripCanvas() hor./vert. gespiegeld; overlay + preview moeten dezelfde coördinaten gebruiken. */
   if (s.flipHorizontal) {
@@ -320,7 +317,7 @@ export function buildGridPayload(displayWidth, displayHeight, scale, overrideGri
     lintFileName: getLintBasename(),
     projectScanCount,
     projectScanIndex,
-    verticalAnchorMode: s.gridVerticalAnchorMode || 'bottomFixed',
+    verticalAnchorMode: 'pivotCustom',
     verticalAnchorCustomK: (() => {
       const n = Math.max(1, s.numFrames || 1);
       return Math.max(0, Math.min(n, Math.round(Number(s.gridVerticalPivotCustomK) || 0)));
@@ -336,9 +333,19 @@ export function buildGridPayload(displayWidth, displayHeight, scale, overrideGri
   };
 }
 
+function notifyPixelEditorRemoteRefresh() {
+  try {
+    if (typeof window !== 'undefined' && window.api?.notifyPixelEditorRemoteRefresh) {
+      window.api.notifyPixelEditorRemoteRefresh();
+    }
+  } catch (_) {}
+}
+
 /** Na elke strip/preview-update: huidige lint in lintStates spiegelen (bron voor wisselen/opslaan). */
 function afterStripPreviewRefresh() {
   if (hasProject()) persistCurrentLintStateInProject();
+  refreshFramePixelEditor();
+  notifyPixelEditorRemoteRefresh();
 }
 
 function sendStripUpdateFull() {
@@ -349,7 +356,7 @@ function sendStripUpdateFull() {
   if (canvas) {
     const scaled = scaleStripCanvasForPreview(canvas);
     const scale = canvas.height > 0 ? scaled.height / canvas.height : 1;
-    const payload = buildGridPayload(scaled.width, scaled.height, scale);
+    const payload = buildGridPayload(scaled.width, scaled.height, scale, undefined, canvas.width);
     payload.stripDataUrl = scaled.toDataURL('image/png');
     window.api.sendStripUpdate(payload);
     return;
@@ -358,14 +365,19 @@ function sendStripUpdateFull() {
   if (dims && dims.width >= 1 && dims.height >= 1) {
     const dim = getScaledDimensionsFromSize(dims.width, dims.height);
     const scale = dim.height >= 1 ? dim.height / dims.height : 1;
-    const payload = buildGridPayload(dim.width, dim.height, scale);
+    const payload = buildGridPayload(dim.width, dim.height, scale, undefined, dims.width);
     window.api.sendStripUpdate(payload);
+    return;
+  }
+  /* Geen bronbeeld: geen synthetisch raster sturen — main zou anders de vorige stripDataUrl weer mergen. */
+  if (!s.image) {
+    window.api.sendStripUpdate({});
     return;
   }
   if (n >= 1) {
     const fallbackW = 800;
     const fallbackH = Math.max(200, Math.round(600 / n) * n);
-    const payload = buildGridPayload(fallbackW, fallbackH, 1);
+    const payload = buildGridPayload(fallbackW, fallbackH, 1, undefined, undefined);
     window.api.sendStripUpdate(payload);
     return;
   }
@@ -380,13 +392,13 @@ function sendStripUpdateGridOnly() {
   if (canvas) {
     const dim = getScaledDimensions(canvas);
     const scale = canvas.height > 0 ? dim.height / canvas.height : 1;
-    payload = buildGridPayload(dim.width, dim.height, scale);
+    payload = buildGridPayload(dim.width, dim.height, scale, undefined, canvas.width);
   } else {
     const dims = getStripCanvasDimensions();
     if (dims && dims.width >= 1 && dims.height >= 1) {
       const dim = getScaledDimensionsFromSize(dims.width, dims.height);
       const scale = dim.height >= 1 ? dim.height / dims.height : 1;
-      payload = buildGridPayload(dim.width, dim.height, scale);
+      payload = buildGridPayload(dim.width, dim.height, scale, undefined, dims.width);
     }
   }
   if (payload) window.api.sendStripUpdate(payload);

@@ -3,6 +3,8 @@
  */
 const { contextBridge, ipcRenderer } = require('electron');
 
+let videoExportProgressHandler = null;
+
 contextBridge.exposeInMainWorld('api', {
   selectScanFile: () => ipcRenderer.invoke('select-scan-file'),
   selectFolder: (opts) => ipcRenderer.invoke('select-folder', opts),
@@ -14,7 +16,9 @@ contextBridge.exposeInMainWorld('api', {
   sendStripUpdate: (payload) => ipcRenderer.send('send-strip-update', payload),
   createProject: (payload) => ipcRenderer.invoke('create-project', payload),
   openProject: () => ipcRenderer.invoke('open-project'),
+  openProjectFile: () => ipcRenderer.invoke('open-project-file'),
   openProjectByPath: (path) => ipcRenderer.invoke('open-project-by-path', path),
+  getSuggestedProjectFolder: (name) => ipcRenderer.invoke('get-suggested-project-folder', name),
   getLastProjectPath: () => ipcRenderer.invoke('get-last-project-path'),
   saveProject: (payload) => ipcRenderer.invoke('save-project', payload),
   deleteProject: (projectFolderPath) => ipcRenderer.invoke('delete-project', projectFolderPath),
@@ -30,13 +34,34 @@ contextBridge.exposeInMainWorld('api', {
       if (handler) ipcRenderer.removeListener('scan-infos-progress', handler);
     });
   },
+  cancelScanInfos: () => {
+    ipcRenderer.send('cancel-scan-infos');
+  },
   selectExportFolder: () => ipcRenderer.invoke('select-export-folder'),
+  selectPixelEditorOutputFolder: () => ipcRenderer.invoke('select-pixel-editor-output-folder'),
   selectVideoOutputFile: (formatId) => ipcRenderer.invoke('select-video-output-file', formatId),
   getTempVideoFolder: () => ipcRenderer.invoke('get-temp-video-folder'),
   createVideoFromFrames: (opts) => ipcRenderer.invoke('create-video-from-frames', opts),
   createVideoFromFolder: (opts) => ipcRenderer.invoke('create-video-from-folder', opts),
   checkFfmpegAvailable: () => ipcRenderer.invoke('check-ffmpeg-available'),
-  onVideoExportProgress: (cb) => { ipcRenderer.on('video-export-progress', (_, d) => cb && cb(d)); },
+  prepareVideoExport: () => ipcRenderer.invoke('prepare-video-export'),
+  cancelVideoExport: () => ipcRenderer.invoke('cancel-video-export'),
+  removeTempVideoFolder: (folderPath) => ipcRenderer.invoke('remove-temp-video-folder', folderPath),
+  onVideoExportProgress: (cb) => {
+    if (videoExportProgressHandler) {
+      ipcRenderer.removeListener('video-export-progress', videoExportProgressHandler);
+      videoExportProgressHandler = null;
+    }
+    if (typeof cb !== 'function') return;
+    videoExportProgressHandler = (_ev, d) => cb(d);
+    ipcRenderer.on('video-export-progress', videoExportProgressHandler);
+  },
+  clearVideoExportProgressListener: () => {
+    if (videoExportProgressHandler) {
+      ipcRenderer.removeListener('video-export-progress', videoExportProgressHandler);
+      videoExportProgressHandler = null;
+    }
+  },
   getNextFrameNumber: (opts) => ipcRenderer.invoke('get-next-frame-number', opts),
   writeFramePng: (folder, baseName, index, dataUrl) => ipcRenderer.invoke('write-frame-png', { folder, baseName, index, dataUrl }),
   writeFrame: (folder, baseName, index, dataUrl, ext) => ipcRenderer.invoke('write-frame', { folder, baseName, index, dataUrl, ext }),
@@ -79,7 +104,7 @@ contextBridge.exposeInMainWorld('api', {
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
   setAppSettings: (settings) => ipcRenderer.invoke('set-app-settings', settings),
   getStripShortcutConfig: () => ipcRenderer.invoke('get-strip-shortcut-config'),
-  arrangeWindows: () => ipcRenderer.invoke('arrange-windows'),
+  arrangeWindows: (opts) => ipcRenderer.invoke('arrange-windows', opts),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getLocale: () => ipcRenderer.invoke('get-locale'),
   setLocale: (locale) => ipcRenderer.invoke('set-locale', locale),
@@ -93,5 +118,21 @@ contextBridge.exposeInMainWorld('api', {
   },
   sendQuitSaveComplete: () => {
     ipcRenderer.send('quit-save-complete');
+  },
+  openSettingsWindow: () => ipcRenderer.invoke('open-settings-window'),
+  openPixelEditorWindow: () => ipcRenderer.invoke('open-pixel-editor'),
+  closePixelEditorWindow: () => ipcRenderer.invoke('close-pixel-editor'),
+  focusPixelEditorWindow: () => ipcRenderer.invoke('focus-pixel-editor'),
+  notifyPixelEditorRemoteRefresh: () => ipcRenderer.send('notify-pixel-editor-remote-refresh'),
+  onPixelEditorWindowReady: (cb) => {
+    ipcRenderer.on('pixel-editor-window-ready', () => cb && cb());
+  },
+  onPixelEditorWindowClosed: (cb) => {
+    ipcRenderer.on('pixel-editor-window-closed', () => cb && cb());
+  },
+  onAppSettingsSynced: (cb) => {
+    ipcRenderer.on('app-settings-synced', () => {
+      if (typeof cb === 'function') cb();
+    });
   }
 });

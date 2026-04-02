@@ -7,17 +7,42 @@ const OVERLAY_ID = 'f2f-scan-folder-overlay';
 const BAR_ID = 'f2f-scan-folder-bar';
 const COUNT_ID = 'f2f-scan-folder-count';
 const DETAIL_ID = 'f2f-scan-folder-detail';
+const CANCEL_BTN_ID = 'f2f-scan-folder-cancel';
 
 function el(id) {
   return document.getElementById(id);
 }
 
+let cancelClickWired = false;
+
+function wireCancelButtonOnce() {
+  if (cancelClickWired) return;
+  const btn = el(CANCEL_BTN_ID);
+  if (!btn) return;
+  cancelClickWired = true;
+  btn.addEventListener('click', () => {
+    if (typeof window.api?.cancelScanInfos === 'function') window.api.cancelScanInfos();
+  });
+}
+
+/** IPC/main kan { infos, cancelled } teruggeven; oud gedrag: alleen array. */
+function normalizeScanInfosResult(raw) {
+  if (Array.isArray(raw)) return { cancelled: false, infos: raw };
+  if (raw && typeof raw === 'object' && Array.isArray(raw.infos)) {
+    return { cancelled: raw.cancelled === true, infos: raw.infos };
+  }
+  return { cancelled: false, infos: [] };
+}
+
 export function showScanFolderProgressOverlay() {
+  wireCancelButtonOnce();
   const o = el(OVERLAY_ID);
   if (o) {
     o.classList.remove('hidden');
     o.setAttribute('aria-hidden', 'false');
   }
+  const cancelBtn = el(CANCEL_BTN_ID);
+  if (cancelBtn) cancelBtn.disabled = false;
   updateScanFolderProgressOverlay(0, 0);
 }
 
@@ -27,6 +52,8 @@ export function hideScanFolderProgressOverlay() {
     o.classList.add('hidden');
     o.setAttribute('aria-hidden', 'true');
   }
+  const cancelBtn = el(CANCEL_BTN_ID);
+  if (cancelBtn) cancelBtn.disabled = true;
 }
 
 /**
@@ -48,14 +75,14 @@ export function updateScanFolderProgressOverlay(current, total) {
 
 /**
  * @param {string} folderPath
- * @param {(infos: object[]) => void | Promise<void>} apiGetScanInfos — meestal window.api.getScanInfos
- * @returns {Promise<object[]>}
- */
-/**
+ * @param {(folderPath: string, onProgress: (d: { current: number, total: number }) => void) => Promise<unknown>} apiGetScanInfos — meestal window.api.getScanInfos
  * @param {(d: { current: number, total: number }) => void} [onProgressExtra] — o.a. toolbar-status bijwerken
+ * @returns {Promise<{ cancelled: boolean, infos: object[] }>}
  */
 export async function getScanInfosWithProgressOverlay(folderPath, apiGetScanInfos, onProgressExtra) {
-  if (!folderPath || typeof apiGetScanInfos !== 'function') return [];
+  if (!folderPath || typeof apiGetScanInfos !== 'function') {
+    return { cancelled: false, infos: [] };
+  }
   let overlayVisible = false;
   const onProgress = (d) => {
     const current = Number(d?.current) || 0;
@@ -68,8 +95,8 @@ export async function getScanInfosWithProgressOverlay(folderPath, apiGetScanInfo
     if (typeof onProgressExtra === 'function') onProgressExtra(d);
   };
   try {
-    const infos = await apiGetScanInfos(folderPath, onProgress);
-    return Array.isArray(infos) ? infos : [];
+    const raw = await apiGetScanInfos(folderPath, onProgress);
+    return normalizeScanInfosResult(raw);
   } finally {
     if (overlayVisible) hideScanFolderProgressOverlay();
   }

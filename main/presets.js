@@ -4,6 +4,7 @@
 const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { tr } = require('./main-i18n');
 
 const PRESETS_FILENAME = 'presets.json';
 
@@ -38,9 +39,9 @@ function writePresets(presets) {
 }
 
 function savePreset(name, data) {
-  if (!name || typeof name !== 'string') return { ok: false, error: 'Geen naam' };
+  if (!name || typeof name !== 'string') return { ok: false, error: tr('presets.errorNoName') };
   const trimmed = name.trim();
-  if (!trimmed) return { ok: false, error: 'Geen naam' };
+  if (!trimmed) return { ok: false, error: tr('presets.errorNoName') };
   const presets = readPresets();
   const existing = presets.findIndex(p => p.name === trimmed);
   const entry = {

@@ -12,11 +12,22 @@ const gridPresets = require('./grid-presets');
 const version = require('./version');
 const locales = require('./locales');
 const videoExport = require('./video-export');
+const { applyAppMenu } = require('./app-menu');
+const { tr } = require('./main-i18n');
 
 const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp'];
 
 function registerIPC() {
   /** Renderer bewaart project + lintStates naar schijf; daarna mag het hoofdvenster echt sluiten. */
+  ipcMain.on('settings-saved-from-aux-window', (event) => {
+    const mainWin = windows.getMainWindow();
+    const settingsWin = windows.getSettingsWindow();
+    if (!settingsWin || settingsWin.isDestroyed() || event.sender !== settingsWin.webContents) return;
+    if (mainWin && !mainWin.isDestroyed()) {
+      mainWin.webContents.send('app-settings-synced');
+    }
+  });
+
   ipcMain.on('quit-save-complete', (event) => {
     const win = windows.getMainWindow();
     if (!win || win.isDestroyed()) return;
@@ -47,7 +58,7 @@ function registerIPC() {
     } else if (!defaultPath && type === 'fileLocation' && lastFileLocation) defaultPath = lastFileLocation;
     const result = await dialog.showOpenDialog(win || null, {
       properties: ['openDirectory'],
-      title: options?.title || 'Kies map',
+      title: options?.title || tr('ipc.dialogChooseFolder'),
       defaultPath: defaultPath || undefined
     });
     if (result.canceled || !result.filePaths.length) return null;
@@ -59,7 +70,7 @@ function registerIPC() {
 
   ipcMain.handle('create-project', async (_, payload) => {
     const { projectFolderPath, name, location, framesPerLint, numberOfScans, scanInfos, filmFormat, filmPolarity, outputFolder, outputFormat, scanDpi } = payload || {};
-    if (!projectFolderPath) return { ok: false, error: 'Geen projectmap gekozen' };
+    if (!projectFolderPath) return { ok: false, error: tr('ipc.errorNoProjectFolderChosen') };
     try {
       const count = await project.countImagesInFolder(location || projectFolderPath);
       const data = {
@@ -76,13 +87,15 @@ function registerIPC() {
         outputFolder: outputFolder || null,
         outputFormat: outputFormat || 'png',
         scanDpi: scanDpi || 4800,
-        stripPresetId: null
+        stripPresetId: null,
+        pixelEditorOutputFolder: null,
+        pixelEditorSourceFolder: null
       };
       await project.writeProject(projectFolderPath, data);
       prefs.setLastProjectPath(projectFolderPath);
       return { ok: true, project: { path: projectFolderPath, ...data } };
     } catch (err) {
-      return { ok: false, error: err.message || 'Project aanmaken mislukt' };
+      return { ok: false, error: err.message || tr('ipc.errorCreateProjectFailed') };
     }
   });
 
@@ -96,7 +109,15 @@ function registerIPC() {
 
   ipcMain.handle('get-locale', () => prefs.getLocale());
   ipcMain.handle('set-locale', (_, locale) => {
-    if (['en', 'nl'].includes(String(locale))) prefs.setLocale(locale);
+    if (['en', 'nl'].includes(String(locale))) {
+      prefs.setLocale(locale);
+      windows.applyLocalizedWindowTitles();
+      windows.sendToStripPreview('strip-locale-changed', {});
+      windows.sendToAlignPreview('strip-locale-changed', {});
+      windows.sendToOutputPreview('strip-locale-changed', {});
+      windows.sendToPixelEditor('strip-locale-changed', {});
+      applyAppMenu(windows);
+    }
   });
   ipcMain.handle('get-translations', () => {
     const locale = prefs.getLocale();
@@ -105,9 +126,9 @@ function registerIPC() {
   });
 
   ipcMain.handle('open-project-by-path', async (_, projectFolderPath) => {
-    if (!projectFolderPath) return { ok: false, error: 'Geen pad', project: null };
+    if (!projectFolderPath) return { ok: false, error: tr('ipc.errorNoPath'), project: null };
     const loaded = await project.readProject(projectFolderPath);
-    if (!loaded) return { ok: false, error: 'Geen geldig project in deze map', project: null };
+    if (!loaded) return { ok: false, error: tr('ipc.errorInvalidProjectInFolder'), project: null };
     prefs.setLastProjectPath(projectFolderPath);
     return { ok: true, project: loaded };
   });
@@ -124,7 +145,7 @@ function registerIPC() {
     }
     const result = await dialog.showOpenDialog(win || null, {
       properties: ['openDirectory'],
-      title: 'Open project (kies projectmap)',
+      title: tr('ipc.dialogOpenProjectFolderTitle'),
       defaultPath: defaultPath || undefined
     });
     if (result.canceled || !result.filePaths.length) return { ok: false, project: null };
@@ -132,30 +153,66 @@ function registerIPC() {
     prefs.setLastProjectFolder(chosen);
     prefs.setLastProjectPath(chosen);
     const loaded = await project.readProject(chosen);
-    if (!loaded) return { ok: false, error: 'Geen geldig project in deze map', project: null };
+    if (!loaded) return { ok: false, error: tr('ipc.errorInvalidProjectInFolder'), project: null };
     return { ok: true, project: loaded };
   });
 
+  ipcMain.handle('open-project-file', async () => {
+    const win = windows.getMainWindow();
+    let defaultPath = path.join(app.getPath('documents'), 'Film2Frame', 'Projects');
+    try {
+      if (!fs.existsSync(defaultPath)) fs.mkdirSync(defaultPath, { recursive: true });
+    } catch (_) {}
+    const result = await dialog.showOpenDialog(win || null, {
+      properties: ['openFile'],
+      title: tr('ipc.dialogOpenProjectJsonTitle'),
+      defaultPath: fs.existsSync(defaultPath) ? defaultPath : undefined,
+      filters: [{ name: tr('ipc.openProjectFileFilter'), extensions: ['json'] }]
+    });
+    if (result.canceled || !result.filePaths.length) return { ok: false, project: null };
+    const filePath = result.filePaths[0];
+    if (path.basename(filePath).toLowerCase() !== 'project.json') {
+      return { ok: false, error: tr('ipc.errorSelectProjectJson'), project: null };
+    }
+    const projectFolderPath = path.dirname(filePath);
+    prefs.setLastProjectFolder(projectFolderPath);
+    prefs.setLastProjectPath(projectFolderPath);
+    const loaded = await project.readProject(projectFolderPath);
+    if (!loaded) return { ok: false, error: tr('ipc.errorInvalidProjectJson'), project: null };
+    return { ok: true, project: loaded };
+  });
+
+  ipcMain.handle('get-suggested-project-folder', (_, rawName) => {
+    const base = path.join(app.getPath('documents'), 'Film2Frame', 'Projects');
+    let slug = String(rawName || 'Project')
+      .replace(/[/\\:*?"<>|]/g, '_')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 120);
+    if (!slug) slug = 'Project';
+    return path.join(base, slug);
+  });
+
   ipcMain.handle('delete-project', async (_, projectFolderPath) => {
-    if (!projectFolderPath || typeof projectFolderPath !== 'string') return { ok: false, error: 'Geen projectmap opgegeven' };
+    if (!projectFolderPath || typeof projectFolderPath !== 'string') return { ok: false, error: tr('ipc.errorNoProjectFolderGiven') };
     const win = windows.getMainWindow();
     const confirmed = await dialog.showMessageBox(win || null, {
       type: 'warning',
-      title: 'Project wissen',
-      message: 'Projectmap definitief verwijderen?',
-      detail: 'De map en alle bestanden erin worden permanent verwijderd. Dit kan niet ongedaan worden gemaakt.\n\n' + projectFolderPath,
-      buttons: ['Annuleren', 'Project wissen'],
+      title: tr('ipc.dialogDeleteProjectTitle'),
+      message: tr('ipc.deleteProjectConfirmMessage'),
+      detail: tr('ipc.deleteProjectConfirmDetail', { path: projectFolderPath }),
+      buttons: [tr('ipc.deleteProjectButtonCancel'), tr('ipc.deleteProjectButtonDelete')],
       defaultId: 0,
       cancelId: 0
     });
     if (confirmed.response !== 1) return { ok: false, canceled: true };
     try {
       const projectFile = path.join(projectFolderPath, 'project.json');
-      if (!fs.existsSync(projectFile)) return { ok: false, error: 'Geen geldig project in deze map' };
+      if (!fs.existsSync(projectFile)) return { ok: false, error: tr('ipc.errorInvalidProjectInFolder') };
       fs.rmSync(projectFolderPath, { recursive: true, force: true });
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err.message || 'Verwijderen mislukt' };
+      return { ok: false, error: err.message || tr('ipc.errorDeleteFailed') };
     }
   });
 
@@ -171,9 +228,11 @@ function registerIPC() {
       outputFolder,
       outputFormat,
       scanDpi,
-      stripPresetId
+      stripPresetId,
+      pixelEditorOutputFolder,
+      pixelEditorSourceFolder
     } = payload || {};
-    if (!projectFolderPath) return { ok: false, error: 'Geen project geopend' };
+    if (!projectFolderPath) return { ok: false, error: tr('ipc.errorNoProjectOpen') };
     try {
       const existing = await project.readProject(projectFolderPath);
       const data = {
@@ -196,13 +255,21 @@ function registerIPC() {
             ? stripPresetId != null && typeof stripPresetId === 'string' && stripPresetId.trim() !== ''
               ? stripPresetId.trim()
               : null
-            : existing?.stripPresetId ?? null
+            : existing?.stripPresetId ?? null,
+        pixelEditorOutputFolder:
+          pixelEditorOutputFolder !== undefined
+            ? pixelEditorOutputFolder || null
+            : existing?.pixelEditorOutputFolder ?? null,
+        pixelEditorSourceFolder:
+          pixelEditorSourceFolder !== undefined
+            ? pixelEditorSourceFolder || null
+            : existing?.pixelEditorSourceFolder ?? null
       };
       await project.writeProject(projectFolderPath, data);
       prefs.setLastProjectPath(projectFolderPath);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err.message || 'Bewaren mislukt' };
+      return { ok: false, error: err.message || tr('ipc.errorSaveFailed') };
     }
   });
 
@@ -210,7 +277,17 @@ function registerIPC() {
     const win = windows.getMainWindow();
     const result = await dialog.showOpenDialog(win || null, {
       properties: ['openDirectory', 'createDirectory'],
-      title: 'Doelmap voor uitgeknipte frames'
+      title: tr('ipc.dialogExportFramesTitle')
+    });
+    if (result.canceled || !result.filePaths.length) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle('select-pixel-editor-output-folder', async () => {
+    const win = windows.getMainWindow();
+    const result = await dialog.showOpenDialog(win || null, {
+      properties: ['openDirectory', 'createDirectory'],
+      title: tr('ipc.dialogPixelEditorFolderTitle')
     });
     if (result.canceled || !result.filePaths.length) return null;
     return result.filePaths[0];
@@ -223,27 +300,27 @@ function registerIPC() {
     const extension = (ext || 'png').toLowerCase().replace(/^\./, '');
     const filePath = path.join(folder, `${base}_${padded}.${extension}`);
     const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-    if (!base64) return { ok: false, error: 'Geen beelddata' };
+    if (!base64) return { ok: false, error: tr('ipc.errorNoImageData') };
     fs.mkdirSync(folder, { recursive: true });
     fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
     return { ok: true };
   }
 
   ipcMain.handle('write-frame', async (_, { folder, baseName, index, dataUrl, ext }) => {
-    if (!folder || typeof folder !== 'string' || !dataUrl || typeof dataUrl !== 'string') return { ok: false, error: 'Ongeldige parameters' };
+    if (!folder || typeof folder !== 'string' || !dataUrl || typeof dataUrl !== 'string') return { ok: false, error: tr('ipc.errorInvalidParams') };
     try {
       return await writeFrameToFile(folder, baseName, index, dataUrl, ext || 'png');
     } catch (err) {
-      return { ok: false, error: err.message || 'Schrijven mislukt' };
+      return { ok: false, error: err.message || tr('ipc.errorWriteFailed') };
     }
   });
 
   ipcMain.handle('write-frame-png', async (_, { folder, baseName, index, dataUrl }) => {
-    if (!folder || typeof folder !== 'string' || !dataUrl || typeof dataUrl !== 'string') return { ok: false, error: 'Ongeldige parameters' };
+    if (!folder || typeof folder !== 'string' || !dataUrl || typeof dataUrl !== 'string') return { ok: false, error: tr('ipc.errorInvalidParams') };
     try {
       return await writeFrameToFile(folder, baseName, index, dataUrl, 'png');
     } catch (err) {
-      return { ok: false, error: err.message || 'Schrijven mislukt' };
+      return { ok: false, error: err.message || tr('ipc.errorWriteFailed') };
     }
   });
 
@@ -260,13 +337,23 @@ function registerIPC() {
     return project.countImagesInFolder(folderPath);
   });
 
+  let scanInfosCancelRequested = false;
+  ipcMain.on('cancel-scan-infos', () => {
+    scanInfosCancelRequested = true;
+  });
+
   ipcMain.handle('get-scan-infos', async (event, folderPath) => {
+    scanInfosCancelRequested = false;
     const wc = event.sender;
-    return project.getScanInfos(folderPath, (current, total) => {
-      if (!wc.isDestroyed()) {
-        wc.send('scan-infos-progress', { current, total });
-      }
-    });
+    return project.getScanInfos(
+      folderPath,
+      (current, total) => {
+        if (!wc.isDestroyed()) {
+          wc.send('scan-infos-progress', { current, total });
+        }
+      },
+      () => scanInfosCancelRequested
+    );
   });
 
   ipcMain.handle('select-scan-file', async () => {
@@ -274,7 +361,7 @@ function registerIPC() {
     const { lastFileLocation } = prefs.getLastPaths();
     const result = await dialog.showOpenDialog(win || null, {
       properties: ['openFile'],
-      filters: [{ name: 'Images', extensions: IMAGE_EXT.map(e => e.slice(1)) }],
+      filters: [{ name: tr('ipc.dialogImageFilesFilter'), extensions: IMAGE_EXT.map(e => e.slice(1)) }],
       defaultPath: lastFileLocation || undefined
     });
     if (result.canceled || !result.filePaths.length) return null;
@@ -297,12 +384,12 @@ function registerIPC() {
       const base = path.join(__dirname, '..');
       const preload = path.join(base, 'preloads', 'strip.js');
       const html = path.join(base, 'windows', 'strip-preview.html');
-      if (!fs.existsSync(html)) return { ok: false, error: 'strip-preview.html not found' };
-      if (!fs.existsSync(preload)) return { ok: false, error: 'strip preload not found' };
+      if (!fs.existsSync(html)) return { ok: false, error: tr('ipc.errorStripPreviewHtmlNotFound') };
+      if (!fs.existsSync(preload)) return { ok: false, error: tr('ipc.errorStripPreloadNotFound') };
       windows.createStripPreviewWindow(preload, html);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: (err && err.message) || 'open-strip-preview failed' };
+      return { ok: false, error: (err && err.message) || tr('ipc.errorOpenStripPreviewFailed') };
     }
   });
 
@@ -314,7 +401,7 @@ function registerIPC() {
     const base = path.join(__dirname, '..');
     const preload = path.join(base, 'preloads', 'output.js');
     const html = path.join(base, 'windows', 'output-preview.html');
-    if (!fs.existsSync(html)) return { ok: false, error: 'output-preview.html not found' };
+    if (!fs.existsSync(html)) return { ok: false, error: tr('ipc.errorOutputPreviewHtmlNotFound') };
     windows.createOutputPreviewWindow(preload, html);
     return { ok: true };
   });
@@ -324,13 +411,105 @@ function registerIPC() {
       const base = path.join(__dirname, '..');
       const preload = path.join(base, 'preloads', 'align-preview.js');
       const html = path.join(base, 'windows', 'align-preview.html');
-      if (!fs.existsSync(html)) return { ok: false, error: 'align-preview.html not found' };
-      if (!fs.existsSync(preload)) return { ok: false, error: 'align-preview preload not found' };
+      if (!fs.existsSync(html)) return { ok: false, error: tr('ipc.errorAlignPreviewHtmlNotFound') };
+      if (!fs.existsSync(preload)) return { ok: false, error: tr('ipc.errorAlignPreloadNotFound') };
       windows.createAlignPreviewWindow(preload, html);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: (err && err.message) || 'open-align-preview failed' };
+      return { ok: false, error: (err && err.message) || tr('ipc.errorOpenAlignPreviewFailed') };
     }
+  });
+
+  ipcMain.handle('open-settings-window', () => {
+    try {
+      const base = path.join(__dirname, '..');
+      const preload = path.join(base, 'preloads', 'settings.js');
+      const html = path.join(base, 'windows', 'settings.html');
+      if (!fs.existsSync(html)) return { ok: false, error: tr('ipc.errorSettingsHtmlNotFound') };
+      if (!fs.existsSync(preload)) return { ok: false, error: tr('ipc.errorSettingsPreloadNotFound') };
+      windows.createSettingsWindow(preload, html);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || tr('ipc.errorOpenSettingsWindowFailed') };
+    }
+  });
+
+  function assertPixelEditorSender(wc) {
+    const win = windows.getPixelEditorWindow();
+    return win && !win.isDestroyed() && wc && wc === win.webContents;
+  }
+
+  ipcMain.handle('open-pixel-editor', () => {
+    try {
+      const base = path.join(__dirname, '..');
+      const preload = path.join(base, 'preloads', 'pixel-editor.js');
+      const html = path.join(base, 'windows', 'pixel-editor.html');
+      if (!fs.existsSync(html)) return { ok: false, error: tr('ipc.errorPixelEditorHtmlNotFound') };
+      if (!fs.existsSync(preload)) return { ok: false, error: tr('ipc.errorPixelEditorPreloadNotFound') };
+      windows.createPixelEditorWindow(preload, html);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || tr('ipc.errorOpenPixelEditorFailed') };
+    }
+  });
+
+  ipcMain.handle('close-pixel-editor', () => {
+    windows.closePixelEditorWindow();
+  });
+
+  /** Opent geen venster; alleen focus als de pixel-editor al open is. */
+  ipcMain.handle('focus-pixel-editor', () => ({ ok: windows.focusPixelEditorWindow() }));
+
+  ipcMain.handle('pixel-editor-pull', async (event) => {
+    if (!assertPixelEditorSender(event.sender)) return { ok: false, error: tr('ipc.errorForbidden') };
+    const mainWin = windows.getMainWindow();
+    if (!mainWin || mainWin.isDestroyed()) return { ok: false, error: tr('ipc.errorNoMainWindow') };
+    try {
+      return await mainWin.webContents.executeJavaScript(
+        `(window.__f2fPixelEditorBridge && window.__f2fPixelEditorBridge('pull'))`
+      );
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || tr('ipc.errorPixelEditorPullFailed') };
+    }
+  });
+
+  ipcMain.handle('pixel-editor-push-overlay', async (event, payload) => {
+    if (!assertPixelEditorSender(event.sender)) return { ok: false, error: tr('ipc.errorForbidden') };
+    const mainWin = windows.getMainWindow();
+    if (!mainWin || mainWin.isDestroyed()) return { ok: false, error: tr('ipc.errorNoMainWindow') };
+    const dataUrl = payload && typeof payload.dataUrl === 'string' ? payload.dataUrl : '';
+    try {
+      return await mainWin.webContents.executeJavaScript(
+        `(window.__f2fPixelEditorBridge && window.__f2fPixelEditorBridge('pushOverlay', { dataUrl: ${JSON.stringify(dataUrl)} }))`
+      );
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || tr('ipc.errorPixelEditorPushFailed') };
+    }
+  });
+
+  ipcMain.handle('pixel-editor-main-action', async (event, payload) => {
+    if (!assertPixelEditorSender(event.sender)) return { ok: false, error: tr('ipc.errorForbidden') };
+    const mainWin = windows.getMainWindow();
+    if (!mainWin || mainWin.isDestroyed()) return { ok: false, error: tr('ipc.errorNoMainWindow') };
+    const action = payload && typeof payload.action === 'string' ? payload.action : '';
+    const pl = payload && payload.payload != null ? payload.payload : null;
+    try {
+      return await mainWin.webContents.executeJavaScript(
+        `(async () => {
+          const fn = window.__f2fPixelEditorMainUi;
+          if (typeof fn !== 'function') return { ok: false, error: ${JSON.stringify(tr('ipc.errorPixelEditorNoMainUi'))} };
+          return await fn(${JSON.stringify(action)}, ${JSON.stringify(pl)});
+        })()`
+      );
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || tr('ipc.errorPixelEditorMainActionFailed') };
+    }
+  });
+
+  ipcMain.on('notify-pixel-editor-remote-refresh', (event) => {
+    const mainWin = windows.getMainWindow();
+    if (!mainWin || mainWin.isDestroyed() || event.sender !== mainWin.webContents) return;
+    windows.sendToPixelEditor('pixel-editor-refresh-from-main', {});
   });
 
   ipcMain.handle('close-align-preview', () => {
@@ -490,7 +669,7 @@ function registerIPC() {
     }
   });
 
-  /** Verticale referentielijn (strip-overlay) + state: mode + optioneel customK (lijn 0…n). */
+  /** Referentielijn Lijn # (optioneel legacy mode); customK = index 0…n. */
   ipcMain.on('strip-vertical-anchor', (_, payload) => {
     const mainWin = windows.getMainWindow();
     if (mainWin && !mainWin.isDestroyed()) {
@@ -584,6 +763,10 @@ function registerIPC() {
       const user = prefs.getAllSettings().stripPreviewShortcuts || {};
       windows.sendToStripPreview('strip-shortcuts-updated', stripShortcuts.getPayloadForStrip(user));
     }
+    if (settings && settings.locale !== undefined) {
+      windows.applyLocalizedWindowTitles();
+    }
+    windows.applyWindowGeometryLockFromPrefs();
     return { ok: true };
   });
 
@@ -599,9 +782,74 @@ function registerIPC() {
     return stripShortcuts.getShortcutConfigForSettings(user);
   });
 
-  ipcMain.handle('arrange-windows', () => {
+  function applyWindowGridPrefsFromSettingsPayload(event, opts) {
+    const settingsWin = windows.getSettingsWindow();
+    if (!settingsWin || settingsWin.isDestroyed() || event.sender !== settingsWin.webContents) return;
+    const o = opts && typeof opts === 'object' ? opts : {};
+    const patch = {};
+    if (typeof o.windowGridPermutation === 'string' && o.windowGridPermutation.trim()) {
+      patch.windowGridPermutation = o.windowGridPermutation.trim();
+    }
+    const maskRaw = o.windowGridAutoOpenMask != null ? String(o.windowGridAutoOpenMask).replace(/\s/g, '') : '';
+    if (/^[01]{6}$/.test(maskRaw)) {
+      patch.windowGridAutoOpenMask = maskRaw;
+    }
+    if (o.arrangeAcrossAllDisplays !== undefined) {
+      patch.arrangeAcrossAllDisplays = !!o.arrangeAcrossAllDisplays;
+    }
+    if (Object.keys(patch).length) prefs.setSettings(patch);
+  }
+
+  ipcMain.handle('arrange-windows', (event, opts) => {
+    applyWindowGridPrefsFromSettingsPayload(event, opts);
+    let locked = !!prefs.getAllSettings().windowsGeometryLocked;
+    if (opts && typeof opts === 'object' && opts.windowsGeometryLocked !== undefined) {
+      locked = !!opts.windowsGeometryLocked;
+    }
+    const settingsWin = windows.getSettingsWindow();
+    const fromSettings =
+      settingsWin && !settingsWin.isDestroyed() && event.sender === settingsWin.webContents;
     const windowArrange = require('./window-arrange');
-    windowArrange.arrangeWindows(prefs.getAllSettings().windowArrangement);
+    const runArrange = () => {
+      if (fromSettings) {
+        const mask = windows.parsePanelOpenMask6(prefs.getAllSettings().windowGridAutoOpenMask);
+        windows.closeAuxiliaryWindowsNotInPanelMask(mask);
+      }
+      windowArrange.arrangeWindows();
+      windows.applyWindowGeometryLock(locked);
+    };
+    if (fromSettings) {
+      setImmediate(runArrange);
+    } else {
+      runArrange();
+    }
+    return { ok: true };
+  });
+
+  ipcMain.handle('auto-arrange-windows-from-grid', (event, payload) => {
+    const settingsWin = windows.getSettingsWindow();
+    if (!settingsWin || settingsWin.isDestroyed() || event.sender !== settingsWin.webContents) {
+      return { ok: false, error: tr('ipc.errorForbidden') };
+    }
+    const p = payload && typeof payload === 'object' ? payload : {};
+    applyWindowGridPrefsFromSettingsPayload(event, {
+      windowGridPermutation: p.windowGridPermutation,
+      windowGridAutoOpenMask: p.panelMask != null ? p.panelMask : p.windowGridAutoOpenMask,
+      arrangeAcrossAllDisplays: p.arrangeAcrossAllDisplays
+    });
+    const mask = windows.parsePanelOpenMask6(p.panelMask);
+    const windowArrange = require('./window-arrange');
+    let locked = !!prefs.getAllSettings().windowsGeometryLocked;
+    if (p.windowsGeometryLocked !== undefined) {
+      locked = !!p.windowsGeometryLocked;
+    }
+    /* Eerst IPC-antwoord; daarna masker afdwingen (sluiten + openen) en schikken. */
+    setImmediate(() => {
+      windows.closeAuxiliaryWindowsNotInPanelMask(mask);
+      windows.openAuxiliaryWindowsFromPanelMask(mask);
+      windowArrange.arrangeWindows();
+      windows.applyWindowGeometryLock(locked);
+    });
     return { ok: true };
   });
 
@@ -611,9 +859,9 @@ function registerIPC() {
     const preset = formats[formatId] || formats.h264;
     const ext = preset.ext;
     const result = await dialog.showSaveDialog(win || null, {
-      title: 'Video bestand opslaan',
+      title: tr('ipc.dialogSaveVideoTitle'),
       defaultPath: `output.${ext}`,
-      filters: [{ name: `${ext.toUpperCase()} Video`, extensions: [ext] }]
+      filters: [{ name: tr('ipc.videoFileFilter', { ext: ext.toUpperCase() }), extensions: [ext] }]
     });
     if (result.canceled || !result.filePath) return null;
     return result.filePath;
@@ -625,9 +873,24 @@ function registerIPC() {
     return dir;
   });
 
+  ipcMain.handle('prepare-video-export', () => {
+    videoExport.beginVideoExportJob();
+    return { ok: true };
+  });
+
+  ipcMain.handle('cancel-video-export', () => {
+    videoExport.cancelVideoExport();
+    return { ok: true };
+  });
+
+  ipcMain.handle('remove-temp-video-folder', (_, folderPath) => {
+    videoExport.removeTempFolder(folderPath);
+    return { ok: true };
+  });
+
   ipcMain.handle('create-video-from-frames', async (_, opts) => {
     const { tempFolder, outputPath, fps, formatId } = opts || {};
-    if (!tempFolder || !outputPath) return { ok: false, error: 'Ontbrekende parameters' };
+    if (!tempFolder || !outputPath) return { ok: false, error: tr('ipc.errorMissingParams') };
     try {
       const result = await videoExport.createVideo({
         framesFolder: tempFolder,
@@ -645,16 +908,16 @@ function registerIPC() {
       return result;
     } catch (err) {
       videoExport.removeTempFolder(tempFolder);
-      return { ok: false, error: err.message || 'Video maken mislukt' };
+      return { ok: false, error: err.message || tr('ipc.errorVideoFailed') };
     }
   });
 
   ipcMain.handle('create-video-from-folder', async (_, opts) => {
-    const { folderPath, outputPath, fps, formatId } = opts || {};
-    if (!folderPath || !outputPath) return { ok: false, error: 'Ontbrekende parameters' };
+    const { folderPath, outputPath, fps, formatId, uniformFit } = opts || {};
+    if (!folderPath || !outputPath) return { ok: false, error: tr('ipc.errorMissingParams') };
     try {
       const imagePaths = await project.listImagesInFolder(folderPath);
-      if (!imagePaths.length) return { ok: false, error: 'Geen beeldbestanden in deze map' };
+      if (!imagePaths.length) return { ok: false, error: tr('ipc.errorNoImagesInFolder') };
       const sendProgress = (phase, detail) => {
         const win = windows.getMainWindow();
         if (win && !win.isDestroyed()) {
@@ -666,10 +929,11 @@ function registerIPC() {
         outputPath,
         fps: Number(fps) || 24,
         formatId: formatId || 'h264',
-        onProgress: sendProgress
+        onProgress: sendProgress,
+        uniformFit: uniformFit === 'cover' ? 'cover' : 'pad'
       });
     } catch (err) {
-      return { ok: false, error: err.message || 'Video maken mislukt' };
+      return { ok: false, error: err.message || tr('ipc.errorVideoFailed') };
     }
   });
 

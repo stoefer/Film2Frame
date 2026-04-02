@@ -8,5 +8,8 @@ contextBridge.exposeInMainWorld('alignPreviewApi', {
   },
   setActiveFrameByNumber: (frameNumber) => ipcRenderer.invoke('set-active-frame', frameNumber),
   getLocale: () => ipcRenderer.invoke('get-locale'),
-  getTranslations: () => ipcRenderer.invoke('get-translations')
+  getTranslations: () => ipcRenderer.invoke('get-translations'),
+  onStripLocaleChanged: (cb) => {
+    ipcRenderer.on('strip-locale-changed', () => cb && cb());
+  }
 });

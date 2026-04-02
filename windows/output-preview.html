@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -13,14 +13,24 @@
   </style>
 </head>
 <body>
-  <p class="caption" id="caption">Laatste weggeschreven frame</p>
+  <p class="caption" id="caption"></p>
   <img id="output-img" alt="Output frame" />
-  <p class="placeholder" id="placeholder">Geen frame. Start batch of bewaar huidige scan.</p>
+  <p class="placeholder" id="placeholder"></p>
   <script>
     (function () {
       const img = document.getElementById('output-img');
       const placeholder = document.getElementById('placeholder');
+      const caption = document.getElementById('caption');
       const api = window.outputPreviewApi;
+      async function applyLabels() {
+        if (!api || !api.getTranslations) return;
+        const dict = await api.getTranslations();
+        const t = function (k) { return (dict && dict[k]) || k; };
+        if (caption) caption.textContent = t('outputPreview.caption');
+        if (placeholder) placeholder.textContent = t('outputPreview.placeholder');
+      }
+      applyLabels();
+      if (api && api.onLocaleChanged) api.onLocaleChanged(applyLabels);
       if (!api || !api.onOutputImage) return;
       api.onOutputImage(function (payload) {
         if (payload && payload.dataUrl) {

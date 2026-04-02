@@ -5,6 +5,7 @@ import {
   getState,
   setProject,
   clearProject,
+  resetWorkspaceAfterCloseProject,
   getLintStateSnapshot,
   setLintStateForPath,
   applyLintState,
@@ -16,6 +17,8 @@ import {
   setOutputFormat,
   setScanDpi
 } from './state.js';
+import { restoreFramePaintOverlaysFromSerialized } from './frame-pixel-overlay-persist.js';
+import { t } from './i18n.js';
 
 export function hasProject() {
   return !!getState().projectPath;
@@ -38,7 +41,7 @@ export function isDirty() {
  * Retourneert { ok, error?, project? }.
  */
 export async function createProject(payload) {
-  if (typeof window.api?.createProject !== 'function') return { ok: false, error: 'API niet beschikbaar' };
+  if (typeof window.api?.createProject !== 'function') return { ok: false, error: t('errors.apiUnavailable') };
   const result = await window.api.createProject(payload);
   if (!result.ok) return result;
   setProject(result.project.path, {
@@ -68,17 +71,22 @@ function applyLoadedProject(p) {
     outputFormat: p.outputFormat,
     scanDpi: p.scanDpi,
     currentLintPath: p.currentLintPath || null,
-    stripPresetId: p.stripPresetId ?? null
+    stripPresetId: p.stripPresetId ?? null,
+    pixelEditorOutputFolder: p.pixelEditorOutputFolder ?? null,
+    pixelEditorSourceFolder: p.pixelEditorSourceFolder ?? null
   });
   if (p.state) applyLintState(p.state);
 }
 
 /**
- * Kiest welke scanlint te openen: eerste uit de lijst zonder opgeslagen lintState
- * (nog niet eerder geladen in dit project), anders laatst gebruikte pad, anders de eerste scan.
+ * Kiest welke scanlint te openen na project laden:
+ * 1) Laatst actieve lint (currentLintPath) als die nog in de lijst staat — hervat waar u stopte.
+ * 2) Anders eerste scan zonder opgeslagen lintState (nieuwe linten in project).
+ * 3) Anders eerste scan in de lijst.
  */
 export function pickResumeLintPath(paths, lintStates, currentLintPath) {
   if (!Array.isArray(paths) || paths.length === 0) return null;
+  if (currentLintPath && paths.includes(currentLintPath)) return currentLintPath;
   const saved = new Set(
     (Array.isArray(lintStates) ? lintStates : [])
       .map((e) => e && e.path)
@@ -87,7 +95,6 @@ export function pickResumeLintPath(paths, lintStates, currentLintPath) {
   for (const p of paths) {
     if (!saved.has(p)) return p;
   }
-  if (currentLintPath && paths.includes(currentLintPath)) return currentLintPath;
   return paths[0];
 }
 
@@ -95,7 +102,7 @@ export function pickResumeLintPath(paths, lintStates, currentLintPath) {
  * Project openen (dialoog in main). Bij succes state vullen.
  */
 export async function openProject() {
-  if (typeof window.api?.openProject !== 'function') return { ok: false, error: 'API niet beschikbaar' };
+  if (typeof window.api?.openProject !== 'function') return { ok: false, error: t('errors.apiUnavailable') };
   const result = await window.api.openProject();
   if (!result.ok || !result.project) return result;
   applyLoadedProject(result.project);
@@ -106,8 +113,17 @@ export async function openProject() {
  * Project openen via pad (bijv. laatst gebruikt project bij start).
  */
 export async function openProjectByPath(projectFolderPath) {
-  if (typeof window.api?.openProjectByPath !== 'function') return { ok: false, error: 'API niet beschikbaar' };
+  if (typeof window.api?.openProjectByPath !== 'function') return { ok: false, error: t('errors.apiUnavailable') };
   const result = await window.api.openProjectByPath(projectFolderPath);
+  if (!result.ok || !result.project) return result;
+  applyLoadedProject(result.project);
+  return result;
+}
+
+/** Open project door project.json te kiezen (map = map waarin dat bestand staat). */
+export async function openProjectFromFile() {
+  if (typeof window.api?.openProjectFile !== 'function') return { ok: false, error: t('errors.apiUnavailable') };
+  const result = await window.api.openProjectFile();
   if (!result.ok || !result.project) return result;
   applyLoadedProject(result.project);
   return result;
@@ -131,14 +147,19 @@ export function persistCurrentLintStateInProject() {
 
 export async function saveProject() {
   const s = getState();
-  if (!s.projectPath) return { ok: false, error: 'Geen project geopend' };
+  if (!s.projectPath) return { ok: false, error: t('ipc.errorNoProjectOpen') };
   const snapshot = getLintStateSnapshot();
   if (s.path && snapshot) setLintStateForPath(s.path, snapshot);
-  if (typeof window.api?.saveProject !== 'function') return { ok: false, error: 'API niet beschikbaar' };
+  const lintStatesOut = s.lintStates.map((e) => {
+    if (!e || typeof e !== 'object') return e;
+    const { framePaintOverlays: _fp, ...rest } = e;
+    return rest;
+  });
+  if (typeof window.api?.saveProject !== 'function') return { ok: false, error: t('errors.apiUnavailable') };
   const result = await window.api.saveProject({
     projectFolderPath: s.projectPath,
     state: snapshot,
-    lintStates: s.lintStates,
+    lintStates: lintStatesOut,
     currentLintPath: s.path,
     scanInfos: s.projectMeta?.scanInfos,
     filmFormat: s.filmFormat,
@@ -146,13 +167,17 @@ export async function saveProject() {
     outputFolder: s.exportFolderPath,
     outputFormat: s.outputFormat,
     scanDpi: s.scanDpi,
-    stripPresetId: s.projectMeta?.stripPresetId ?? null
+    stripPresetId: s.projectMeta?.stripPresetId ?? null,
+    pixelEditorOutputFolder: s.pixelEditorOutputFolder || null,
+    pixelEditorSourceFolder: s.pixelEditorSourceFolder || null
   });
   if (result.ok) {
     s.isDirty = false;
     if (s.projectMeta) {
       s.projectMeta.lintStates = [...s.lintStates];
       s.projectMeta.currentLintPath = s.path || null;
+      s.projectMeta.pixelEditorOutputFolder = s.pixelEditorOutputFolder || null;
+      s.projectMeta.pixelEditorSourceFolder = s.pixelEditorSourceFolder || null;
     }
   }
   return result;
@@ -189,6 +214,13 @@ export async function applySavedLintState(lintPath) {
   } else if (!presetApplied) {
     resetGridToDefault();
   }
+  /* Pixel-edits niet meer uit project.json; alleen sessie + PNG via pixel-editor. */
+  await restoreFramePaintOverlaysFromSerialized(null);
+}
+
+/** Huidig project ontladen en werkruimte resetten (geen map wissen). */
+export function closeCurrentProject() {
+  resetWorkspaceAfterCloseProject();
 }
 
 /**
@@ -197,8 +229,8 @@ export async function applySavedLintState(lintPath) {
  */
 export async function deleteProject() {
   const path = getState().projectPath;
-  if (!path) return { ok: false, error: 'Geen project geopend' };
-  if (typeof window.api?.deleteProject !== 'function') return { ok: false, error: 'API niet beschikbaar' };
+  if (!path) return { ok: false, error: t('ipc.errorNoProjectOpen') };
+  if (typeof window.api?.deleteProject !== 'function') return { ok: false, error: t('errors.apiUnavailable') };
   const result = await window.api.deleteProject(path);
   if (result.ok) clearProject();
   return result;

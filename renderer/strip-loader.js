@@ -4,7 +4,73 @@
  * Canvas wordt beperkt tot STRIP_CANVAS_MAX_DIM om browserlimieten te beperken; preview-max gelijk houden vermijdt dubbele downscale.
  */
 import { getState } from './state.js';
+import { getFrameCropRectInStripPx } from './grid.js';
 import { STRIP_CANVAS_MAX_DIM, EXPORT_STRIP_MAX_DIM } from './constants.js';
+
+/**
+ * Kantelpunt in bronpixels: (0,0) linksonder? — Nee: canvas drawImage gebruikt linkerboven als oorsprong.
+ * (0,0) linksboven, (w,h) rechtsonder.
+ */
+function tiltPivotToSourcePoint(w, h, tiltPivotId) {
+  const id = typeof tiltPivotId === 'string' ? tiltPivotId : 'center';
+  switch (id) {
+    case 'top-left':
+      return { px: 0, py: 0 };
+    case 'top-center':
+      return { px: w / 2, py: 0 };
+    case 'top-right':
+      return { px: w, py: 0 };
+    case 'center-left':
+      return { px: 0, py: h / 2 };
+    case 'center-right':
+      return { px: w, py: h / 2 };
+    case 'bottom-left':
+      return { px: 0, py: h };
+    case 'bottom-center':
+      return { px: w / 2, py: h };
+    case 'bottom-right':
+      return { px: w, py: h };
+    case 'center':
+    default:
+      return { px: w / 2, py: h / 2 };
+  }
+}
+
+/**
+ * As-gealigneerde omhullende rechthoek na rotatie om (px,py) met hoek rad (zelfde teken als ctx.rotate).
+ */
+function rotatedImageBounds(w, h, rad, px, py) {
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const corners = [
+    [0, 0],
+    [w, 0],
+    [w, h],
+    [0, h]
+  ];
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i < corners.length; i++) {
+    const x = corners[i][0];
+    const y = corners[i][1];
+    const dx = x - px;
+    const dy = y - py;
+    const rx = dx * cos - dy * sin;
+    const ry = dx * sin + dy * cos;
+    minX = Math.min(minX, rx);
+    maxX = Math.max(maxX, rx);
+    minY = Math.min(minY, ry);
+    maxY = Math.max(maxY, ry);
+  }
+  return {
+    outW: Math.max(1, Math.ceil(maxX - minX)),
+    outH: Math.max(1, Math.ceil(maxY - minY)),
+    minX,
+    minY
+  };
+}
 
 /**
  * Nearest-neighbour down/up-scale. Lange strips in één drawImage() geven op sommige GPU's/Chromium
@@ -78,37 +144,50 @@ export function loadImage(path, fileUrl) {
 }
 
 /**
- * Strip na rotatie + spiegeling, nog niet geschaald (bron voor preview- én export-canvas).
+ * Strip na rotatie + spiegeling (zelfde als huidige project-instellingen), bron = willekeurige afbeelding.
+ * @param {CanvasImageSource} image
+ * @param {number} w
+ * @param {number} h
  * @returns {HTMLCanvasElement|null}
  */
-function buildStripCanvasRaw() {
+function buildStripCanvasRawFromImage(image, w, h) {
   const s = getState();
-  if (!s.image || !s.naturalWidth || !s.naturalHeight) return null;
-  const w = s.naturalWidth;
-  const h = s.naturalHeight;
+  if (!image || w < 1 || h < 1) return null;
   const totalDeg = s.rotation90 + s.fineRotationDeg;
   const rad = (totalDeg * Math.PI) / 180;
-  const cos = Math.abs(Math.cos(rad));
-  const sin = Math.abs(Math.sin(rad));
-  const outW = Math.ceil(w * cos + h * sin);
-  const outH = Math.ceil(w * sin + h * cos);
+  const { px, py } = tiltPivotToSourcePoint(w, h, s.tiltPivot);
+  const { outW, outH, minX, minY } = rotatedImageBounds(w, h, rad, px, py);
+  let drawScale = 1;
+  let cw = outW;
+  let ch = outH;
+  if (
+    EXPORT_STRIP_MAX_DIM > 0 &&
+    (outW > EXPORT_STRIP_MAX_DIM || outH > EXPORT_STRIP_MAX_DIM)
+  ) {
+    drawScale = Math.min(EXPORT_STRIP_MAX_DIM / outW, EXPORT_STRIP_MAX_DIM / outH, 1);
+    cw = Math.max(1, Math.round(outW * drawScale));
+    ch = Math.max(1, Math.round(outH * drawScale));
+  }
   const canvas = document.createElement('canvas');
-  canvas.width = outW;
-  canvas.height = outH;
+  canvas.width = cw;
+  canvas.height = ch;
   const ctx = canvas.getContext('2d', { alpha: true });
+  if (!ctx) return null;
   if (ctx.imageSmoothingEnabled !== undefined) ctx.imageSmoothingEnabled = false;
-  ctx.translate(outW / 2, outH / 2);
+  /* Laatste transform wordt als eerste op punten toegepast: R*(p−P) dan verschuiving zodat bbox op (0,0) start. */
+  if (drawScale < 1) ctx.scale(drawScale, drawScale);
+  ctx.translate(-minX, -minY);
   ctx.rotate(rad);
-  ctx.translate(-w / 2, -h / 2);
+  ctx.translate(-px, -py);
   /* Eén drawImage over heel h na rotate: op Chromium/GPU vaak corrupte/herhaalde zone onderaan lange strips.
    * Opeenvolgende bronstroken met dezelfde transform is visueel gelijk, minder hoogte per draw. */
   const drawTileH = 2048;
   if (h <= drawTileH) {
-    ctx.drawImage(s.image, 0, 0);
+    ctx.drawImage(image, 0, 0);
   } else {
     for (let sy = 0; sy < h; sy += drawTileH) {
       const sh = Math.min(drawTileH, h - sy);
-      ctx.drawImage(s.image, 0, sy, w, sh, 0, sy, w, sh);
+      ctx.drawImage(image, 0, sy, w, sh, 0, sy, w, sh);
     }
   }
   const flipH = !!s.flipHorizontal;
@@ -117,6 +196,69 @@ function buildStripCanvasRaw() {
   if (flipH || flipV) {
     result = copyCanvasFlipped(canvas, flipH, flipV);
   }
+  return result;
+}
+
+/**
+ * Strip na rotatie + spiegeling, zonder pixel-editor overlay (bron voor editor-achtergrond).
+ * @returns {HTMLCanvasElement|null}
+ */
+export function buildStripCanvasRawBase() {
+  const s = getState();
+  if (!s.image || !s.naturalWidth || !s.naturalHeight) return null;
+  return buildStripCanvasRawFromImage(s.image, s.naturalWidth, s.naturalHeight);
+}
+
+/**
+ * Zelfde transformaties als project-strip, voor een apart geladen bestand (pixel-editor bronmap).
+ * @param {HTMLImageElement} image
+ * @returns {HTMLCanvasElement|null}
+ */
+export function buildPixelEditorExternalStripRaw(image) {
+  if (!image || !image.naturalWidth || !image.naturalHeight) return null;
+  return buildStripCanvasRawFromImage(image, image.naturalWidth, image.naturalHeight);
+}
+
+function applyFramePaintOverlaysToStripCanvas(result) {
+  const map = getState().framePaintOverlays;
+  if (!result || !map || map.size === 0) return;
+  const ctx = result.getContext('2d', { alpha: true });
+  if (!ctx) return;
+  const stripW = result.width;
+  const stripH = result.height;
+  const toDelete = [];
+  for (const [fi, entry] of map.entries()) {
+    const r = getFrameCropRectInStripPx(result, fi);
+    if (!r || !entry?.canvas) {
+      toDelete.push(fi);
+      continue;
+    }
+    if (
+      stripW !== entry.stripW ||
+      stripH !== entry.stripH ||
+      r.x !== entry.x ||
+      r.y !== entry.y ||
+      r.w !== entry.w ||
+      r.h !== entry.h ||
+      entry.canvas.width !== r.w ||
+      entry.canvas.height !== r.h
+    ) {
+      toDelete.push(fi);
+      continue;
+    }
+    ctx.drawImage(entry.canvas, r.x, r.y);
+  }
+  for (const fi of toDelete) map.delete(fi);
+}
+
+/**
+ * Strip na rotatie + spiegeling, nog niet geschaald (bron voor preview- én export-canvas), incl. pixel-editor.
+ * @returns {HTMLCanvasElement|null}
+ */
+function buildStripCanvasRaw() {
+  const result = buildStripCanvasRawBase();
+  if (!result) return null;
+  applyFramePaintOverlaysToStripCanvas(result);
   return result;
 }
 
@@ -272,10 +414,8 @@ export function getStripCanvasDimensions() {
   const h = s.naturalHeight;
   const totalDeg = s.rotation90 + s.fineRotationDeg;
   const rad = (totalDeg * Math.PI) / 180;
-  const cos = Math.abs(Math.cos(rad));
-  const sin = Math.abs(Math.sin(rad));
-  let outW = Math.ceil(w * cos + h * sin);
-  let outH = Math.ceil(w * sin + h * cos);
+  const { px, py } = tiltPivotToSourcePoint(w, h, s.tiltPivot);
+  let { outW, outH } = rotatedImageBounds(w, h, rad, px, py);
   if (outW > STRIP_CANVAS_MAX_DIM || outH > STRIP_CANVAS_MAX_DIM) {
     const scale = Math.min(STRIP_CANVAS_MAX_DIM / outW, STRIP_CANVAS_MAX_DIM / outH, 1);
     outW = Math.round(outW * scale);

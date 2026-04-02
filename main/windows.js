@@ -189,6 +189,8 @@ let mainWindow = null;
 let stripPreviewWindow = null;
 let outputPreviewWindow = null;
 let alignPreviewWindow = null;
+let settingsWindow = null;
+let pixelEditorWindow = null;
 
 /** Laatste strip-payload; UITLIJN opent na IPC → eerste updates kunnen verloren gaan → opnieuw sturen bij load. */
 let lastStripUpdatePayload = null;
@@ -290,13 +292,14 @@ function applyWindowGeometryLock(locked) {
   applyOne(stripPreviewWindow);
   applyOne(outputPreviewWindow);
   applyOne(alignPreviewWindow);
+  applyOne(settingsWindow);
   if (!L) {
     try {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.setMinimumSize(constants.MIN_WIDTH, constants.MIN_HEIGHT);
       }
       const minW = getUnifiedPreviewMinWidthPx();
-      [stripPreviewWindow, outputPreviewWindow, alignPreviewWindow].forEach((w) => {
+      [stripPreviewWindow, outputPreviewWindow, alignPreviewWindow, settingsWindow].forEach((w) => {
         if (w && !w.isDestroyed()) w.setMinimumSize(minW, 400);
       });
     } catch (_) {}
@@ -311,6 +314,7 @@ function getMainWindow() { return mainWindow; }
 function getStripPreviewWindow() { return stripPreviewWindow; }
 function getOutputPreviewWindow() { return outputPreviewWindow; }
 function getAlignPreviewWindow() { return alignPreviewWindow; }
+function getSettingsWindow() { return settingsWindow; }
 
 function createMainWindow(preloadPath) {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
@@ -321,7 +325,7 @@ function createMainWindow(preloadPath) {
     height: savedMain?.height ?? 900,
     minWidth: constants.MIN_WIDTH,
     minHeight: constants.MIN_HEIGHT,
-    title: constants.APP_NAME,
+    title: localizedAuxWindowTitle('window.mainPanelTitleSuffix', '1 — Main panel'),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -353,6 +357,10 @@ function createMainWindow(preloadPath) {
     if (alignPreviewWindow && !alignPreviewWindow.isDestroyed()) {
       state.alignPreviewBounds = alignPreviewWindow.getBounds();
     }
+    state.pixelEditorOpen = !!(pixelEditorWindow && !pixelEditorWindow.isDestroyed());
+    if (pixelEditorWindow && !pixelEditorWindow.isDestroyed()) {
+      state.pixelEditorBounds = pixelEditorWindow.getBounds();
+    }
     prefs.setWindowState(state);
 
     if (mainWindow._f2fAllowClose) {
@@ -360,12 +368,16 @@ function createMainWindow(preloadPath) {
       closeStripPreviewWindow();
       closeOutputPreviewWindow();
       closeAlignPreviewWindow();
+      closeSettingsWindow();
+      closePixelEditorWindow();
       return;
     }
     e.preventDefault();
     closeStripPreviewWindow();
     closeOutputPreviewWindow();
     closeAlignPreviewWindow();
+    closeSettingsWindow();
+    closePixelEditorWindow();
     mainWindow._f2fQuitSavePending = true;
     if (mainWindow._f2fQuitSaveTimer) {
       clearTimeout(mainWindow._f2fQuitSaveTimer);
@@ -415,7 +427,7 @@ function createStripPreviewWindow(preloadPath, htmlPath) {
     height: bounds.height,
     minWidth: minW,
     minHeight: 400,
-    title: localizedAuxWindowTitle('window.rasterSetupTitleSuffix', 'RASTER SETUP'),
+    title: localizedAuxWindowTitle('window.rasterSetupTitleSuffix', '2 — RASTER SETUP'),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -483,7 +495,7 @@ function createOutputPreviewWindow(preloadPath, htmlPath) {
     height: saved?.height ?? defaultBounds.height,
     minWidth: minW,
     minHeight: 400,
-    title: constants.APP_NAME + ' – Output preview',
+    title: localizedAuxWindowTitle('window.outputPreviewTitleSuffix', '4 — OUTPUT PANEL'),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -553,7 +565,7 @@ function createAlignPreviewWindow(preloadPath, htmlPath) {
     height: bounds.height,
     minWidth: minW,
     minHeight: 400,
-    title: localizedAuxWindowTitle('window.rasterPreviewTitleSuffix', 'RASTER PREVIEW'),
+    title: localizedAuxWindowTitle('window.rasterPreviewTitleSuffix', '3 — RASTER PREVIEW'),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -598,18 +610,225 @@ function closeAlignPreviewWindow() {
   }
 }
 
+function createSettingsWindow(preloadPath, htmlPath) {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.focus();
+    return settingsWindow;
+  }
+  const winState = prefs.getWindowState();
+  const saved = winState.settingsWindowBounds ? clampBoundsToDisplay(winState.settingsWindowBounds) : null;
+  const defaultW = 560;
+  const defaultH = 720;
+  const opts = {
+    width: saved?.width ?? defaultW,
+    height: saved?.height ?? defaultH,
+    minWidth: 400,
+    minHeight: 480,
+    title: localizedAuxWindowTitle('window.settingsTitleSuffix', '5 — SETTINGS'),
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  };
+  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+    opts.x = saved.x;
+    opts.y = saved.y;
+  } else {
+    try {
+      const display = screen.getPrimaryDisplay();
+      const work = display.workArea || display.bounds;
+      opts.x = Math.round(work.x + (work.width - defaultW) / 2);
+      opts.y = Math.round(work.y + (work.height - defaultH) / 3);
+    } catch (_) {}
+  }
+  applyWindowIcon(opts);
+  settingsWindow = new BrowserWindow(opts);
+  settingsWindow.loadFile(htmlPath);
+  settingsWindow.on('close', () => {
+    const state = prefs.getWindowState();
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      state.settingsWindowBounds = settingsWindow.getBounds();
+    }
+    prefs.setWindowState(state);
+  });
+  settingsWindow.on('closed', () => {
+    settingsWindow = null;
+  });
+  applyWindowGeometryLockFromPrefs();
+  return settingsWindow;
+}
+
+function closeSettingsWindow() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.close();
+    settingsWindow = null;
+  }
+}
+
+function getPixelEditorWindow() {
+  return pixelEditorWindow;
+}
+
+function createPixelEditorWindow(preloadPath, htmlPath) {
+  if (pixelEditorWindow && !pixelEditorWindow.isDestroyed()) {
+    pixelEditorWindow.focus();
+    return pixelEditorWindow;
+  }
+  const winState = prefs.getWindowState();
+  const saved = winState.pixelEditorBounds ? clampBoundsToDisplay(winState.pixelEditorBounds) : null;
+  const defaultW = 920;
+  const defaultH = 720;
+  const opts = {
+    width: saved?.width ?? defaultW,
+    height: saved?.height ?? defaultH,
+    minWidth: 640,
+    minHeight: 520,
+    title: localizedAuxWindowTitle('window.pixelEditorTitleSuffix', '6 — FRAME PIXEL EDITOR'),
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  };
+  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+    opts.x = saved.x;
+    opts.y = saved.y;
+  } else {
+    try {
+      const display = screen.getPrimaryDisplay();
+      const work = display.workArea || display.bounds;
+      opts.x = Math.round(work.x + (work.width - defaultW) / 2);
+      opts.y = Math.round(work.y + (work.height - defaultH) / 4);
+    } catch (_) {}
+  }
+  applyWindowIcon(opts);
+  pixelEditorWindow = new BrowserWindow(opts);
+  pixelEditorWindow.loadFile(htmlPath);
+  pixelEditorWindow.webContents.once('did-finish-load', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('pixel-editor-window-ready');
+    }
+  });
+  pixelEditorWindow.on('close', () => {
+    const state = prefs.getWindowState();
+    state.pixelEditorOpen = false;
+    if (pixelEditorWindow && !pixelEditorWindow.isDestroyed()) {
+      state.pixelEditorBounds = pixelEditorWindow.getBounds();
+    }
+    prefs.setWindowState(state);
+  });
+  pixelEditorWindow.on('closed', () => {
+    pixelEditorWindow = null;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('pixel-editor-window-closed');
+    }
+  });
+  prefs.setWindowState({ ...prefs.getWindowState(), pixelEditorOpen: true });
+  applyWindowGeometryLockFromPrefs();
+  return pixelEditorWindow;
+}
+
+function closePixelEditorWindow() {
+  if (pixelEditorWindow && !pixelEditorWindow.isDestroyed()) {
+    pixelEditorWindow.close();
+    pixelEditorWindow = null;
+  }
+}
+
+/** Alleen focussen/toon; opent geen nieuw venster. */
+function focusPixelEditorWindow() {
+  if (!pixelEditorWindow || pixelEditorWindow.isDestroyed()) return false;
+  try {
+    if (pixelEditorWindow.isMinimized()) pixelEditorWindow.restore();
+    pixelEditorWindow.show();
+    pixelEditorWindow.focus();
+  } catch (_) {
+    return false;
+  }
+  return true;
+}
+
+function sendToPixelEditor(channel, payload) {
+  if (pixelEditorWindow && !pixelEditorWindow.isDestroyed()) {
+    pixelEditorWindow.webContents.send(channel, payload);
+  }
+}
+
 function sendToAlignPreview(channel, payload) {
   if (alignPreviewWindow && !alignPreviewWindow.isDestroyed()) {
     alignPreviewWindow.webContents.send(channel, payload);
   }
 }
 
-/** Herstel scanlint-, output- en uitlijning-preview vensters als ze bij vorige sessie open stonden. */
-function restorePreviewWindowsIfNeeded(stripPreload, stripHtmlPath, outputPreload, outputHtmlPath, alignPreload, alignHtmlPath) {
-  const state = prefs.getWindowState();
-  if (state.stripPreviewOpen && stripHtmlPath && stripPreload) createStripPreviewWindow(stripPreload, stripHtmlPath);
-  if (state.outputPreviewOpen && outputHtmlPath && outputPreload) createOutputPreviewWindow(outputPreload, outputHtmlPath);
-  if (state.alignPreviewOpen && alignHtmlPath && alignPreload) createAlignPreviewWindow(alignPreload, alignHtmlPath);
+/** Zet titelbalkteksten opnieuw na taalwissel (zelfde keys als bij create*). */
+function applyLocalizedWindowTitles() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setTitle(localizedAuxWindowTitle('window.mainPanelTitleSuffix', '1 — Main panel'));
+  }
+  if (stripPreviewWindow && !stripPreviewWindow.isDestroyed()) {
+    stripPreviewWindow.setTitle(localizedAuxWindowTitle('window.rasterSetupTitleSuffix', '2 — RASTER SETUP'));
+  }
+  if (alignPreviewWindow && !alignPreviewWindow.isDestroyed()) {
+    alignPreviewWindow.setTitle(localizedAuxWindowTitle('window.rasterPreviewTitleSuffix', '3 — RASTER PREVIEW'));
+  }
+  if (outputPreviewWindow && !outputPreviewWindow.isDestroyed()) {
+    outputPreviewWindow.setTitle(localizedAuxWindowTitle('window.outputPreviewTitleSuffix', '4 — OUTPUT PANEL'));
+  }
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.setTitle(localizedAuxWindowTitle('window.settingsTitleSuffix', '5 — SETTINGS'));
+  }
+  if (pixelEditorWindow && !pixelEditorWindow.isDestroyed()) {
+    pixelEditorWindow.setTitle(localizedAuxWindowTitle('window.pixelEditorTitleSuffix', '6 — FRAME PIXEL EDITOR'));
+  }
+}
+
+/** Zes bits voor panelen 1–6; ongeldig → alles aan (open alle hulpvensters). */
+function parsePanelOpenMask6(str) {
+  const s = String(str || '').replace(/\s/g, '');
+  if (s.length !== 6 || !/^[01]+$/.test(s)) return [true, true, true, true, true, true];
+  return s.split('').map((c) => c === '1');
+}
+
+/** Opent panelen 2–6 indien mask true; paneel 1 = hoofdvenster (altijd apart). */
+function openAuxiliaryWindowsFromPanelMask(maskInput) {
+  const mask = Array.isArray(maskInput) && maskInput.length === 6 ? maskInput.map(Boolean) : parsePanelOpenMask6(maskInput);
+  const base = path.join(__dirname, '..');
+  if (mask[1]) {
+    const pre = path.join(base, 'preloads', 'strip.js');
+    const html = path.join(base, 'windows', 'strip-preview.html');
+    if (fs.existsSync(html) && fs.existsSync(pre)) createStripPreviewWindow(pre, html);
+  }
+  if (mask[2]) {
+    const pre = path.join(base, 'preloads', 'align-preview.js');
+    const html = path.join(base, 'windows', 'align-preview.html');
+    if (fs.existsSync(html) && fs.existsSync(pre)) createAlignPreviewWindow(pre, html);
+  }
+  if (mask[3]) {
+    const pre = path.join(base, 'preloads', 'output.js');
+    const html = path.join(base, 'windows', 'output-preview.html');
+    if (fs.existsSync(html)) createOutputPreviewWindow(pre, html);
+  }
+  if (mask[4]) {
+    const pre = path.join(base, 'preloads', 'settings.js');
+    const html = path.join(base, 'windows', 'settings.html');
+    if (fs.existsSync(html)) createSettingsWindow(pre, html);
+  }
+  if (mask[5]) {
+    const pre = path.join(base, 'preloads', 'pixel-editor.js');
+    const html = path.join(base, 'windows', 'pixel-editor.html');
+    if (fs.existsSync(html) && fs.existsSync(pre)) createPixelEditorWindow(pre, html);
+  }
+}
+
+/** Sluit hulpvensters 2–6 waar het masker 0 is (paneel 1 = hoofdvenster blijft altijd). */
+function closeAuxiliaryWindowsNotInPanelMask(maskInput) {
+  const mask = Array.isArray(maskInput) && maskInput.length === 6 ? maskInput.map(Boolean) : parsePanelOpenMask6(maskInput);
+  if (!mask[1]) closeStripPreviewWindow();
+  if (!mask[2]) closeAlignPreviewWindow();
+  if (!mask[3]) closeOutputPreviewWindow();
+  if (!mask[4]) closeSettingsWindow();
+  if (!mask[5]) closePixelEditorWindow();
 }
 
 module.exports = {
@@ -617,6 +836,8 @@ module.exports = {
   getStripPreviewWindow,
   getOutputPreviewWindow,
   getAlignPreviewWindow,
+  getSettingsWindow,
+  getPixelEditorWindow,
   setLastStripUpdatePayload,
   resendLastStripPayloadToStripPreview,
   resendLastStripPayloadToAlignPreview,
@@ -627,10 +848,19 @@ module.exports = {
   closeStripPreviewWindow,
   closeOutputPreviewWindow,
   closeAlignPreviewWindow,
+  createSettingsWindow,
+  closeSettingsWindow,
+  createPixelEditorWindow,
+  closePixelEditorWindow,
+  focusPixelEditorWindow,
+  sendToPixelEditor,
   sendToStripPreview,
   sendToOutputPreview,
   sendToAlignPreview,
-  restorePreviewWindowsIfNeeded,
+  parsePanelOpenMask6,
+  openAuxiliaryWindowsFromPanelMask,
+  closeAuxiliaryWindowsNotInPanelMask,
   applyWindowGeometryLock,
-  applyWindowGeometryLockFromPrefs
+  applyWindowGeometryLockFromPrefs,
+  applyLocalizedWindowTitles
 };

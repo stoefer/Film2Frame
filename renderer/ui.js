@@ -1,8 +1,8 @@
 /**
  * UI-binding – koppelt DOM aan state en preview. Enige module die getElementById gebruikt.
  */
-import { getState, setStrip, setRotation90, setFineRotation, setNumFrames, setActiveFrameIndex, setZoomFrames, setFramePreviewVisibleFrames, setStripPreviewMaxDim, setExportFolderPath, setExportBaseName, setExportPauseSeconds, setVideoOutputPath,
-  setVideoFramesFolderPath, setGridOffset, setGridOffsetXMargins, setGridOffsetYOnly, setGridOffsetYBottom, setDirty, setFlipHorizontal, setFlipVertical, setTimecodeFps, setFilmFormat, setFilmPolarity, setTiltPivot, setOutputFormat, setScanDpi, setArrowStepPx, setArrowStepShiftPx, getLintStateSnapshot, getGridGeometrySnapshot, applyGridGeometrySnapshot, setLintStateForPath, updateProjectScanInfos, applyLintState, setGridVerticalAnchorMode, setGridVerticalPivotCustomK, setGridSplitLowerPanCanvas, setGridPanelLinkVerticalAnchor, setStripPresetId } from './state.js';
+import { getState, setStrip, setRotation90, setFineRotation, setNumFrames, setActiveFrameIndex, setPixelEditorActiveFrameIndex, setZoomFrames, setFramePreviewVisibleFrames, setStripPreviewMaxDim, setExportFolderPath, setExportBaseName, setExportPauseSeconds, setVideoOutputPath,
+  setVideoFramesFolderPath, setGridOffset, setGridOffsetXMargins, setGridOffsetYOnly, setGridOffsetYBottom, setDirty, setFlipHorizontal, setFlipVertical, setTimecodeFps, setFilmFormat, setFilmPolarity, setTiltPivot, setOutputFormat, setScanDpi, setArrowStepPx, setArrowStepShiftPx, setPreserveGridOnScanNav, setPixelEditorOutputFolder, setPixelEditorSourceFolder, setPixelEditorExternalScan, clearPixelEditorExternalScan, getLintStateSnapshot, getGridGeometrySnapshot, applyGridGeometrySnapshot, setLintStateForPath, updateProjectScanInfos, applyLintState, setGridVerticalAnchorMode, setGridVerticalPivotCustomK, setGridSplitLowerPanCanvas, setGridPanelLinkVerticalAnchor, setStripPresetId, resetGridToDefault as resetGridStateToDefault, getLintStateForPath, applyAutoOrientationFromNaturalSize } from './state.js';
 import { loadImage, getStripCanvas, getStripCanvasDimensions, getStripCanvasPairForExport } from './strip-loader.js';
 import {
   getFrameDimensions,
@@ -18,18 +18,27 @@ import {
   bottomAnchoredVerticalPanToBoundaryCanvas,
   getMinGridOffsetYCanvas,
   usesSplitLowerVerticalPan,
-  handVerticalUsesSplitPan,
   panelUsesVerticalAnchorLink,
-  pivotActiveAnchorsStripBottom,
   resolveVerticalPivotKFromState,
   applySplitLowerPanStepCanvas,
   splitLowerPanToBoundaryCanvas,
   clampGridSplitLowerPanCanvas,
-  ensurePivotFrozenLowerCellHeight
+  ensurePivotFrozenLowerCellHeight,
+  getLadderRowsCanvas,
+  getGridRect
 } from './grid.js';
 import { refreshPreviews, refreshPreviewsGridOnly, getScaledDimensions, getScaledDimensionsFromSize, buildGridPayload } from './preview.js';
-import { hasProject, getProjectMeta, getProjectPath, isDirty, createProject, openProject, openProjectByPath, saveProject, deleteProject, applySavedLintState, pickResumeLintPath, persistCurrentLintStateInProject } from './project.js';
+import {
+  installPixelEditorBridgeInMainWindow,
+  refreshFramePixelEditor,
+  clearPixelEditorUndoHistory,
+  hasVisiblePixelEditorPaintAt,
+  getPixelEditorExternalExportCanvas
+} from './frame-pixel-editor.js';
+import { restoreFramePaintOverlaysFromSerialized } from './frame-pixel-overlay-persist.js';
+import { hasProject, getProjectMeta, getProjectPath, isDirty, createProject, openProject, openProjectFromFile, openProjectByPath, saveProject, deleteProject, closeCurrentProject, applySavedLintState, pickResumeLintPath, persistCurrentLintStateInProject } from './project.js';
 import { getFromCache, prefetch, clearCache } from './strip-cache.js';
+import { normalizeOutputResolutionId, RESOLUTION_ID_TO_DIMS } from './output-resolution.js';
 
 import { updateStatus } from './status.js';
 import { getScanInfosWithProgressOverlay } from './scan-folder-overlay.js';
@@ -41,8 +50,21 @@ import {
   ZOOM_MAX,
   GRID_OFFSET_PRESETS,
   STRIP_PREVIEW_MAX_DIM_OPTIONS,
-  DEFAULT_STRIP_PREVIEW_MAX_DIM
+  DEFAULT_STRIP_PREVIEW_MAX_DIM,
+  DEFAULT_FRAMES_PER_STRIP
 } from './constants.js';
+
+/** Gooit bij video-export stoppen (renderer-tak: frames schrijven). */
+const VIDEO_EXPORT_STOP_ERROR = 'VIDEO_EXPORT_STOP';
+let videoExportStopRequested = false;
+
+/** Geeft Chromium tijd om te tekenen en IPC af te handelen (voorkomt vastlopende UI en strip-preview “bezig”). */
+function yieldToEventLoop() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** Bij video-export: geen project.json na elke scan (te zwaar); één save in finally van onExportVideo. */
+const LOAD_SCAN_FOR_VIDEO_EXPORT = { skipPersistAfterLoad: true };
 
 const ids = {
   projectInfo: 'project-info',
@@ -75,8 +97,11 @@ const ids = {
   refreshScanList: 'f2f-refresh-scan-list',
   newProject: 'f2f-new-project',
   openProject: 'f2f-open-project',
+  openProjectFile: 'f2f-open-project-file',
+  suggestProjectFolder: 'f2f-suggest-project-folder',
   saveProject: 'f2f-save-project',
   deleteProject: 'f2f-delete-project',
+  closeProject: 'f2f-close-project',
   filename: 'f2f-filename',
   fineRotation: 'f2f-fine-rotation',
   fineRotationValue: 'f2f-fine-value',
@@ -85,6 +110,9 @@ const ids = {
   finePlusFine: 'f2f-fine-plus-fine',
   finePlusCoarse: 'f2f-fine-plus-coarse',
   numFrames: 'f2f-num-frames',
+  workflowSingleFrame: 'f2f-workflow-single-frame',
+  workflowStarterFilm: 'f2f-workflow-starter-film',
+  workflowApplyStarter: 'f2f-workflow-apply-starter',
   activeFrame: 'f2f-active-frame',
   frameOf: 'f2f-frame-of',
   prevFrame: 'f2f-prev-frame',
@@ -99,6 +127,11 @@ const ids = {
   gridMmFrames: 'f2f-grid-mm-frames',
   gridPxPerMm: 'f2f-grid-px-per-mm',
   applyGridFromMm: 'f2f-apply-grid-from-mm',
+  gridRefPxWidth: 'f2f-grid-ref-px-width',
+  gridRefPxHeight: 'f2f-grid-ref-px-height',
+  gridRefPxFrames: 'f2f-grid-ref-px-frames',
+  applyGridFromPx: 'f2f-apply-grid-from-px',
+  captureGridRefPx: 'f2f-capture-grid-ref-px',
   gridPresetName: 'f2f-grid-preset-name',
   gridPresetList: 'f2f-grid-preset-list',
   gridPresetSave: 'f2f-grid-preset-save',
@@ -115,6 +148,23 @@ const ids = {
   exportBatchRange: 'f2f-export-batch-range',
   exportCurrent: 'f2f-export-current',
   exportBatch: 'f2f-export-batch',
+  frameGeneratorProgressWrap: 'f2f-frame-generator-progress-wrap',
+  frameGeneratorProgressBarhost: 'f2f-frame-generator-progress-barhost',
+  frameGeneratorProgressBar: 'f2f-frame-generator-progress-bar',
+  frameGeneratorProgressPct: 'f2f-frame-generator-progress-pct',
+  frameGeneratorProgressLabel: 'f2f-frame-generator-progress-label',
+  pickPixelEditorFolder: 'f2f-pixel-editor-pick-folder',
+  pickPixelEditorSourceFolder: 'f2f-pixel-editor-pick-source-folder',
+  clearPixelEditorSourceFolder: 'f2f-pixel-editor-clear-source-folder',
+  pixelEditorSourcePrev: 'f2f-pixel-editor-source-prev',
+  pixelEditorSourceNext: 'f2f-pixel-editor-source-next',
+  pixelEditorOutputPath: 'f2f-pixel-editor-output-path',
+  pixelEditorSourcePath: 'f2f-pixel-editor-source-path',
+  pixelEditorPrevFrame: 'f2f-pixel-editor-prev-frame',
+  pixelEditorNextFrame: 'f2f-pixel-editor-next-frame',
+  pixelEditorGotoFrame: 'f2f-pixel-editor-goto-frame',
+  pixelEditorGotoFrameGo: 'f2f-pixel-editor-goto-frame-go',
+  pixelEditorFrameCaption: 'f2f-pixel-editor-frame-caption',
   pickFramesFolder: 'f2f-pick-frames-folder',
   videoFramesFolderPath: 'f2f-video-frames-folder-path',
   videoFormat: 'f2f-video-format',
@@ -123,8 +173,13 @@ const ids = {
   videoFps: 'f2f-video-fps',
   videoScanFrom: 'f2f-video-scan-from',
   videoScanTo: 'f2f-video-scan-to',
+  videoUniformFit: 'f2f-video-uniform-fit',
   exportVideo: 'f2f-export-video',
+  videoExportStop: 'f2f-video-export-stop',
   videoExportProgressWrap: 'f2f-video-export-progress-wrap',
+  videoExportProgressBarhost: 'f2f-video-export-progress-barhost',
+  videoExportProgressBar: 'f2f-video-export-progress-bar',
+  videoExportProgressPct: 'f2f-video-export-progress-pct',
   videoExportProgress: 'f2f-video-export-progress',
   prevScan: 'f2f-prev-scan',
   nextScan: 'f2f-next-scan',
@@ -133,6 +188,7 @@ const ids = {
   openStrip: 'f2f-open-strip',
   openAlignPreview: 'f2f-open-align-preview',
   openOutputPreview: 'f2f-open-output-preview',
+  openPixelEditor: 'f2f-open-pixel-editor',
   closeStrip: 'f2f-close-strip',
   filmFormat: 'f2f-film-format',
   polarityPos: 'f2f-polarity-pos',
@@ -143,33 +199,14 @@ const ids = {
   infoDpi: 'f2f-info-dpi',
   infoFilm: 'f2f-info-film',
   projectStarten: 'f2f-project-starten',
-  settingsToggle: 'f2f-settings-toggle',
-  settingsContent: 'f2f-settings-content',
-  settingDpi: 'f2f-setting-dpi',
-  settingDefaultFrames: 'f2f-setting-default-frames',
-  settingOutputFormat: 'f2f-setting-output-format',
-  settingOutputRes: 'f2f-setting-output-res',
   exportOutputRes: 'f2f-export-output-res',
-  settingCustomResWrap: 'f2f-setting-custom-res-wrap',
-  settingCustomW: 'f2f-setting-custom-w',
-  settingCustomH: 'f2f-setting-custom-h',
-  settingPreviewRes: 'f2f-setting-preview-res',
-  settingDarkMode: 'f2f-setting-dark-mode',
-  settingWindowArrangement: 'f2f-setting-window-arrangement',
-  settingArrangeOnStartup: 'f2f-setting-arrange-on-startup',
-  arrangeGrid: 'f2f-arrange-grid',
-  arrangeGridHsu: 'f2f-arrange-grid-hsu',
-  settingArrowStepPx: 'f2f-setting-arrow-step-px',
-  settingArrowStepShiftPx: 'f2f-setting-arrow-step-shift-px',
-  stripShortcutsTbody: 'f2f-strip-shortcuts-tbody',
-  stripShortcutsResetAll: 'f2f-strip-shortcuts-reset-all',
-  arrangeWindowsBtn: 'f2f-arrange-windows',
+  videoOutputRes: 'f2f-video-output-res',
+  openSettings: 'f2f-open-settings',
   buildVersion: 'f2f-build-version',
   aboutBtn: 'f2f-about-btn',
   aboutOverlay: 'f2f-about-overlay',
   aboutVersion: 'f2f-about-version',
-  aboutClose: 'f2f-about-close',
-  settingsSaveBtn: 'f2f-settings-save'
+  aboutClose: 'f2f-about-close'
 };
 
 function el(id) { return document.getElementById(id); }
@@ -225,6 +262,8 @@ function updateProjectUI() {
     if (refreshScanListBtn) refreshScanListBtn.classList.remove('hidden');
     const deleteProjectBtn = el(ids.deleteProject);
     if (deleteProjectBtn) deleteProjectBtn.classList.remove('hidden');
+    const closeProjectBtn = el(ids.closeProject);
+    if (closeProjectBtn) closeProjectBtn.classList.remove('hidden');
     if (projectStatsWrap) projectStatsWrap.classList.remove('hidden');
     updateStatsDisplay();
     const meta = getProjectMeta();
@@ -250,6 +289,8 @@ function updateProjectUI() {
     if (refreshScanListBtn) refreshScanListBtn.classList.add('hidden');
     const deleteProjectBtn = el(ids.deleteProject);
     if (deleteProjectBtn) deleteProjectBtn.classList.add('hidden');
+    const closeProjectBtn = el(ids.closeProject);
+    if (closeProjectBtn) closeProjectBtn.classList.add('hidden');
     if (projectStatsWrap) projectStatsWrap.classList.add('hidden');
     if (firstStep) firstStep.classList.remove('hidden');
     if (lintPanel) lintPanel.classList.add('hidden');
@@ -265,6 +306,25 @@ function updateUI() {
   if (el(ids.activeFrame)) {
     el(ids.activeFrame).value = String(s.activeFrameIndex + 1);
     el(ids.activeFrame).max = String(n);
+  }
+  const pixelGoto = el(ids.pixelEditorGotoFrame);
+  if (pixelGoto) {
+    pixelGoto.max = String(n);
+    if (document.activeElement !== pixelGoto) {
+      pixelGoto.value = String(s.pixelEditorActiveFrameIndex + 1);
+    }
+  }
+  const capEl = el(ids.pixelEditorFrameCaption);
+  if (capEl) {
+    if (!s.path || !s.image) {
+      capEl.textContent = '—';
+    } else {
+      const dispPath = s.pixelEditorExternalPath || s.path;
+      const stripName = dispPath ? dispPath.replace(/^.*[/\\]/, '') : '—';
+      const fi = Math.max(0, Math.min(n - 1, s.pixelEditorActiveFrameIndex || 0)) + 1;
+      capEl.textContent = t('pixelEditor.frameDisplayCaption', { strip: stripName, index: fi, total: n });
+      capEl.title = s.path ? `${s.path} (${fi}/${n})` : '';
+    }
   }
   if (el(ids.frameOf)) el(ids.frameOf).textContent = '/ ' + n;
   if (el(ids.zoomValue)) el(ids.zoomValue).textContent = s.zoomFrames.toFixed(1);
@@ -288,6 +348,18 @@ function updateUI() {
     stripResEl.value = String(closest);
   }
   if (el(ids.exportFolderPath)) el(ids.exportFolderPath).textContent = s.exportFolderPath ? (s.exportFolderPath.length > 50 ? '...' + s.exportFolderPath.slice(-47) : s.exportFolderPath) : '—';
+  if (el(ids.pixelEditorOutputPath)) {
+    const pp = s.pixelEditorOutputFolder;
+    el(ids.pixelEditorOutputPath).textContent = pp ? (pp.length > 50 ? '...' + pp.slice(-47) : pp) : '—';
+  }
+  if (el(ids.pixelEditorSourcePath)) {
+    const sp = s.pixelEditorSourceFolder;
+    el(ids.pixelEditorSourcePath).textContent = sp ? (sp.length > 50 ? '...' + sp.slice(-47) : sp) : '—';
+  }
+  el(ids.clearPixelEditorSourceFolder)?.classList.toggle('hidden', !s.pixelEditorSourceFolder);
+  const srcNav = isPixelEditorSourceFolderActive();
+  el(ids.pixelEditorSourcePrev)?.classList.toggle('hidden', !srcNav);
+  el(ids.pixelEditorSourceNext)?.classList.toggle('hidden', !srcNav);
   if (el(ids.exportBaseName)) el(ids.exportBaseName).value = s.exportBaseName || 'frame';
   if (el(ids.exportPause)) el(ids.exportPause).value = String(s.exportPauseSeconds ?? 0);
   const scanCountEl = el(ids.exportScanCount);
@@ -356,7 +428,12 @@ function updateInfoPanel() {
   }
 }
 
-/** Geeft de geordende lijst scanpaden van het huidige project (scanInfos of map). */
+function isPixelEditorSourceFolderActive() {
+  const p = getState().pixelEditorSourceFolder;
+  return p != null && String(p).trim() !== '';
+}
+
+/** Geordende lijst scanpaden van het project (RASTER SETUP / scanlint) — niet de pixel-editor-bronmap. */
 async function getProjectScanPaths() {
   const meta = getProjectMeta();
   if (!meta) return [];
@@ -412,14 +489,53 @@ function clampCurrentGridToStrip() {
   setGridOffsetYBottom(cv.bottom);
 }
 
-/** Opties voor loadScanByPath: preserveGrid = raster/frames/fijne rotatie van vorige lint behouden (Volgende/Vorige/Ga naar in project). */
-const PRESERVE_GRID_ON_SCAN_NAV = { preserveGrid: true };
+/** Opties voor loadScanByPath bij Vorige/Volgende/Ga naar — volgt instelling preserveGridOnScanNav. */
+function scanNavigationGridOptions() {
+  return { preserveGrid: getState().preserveGridOnScanNav !== false };
+}
 
-/** Slaat huidige lint-state op (bij wissel) en laadt de scan op het gegeven pad. Gebruikt strip-cache (vorige/volgende). */
+/**
+ * Frame-aantal voor auto-oriëntatie bij setStrip: snapshot > projectmeta > state
+ * (anders is state.numFrames bij setStrip nog van de vorige scan).
+ */
+function resolveAutoOrientNumFrames(lintPath) {
+  const saved = lintPath ? getLintStateForPath(lintPath) : null;
+  if (saved && saved.numFrames != null) {
+    const v = parseInt(String(saved.numFrames), 10);
+    if (Number.isFinite(v)) return Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, v));
+  }
+  const meta = getProjectMeta();
+  if (meta && meta.framesPerLint != null) {
+    const v = parseInt(String(meta.framesPerLint), 10);
+    if (Number.isFinite(v)) return Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, v));
+  }
+  return Math.max(1, getState().numFrames || 1);
+}
+
+/**
+ * Na setStrip: preset + opgeslagen lint-state. Bij 1 frame: oriëntatie op pixels; zonder snapshot: fijne rotatie 0.
+ */
+async function applyProjectLintStateAfterLoad(lintPath) {
+  const hadSavedLint = !!getLintStateForPath(lintPath);
+  await applySavedLintState(lintPath);
+  const nAfter = Math.max(1, getState().numFrames || 1);
+  if (nAfter === 1) {
+    applyAutoOrientationFromNaturalSize(1);
+    if (!hadSavedLint) setFineRotation(0);
+  } else if (!hadSavedLint) {
+    applyAutoOrientationFromNaturalSize();
+    setFineRotation(0);
+  }
+}
+
+/**
+ * Slaat huidige lint-state op (bij wissel) en laadt de scan op het gegeven pad. Gebruikt strip-cache (vorige/volgende).
+ * @param {{ preserveGrid?: boolean, skipPersistAfterLoad?: boolean }} [opts] — skipPersistAfterLoad: geen saveProject aan het eind (batch/video).
+ */
 async function loadScanByPath(lintPath, opts = {}) {
   if (!lintPath || !window.api?.getFileUrl) return false;
-  const preserveGrid = opts.preserveGrid === true;
   const s = getState();
+  const preserveGrid = opts.preserveGrid === true;
   if (hasProject() && s.path) {
     const snapshot = getLintStateSnapshot();
     if (snapshot) setLintStateForPath(s.path, snapshot);
@@ -429,81 +545,88 @@ async function loadScanByPath(lintPath, opts = {}) {
   const idx = paths.length ? Math.max(0, paths.indexOf(lintPath)) : 0;
 
   const stripOpts = preserveGrid ? { preserveLintGrid: true } : {};
+  if (!preserveGrid) {
+    stripOpts.autoOrientNumFrames = resolveAutoOrientNumFrames(lintPath);
+  }
 
   let img = getFromCache(lintPath);
-  if (img) {
-    setStrip(lintPath, img, stripOpts);
-    if (hasProject() && !preserveGrid) {
-      await applySavedLintState(lintPath);
+  if (!img) {
+    updateStatus(60, t('status.scanLoading'));
+    try {
+      const fileUrl = await window.api.getFileUrl(lintPath);
+      img = await loadImage(lintPath, fileUrl);
+    } finally {
+      updateStatus(0, t('status.operationEmpty'));
     }
-    if (preserveGrid) {
-      clampCurrentGridToStrip();
-      setDirty();
-    }
-    updateUI();
-    refreshPreviews();
-    if (paths.length) prefetch(paths, idx, lintPath, (p) => window.api.getFileUrl(p), getState);
-    await persistProjectAfterLintLoad();
-    return true;
-  }
-
-  updateStatus(60, 'Scan laden…');
-  try {
-    const fileUrl = await window.api.getFileUrl(lintPath);
-    img = await loadImage(lintPath, fileUrl);
-  } finally {
-    updateStatus(0, '—');
   }
   if (!img) {
-    alert('Scan laden mislukt. Controleer of het bestand een geldige afbeelding is.');
+    alert(t('errors.loadScanFailed'));
     return false;
   }
+
   setStrip(lintPath, img, stripOpts);
   if (hasProject() && !preserveGrid) {
-    await applySavedLintState(lintPath);
+    await applyProjectLintStateAfterLoad(lintPath);
   }
   if (preserveGrid) {
+    /*
+     * Zonder deze stap: bij A → B → A bleef het raster van A gelijk aan wat in geheugen zat na B
+     * (alleen geclampt op A), niet de laatst opgeslagen lintState voor A — daardoor leek afstelling "vergeten".
+     * Bestaat er geen snapshot voor dit pad (eerste bezoek), dan blijft doorgeven + clampen zoals voorheen.
+     */
+    const savedTarget = lintPath ? getLintStateForPath(lintPath) : null;
+    if (savedTarget) {
+      applyLintState(savedTarget);
+    }
     clampCurrentGridToStrip();
+    syncGridSplitLowerPanClamp();
     setDirty();
+    await restoreFramePaintOverlaysFromSerialized(null);
   }
   updateUI();
   refreshPreviews();
   if (paths.length) prefetch(paths, idx, lintPath, (p) => window.api.getFileUrl(p), getState);
-  await persistProjectAfterLintLoad();
+  if (!opts.skipPersistAfterLoad) {
+    await persistProjectAfterLintLoad();
+  }
   return true;
 }
 
 async function onLoadLint() {
   if (typeof window.api?.selectScanFile !== 'function') return;
-  updateStatus(20, 'Bestand kiezen…');
+  updateStatus(20, t('status.pickFile'));
   let lintPath;
   try {
     lintPath = await window.api.selectScanFile();
   } finally {
-    updateStatus(0, '—');
+    updateStatus(0, t('status.operationEmpty'));
   }
   if (!lintPath) return;
   await loadScanByPath(lintPath);
 }
 
 async function onPrevScan() {
-  if (!hasProject()) return;
   const paths = await getProjectScanPaths();
-  if (!paths.length) return;
+  if (!paths.length) {
+    alert(t('scanNav.noScans'));
+    return;
+  }
   const current = getState().path;
   const idx = current ? paths.indexOf(current) : -1;
   const prevIndex = idx <= 0 ? paths.length - 1 : idx - 1;
-  await loadScanByPath(paths[prevIndex], PRESERVE_GRID_ON_SCAN_NAV);
+  await loadScanByPath(paths[prevIndex], scanNavigationGridOptions());
 }
 
 async function onNextScan() {
-  if (!hasProject()) return;
   const paths = await getProjectScanPaths();
-  if (!paths.length) return;
+  if (!paths.length) {
+    alert(t('scanNav.noScans'));
+    return;
+  }
   const current = getState().path;
   const idx = current ? paths.indexOf(current) : -1;
   const nextIndex = idx < 0 ? 0 : (idx >= paths.length - 1 ? 0 : idx + 1);
-  await loadScanByPath(paths[nextIndex], PRESERVE_GRID_ON_SCAN_NAV);
+  await loadScanByPath(paths[nextIndex], scanNavigationGridOptions());
 }
 
 /**
@@ -516,35 +639,37 @@ async function onStripNavigateScan(payload) {
   const isGoto = Number.isFinite(index1) && index1 >= 1;
   if (!isGoto && direction !== 'prev' && direction !== 'next') return;
   if (!hasProject()) {
-    alert('Geen project geopend. Open eerst een project in het hoofdvenster.');
+    alert(t('scanNav.stripNavigateNeedContext'));
     return;
   }
-  const s = getState();
-  if (s.path) {
-    const snapshot = getLintStateSnapshot();
-    if (snapshot) setLintStateForPath(s.path, snapshot);
-  }
-  let saveResult;
-  try {
-    saveResult = await saveProject();
-  } catch (_) {
-    saveResult = { ok: false, error: 'Onbekende fout bij opslaan' };
-  }
-  if (!saveResult.ok) {
-    alert(saveResult.error || 'Project opslaan mislukt. De scanlint wordt niet gewisseld.');
-    return;
+  {
+    const s = getState();
+    if (s.path) {
+      const snapshot = getLintStateSnapshot();
+      if (snapshot) setLintStateForPath(s.path, snapshot);
+    }
+    let saveResult;
+    try {
+      saveResult = await saveProject();
+    } catch (_) {
+      saveResult = { ok: false, error: t('errors.saveUnknown') };
+    }
+    if (!saveResult.ok) {
+      alert(saveResult.error || t('errors.saveBeforeSwitchFailed'));
+      return;
+    }
   }
   const paths = await getProjectScanPaths();
   if (!paths.length) {
-    alert('Geen scanlints in dit project.');
+    alert(t('scanNav.noScans'));
     return;
   }
   if (isGoto) {
     if (index1 < 1 || index1 > paths.length) {
-      alert(`Voer een getal tussen 1 en ${paths.length} in.`);
+      alert(t('scanNav.goToScanInvalid', { max: paths.length }));
       return;
     }
-    await loadScanByPath(paths[index1 - 1], PRESERVE_GRID_ON_SCAN_NAV);
+    await loadScanByPath(paths[index1 - 1], scanNavigationGridOptions());
     return;
   }
   const current = getState().path;
@@ -553,24 +678,23 @@ async function onStripNavigateScan(payload) {
     direction === 'prev'
       ? (idx <= 0 ? paths.length - 1 : idx - 1)
       : (idx < 0 ? 0 : (idx >= paths.length - 1 ? 0 : idx + 1));
-  await loadScanByPath(paths[targetIndex], PRESERVE_GRID_ON_SCAN_NAV);
+  await loadScanByPath(paths[targetIndex], scanNavigationGridOptions());
 }
 
 async function onGoToScan() {
-  if (!hasProject()) return;
   const paths = await getProjectScanPaths();
   if (!paths.length) {
-    alert('Geen scanlints in dit project.');
+    alert(t('scanNav.noScans'));
     return;
   }
-  const num = window.prompt(`Ga naar scanlint (1–${paths.length}):`, '1');
+  const num = window.prompt(t('scanNav.goToScanPrompt', { max: paths.length }), '1');
   if (num === null || num === '') return;
   const index = parseInt(num, 10);
   if (!Number.isFinite(index) || index < 1 || index > paths.length) {
-    alert(`Voer een getal tussen 1 en ${paths.length} in.`);
+    alert(t('scanNav.goToScanInvalid', { max: paths.length }));
     return;
   }
-  await loadScanByPath(paths[index - 1], PRESERVE_GRID_ON_SCAN_NAV);
+  await loadScanByPath(paths[index - 1], scanNavigationGridOptions());
 }
 
 function onRotate90() {
@@ -605,7 +729,14 @@ function nudgeFineRotation(deltaDeg) {
 
 function onNumFrames() {
   const n = parseInt(el(ids.numFrames)?.value, 10);
-  if (!Number.isNaN(n)) setNumFrames(n);
+  if (!Number.isNaN(n)) {
+    const prev = getState().numFrames;
+    setNumFrames(n);
+    const s = getState();
+    if (s.path && s.naturalWidth > 0 && s.naturalHeight > 0 && (n === 1 || prev === 1)) {
+      applyAutoOrientationFromNaturalSize();
+    }
+  }
   setDirty();
   updateUI();
   refreshPreviewsGridOnly();
@@ -640,6 +771,177 @@ function onNextFrame() {
   setDirty();
   updateUI();
   refreshPreviewsGridOnly();
+}
+
+async function saveCurrentPixelEditorFrameToOutputFolder() {
+  const s = getState();
+  const fi = s.pixelEditorActiveFrameIndex;
+  if (!hasVisiblePixelEditorPaintAt(fi)) return { ok: true, skipped: true };
+  const folder = s.pixelEditorOutputFolder;
+  if (!folder) {
+    alert(t('pixelEditor.needOutputFolder'));
+    return { ok: false };
+  }
+  let canvas;
+  if (s.pixelEditorExternalPath && s.pixelEditorExternalImage) {
+    canvas = getPixelEditorExternalExportCanvas();
+  } else {
+    const pair = getStripCanvasPairForExport();
+    if (!pair) {
+      alert(t('pixelEditor.noScanLoaded'));
+      return { ok: false };
+    }
+    const { preview: previewStrip, export: exportStrip } = pair;
+    canvas = cropFrameAtIndexForExport(exportStrip, previewStrip, fi);
+  }
+  if (!canvas) return { ok: false };
+  const dataUrl = canvas.toDataURL('image/png');
+  const path = s.path || '';
+  const base = path.replace(/\\/g, '/').split('/').pop()?.replace(/\.[^.]+$/, '') || 'strip';
+  const safeBase = base.replace(/[/\\:*?"<>|]/g, '_');
+  const idx = fi + 1;
+  try {
+    const result = window.api?.writeFrame
+      ? await window.api.writeFrame(folder, `${safeBase}_pix`, idx, dataUrl, 'png')
+      : await window.api?.writeFramePng?.(folder, `${safeBase}_pix`, idx, dataUrl);
+    if (!result || !result.ok) {
+      alert(
+        t('pixelEditor.saveFailed', {
+          message: (result && result.error) || (window.api?.writeFrame || window.api?.writeFramePng ? '—' : 'API')
+        })
+      );
+      return { ok: false };
+    }
+  } catch (e) {
+    alert(t('pixelEditor.saveFailed', { message: e?.message || String(e) }));
+    return { ok: false };
+  }
+  return { ok: true };
+}
+
+async function onPixelEditorPrevFrame() {
+  const r = await saveCurrentPixelEditorFrameToOutputFolder();
+  if (!r.ok) return;
+  setPixelEditorActiveFrameIndex(getState().pixelEditorActiveFrameIndex - 1);
+  updateUI();
+  refreshPreviewsGridOnly();
+}
+
+async function onPixelEditorNextFrame() {
+  const r = await saveCurrentPixelEditorFrameToOutputFolder();
+  if (!r.ok) return;
+  setPixelEditorActiveFrameIndex(getState().pixelEditorActiveFrameIndex + 1);
+  updateUI();
+  refreshPreviewsGridOnly();
+}
+
+async function onPixelEditorGoToFrameWithValue(frameOneBased) {
+  const maxFrames = Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, getState().numFrames || 1));
+  const raw = Number(frameOneBased);
+  if (!Number.isFinite(raw) || raw < 1 || raw > maxFrames) {
+    alert(t('pixelEditor.goToFrameInvalid', { max: maxFrames }));
+    return { ok: false };
+  }
+  const r = await saveCurrentPixelEditorFrameToOutputFolder();
+  if (!r.ok) return { ok: false };
+  setPixelEditorActiveFrameIndex(raw - 1);
+  updateUI();
+  refreshPreviewsGridOnly();
+  return { ok: true };
+}
+
+async function onPickPixelEditorOutputFolder() {
+  const folder = await window.api?.selectPixelEditorOutputFolder?.();
+  if (folder) {
+    setPixelEditorOutputFolder(folder);
+    updateUI();
+  }
+}
+
+/** Lijst beelden in pixel-editor-bronmap (los van project-scanlijst). */
+async function getPixelEditorSourceScanPaths() {
+  const src = getState().pixelEditorSourceFolder;
+  if (src == null || String(src).trim() === '' || !window.api?.listFolderImages) return [];
+  const list = await window.api.listFolderImages(src);
+  return Array.isArray(list) ? list : [];
+}
+
+async function loadPixelEditorExternalImagePath(absPath) {
+  if (!absPath || !window.api?.getFileUrl) return false;
+  updateStatus(40, t('status.imageLoading'));
+  let img;
+  try {
+    const fileUrl = await window.api.getFileUrl(absPath);
+    img = await loadImage(absPath, fileUrl);
+  } finally {
+    updateStatus(0, t('status.operationEmpty'));
+  }
+  if (!img) {
+    alert(t('pixelEditor.externalLoadFailed'));
+    return false;
+  }
+  setPixelEditorExternalScan(absPath, img);
+  setPixelEditorActiveFrameIndex(0);
+  updateUI();
+  refreshFramePixelEditor();
+  return true;
+}
+
+async function onPickPixelEditorSourceFolder() {
+  const folder = await window.api?.selectFolder?.({
+    title: t('pixelEditor.sourceFolderDialogTitle'),
+    type: 'fileLocation'
+  });
+  if (!folder) return;
+  clearPixelEditorUndoHistory();
+  setPixelEditorSourceFolder(folder);
+  updateUI();
+  if (!window.api?.listFolderImages) return;
+  const paths = await window.api.listFolderImages(folder);
+  if (!paths?.length) {
+    alert(t('pixelEditor.sourceFolderEmpty'));
+    clearPixelEditorExternalScan();
+    refreshFramePixelEditor();
+    return;
+  }
+  await loadPixelEditorExternalImagePath(paths[0]);
+}
+
+function onClearPixelEditorSourceFolder() {
+  clearPixelEditorExternalScan();
+  clearPixelEditorUndoHistory();
+  setPixelEditorSourceFolder(null);
+  updateUI();
+  refreshFramePixelEditor();
+}
+
+async function onPixelEditorSourcePrevFile() {
+  const r = await saveCurrentPixelEditorFrameToOutputFolder();
+  if (!r.ok) return;
+  const paths = await getPixelEditorSourceScanPaths();
+  if (!paths.length) return;
+  const cur = getState().pixelEditorExternalPath;
+  let idx = cur ? paths.indexOf(cur) : 0;
+  if (idx < 0) idx = 0;
+  const prev = idx <= 0 ? paths.length - 1 : idx - 1;
+  await loadPixelEditorExternalImagePath(paths[prev]);
+}
+
+async function onPixelEditorSourceNextFile() {
+  const r = await saveCurrentPixelEditorFrameToOutputFolder();
+  if (!r.ok) return;
+  const paths = await getPixelEditorSourceScanPaths();
+  if (!paths.length) return;
+  const cur = getState().pixelEditorExternalPath;
+  let idx = cur ? paths.indexOf(cur) : 0;
+  if (idx < 0) idx = 0;
+  const next = idx >= paths.length - 1 ? 0 : idx + 1;
+  await loadPixelEditorExternalImagePath(paths[next]);
+}
+
+async function onPixelEditorGoToFrame() {
+  const raw = parseInt(el(ids.pixelEditorGotoFrame)?.value, 10);
+  await onPixelEditorGoToFrameWithValue(raw);
 }
 
 function onZoom() {
@@ -754,6 +1056,47 @@ function applyGridOffsetPreset(presetKey) {
   refreshPreviewsGridOnly();
 }
 
+/** Filmformaat + zelfde start-offset als snelknoppen FILMFORMAAT-paneel. */
+function applyFilmFormatQuickPreset(formatKey) {
+  if (!GRID_OFFSET_PRESETS[formatKey]) return;
+  setFilmFormat(formatKey);
+  const ff = el(ids.filmFormat);
+  if (ff) ff.value = formatKey;
+  applyGridOffsetPreset(formatKey);
+  persistCurrentLintStateInProject();
+}
+
+/**
+ * Workflow: één frame per scan + standaard start-offset voor gekozen (of huidige) filmsoort.
+ * split/frozen raster wordt via setNumFrames(1) al gewist.
+ */
+function applySingleFrameWorkflowForFormat(filmFormatId) {
+  const fmt =
+    filmFormatId && GRID_OFFSET_PRESETS[filmFormatId] ? String(filmFormatId) : getState().filmFormat;
+  if (!GRID_OFFSET_PRESETS[fmt]) return;
+  setFilmFormat(fmt);
+  const ff = el(ids.filmFormat);
+  if (ff) ff.value = fmt;
+  setNumFrames(1);
+  setActiveFrameIndex(0);
+  applyGridOffsetPreset(fmt);
+  syncGridSplitLowerPanClamp();
+  setDirty();
+  updateUI();
+  refreshPreviews();
+  persistCurrentLintStateInProject();
+}
+
+function onWorkflowSingleFrameClick() {
+  applySingleFrameWorkflowForFormat(getState().filmFormat);
+}
+
+function onWorkflowApplyStarterClick() {
+  const raw = String(el(ids.workflowStarterFilm)?.value || '').trim();
+  const useFormat = GRID_OFFSET_PRESETS[raw] ? raw : null;
+  applySingleFrameWorkflowForFormat(useFormat);
+}
+
 function onFilmFormatChange() {
   const v = el(ids.filmFormat)?.value;
   if (v) setFilmFormat(v);
@@ -776,6 +1119,7 @@ function onTiltPivotChange() {
   setDirty();
   updateUI();
   persistCurrentLintStateInProject();
+  if (getState().image) refreshPreviews();
 }
 
 function onOutputFormatChange() {
@@ -789,46 +1133,13 @@ async function onOpenOutputPreview() {
   if (window.api?.openOutputPreview) await window.api.openOutputPreview();
 }
 
-/** Vaste doelformaten voor frame-export (ook omhoog schalen van kleine rasteruitsnedes). */
-const RESOLUTION_ID_TO_DIMS = {
-  sd: [1280, 720],
-  hd: [1920, 1080],
-  uhd: [3840, 2160],
-  r1024x768: [1024, 768],
-  r1280x720: [1280, 720],
-  r1280x960: [1280, 960],
-  r1600x1200: [1600, 1200],
-  r1920x1080: [1920, 1080],
-  r2560x1440: [2560, 1440],
-  r3840x2160: [3840, 2160]
-};
-
-const VALID_OUTPUT_RESOLUTION_IDS = new Set([
-  'original',
-  'custom',
-  'sd',
-  'hd',
-  'uhd',
-  ...Object.keys(RESOLUTION_ID_TO_DIMS)
-]);
-
-/** Oude voorkeuren (sd/hd/uhd) mappen naar expliciete presets. */
-function normalizeOutputResolutionId(raw) {
-  const r = String(raw || 'original').trim();
-  const legacy = { sd: 'r1280x720', hd: 'r1920x1080', uhd: 'r3840x2160' };
-  const id = legacy[r] || r;
-  return VALID_OUTPUT_RESOLUTION_IDS.has(id) ? id : 'original';
-}
-
 function syncOutputResolutionSelects(sourceEl) {
   const v = sourceEl && sourceEl.value != null ? sourceEl.value : 'original';
   const norm = normalizeOutputResolutionId(v);
-  const setting = el(ids.settingOutputRes);
   const exportSel = el(ids.exportOutputRes);
-  if (setting && setting !== sourceEl) setting.value = norm;
+  const videoSel = el(ids.videoOutputRes);
   if (exportSel && exportSel !== sourceEl) exportSel.value = norm;
-  const wrap = el(ids.settingCustomResWrap);
-  if (wrap) wrap.classList.toggle('hidden', norm !== 'custom');
+  if (videoSel && videoSel !== sourceEl) videoSel.value = norm;
 }
 
 /**
@@ -837,26 +1148,48 @@ function syncOutputResolutionSelects(sourceEl) {
  */
 function getExportOutputDimensions(appSettings) {
   const rawId =
+    el(ids.videoOutputRes)?.value ||
     el(ids.exportOutputRes)?.value ||
-    el(ids.settingOutputRes)?.value ||
     appSettings?.outputResolution ||
     'original';
   const id = normalizeOutputResolutionId(rawId);
   if (id === 'original') return null;
   if (id === 'custom') {
-    const w = Math.max(
-      1,
-      Number(el(ids.settingCustomW)?.value || appSettings?.customOutputWidth) || 1920
-    );
-    const h = Math.max(
-      1,
-      Number(el(ids.settingCustomH)?.value || appSettings?.customOutputHeight) || 1080
-    );
+    const w = Math.max(1, Number(appSettings?.customOutputWidth) || 1920);
+    const h = Math.max(1, Number(appSettings?.customOutputHeight) || 1080);
     return { w, h, allowUpscale: true };
   }
   const dims = RESOLUTION_ID_TO_DIMS[id];
   if (!dims) return null;
   return { w: dims[0], h: dims[1], allowUpscale: true };
+}
+
+/**
+ * Schaal proportioneel tot target volledig bedekt is; midden bijsnijden (geen zwarte randen).
+ * Zelfde logica als object-fit: cover.
+ */
+function scaleCanvasToCover(sourceCanvas, targetW, targetH) {
+  const sw = sourceCanvas.width;
+  const sh = sourceCanvas.height;
+  if (sw < 1 || sh < 1 || targetW < 1 || targetH < 1) return sourceCanvas;
+  const scale = Math.max(targetW / sw, targetH / sh);
+  const scaledW = Math.max(targetW, Math.ceil(sw * scale));
+  const scaledH = Math.max(targetH, Math.ceil(sh * scale));
+  const tmp = document.createElement('canvas');
+  tmp.width = scaledW;
+  tmp.height = scaledH;
+  const tctx = tmp.getContext('2d');
+  if (tctx.imageSmoothingEnabled !== undefined) tctx.imageSmoothingEnabled = true;
+  if (tctx.imageSmoothingQuality) tctx.imageSmoothingQuality = 'high';
+  tctx.drawImage(sourceCanvas, 0, 0, sw, sh, 0, 0, scaledW, scaledH);
+  const out = document.createElement('canvas');
+  out.width = targetW;
+  out.height = targetH;
+  const ctx = out.getContext('2d');
+  const sx = Math.floor((scaledW - targetW) / 2);
+  const sy = Math.floor((scaledH - targetH) / 2);
+  ctx.drawImage(tmp, sx, sy, targetW, targetH, 0, 0, targetW, targetH);
+  return out;
 }
 
 function scaleCanvasToSize(sourceCanvas, targetW, targetH, allowUpscale = true) {
@@ -882,170 +1215,44 @@ function scaleCanvasToSize(sourceCanvas, targetW, targetH, allowUpscale = true) 
   return out;
 }
 
-/** Scanlint-preview: instelbare sneltoetsen (Instellingen). */
-let stripShortcutCaptureCleanup = null;
-
-function stripCodeToLabel(code) {
-  if (!code) return '';
-  const map = {
-    ArrowLeft: '←',
-    ArrowRight: '→',
-    ArrowUp: '↑',
-    ArrowDown: '↓',
-    NumpadMultiply: 'Num *',
-    NumpadDivide: 'Num /',
-    PageUp: 'Page ↑',
-    PageDown: 'Page ↓',
-    Home: 'Home',
-    Space: 'Spatie',
-    Enter: 'Enter',
-    Escape: 'Esc',
-    Tab: 'Tab',
-    Backquote: '`',
-    BracketLeft: '[',
-    BracketRight: ']'
-  };
-  if (map[code]) return map[code];
-  if (code.startsWith('Key') && code.length === 4) return code.slice(3);
-  if (code.startsWith('Digit')) return code.slice(5);
-  if (code.startsWith('Numpad')) return 'Num ' + code.slice(6);
-  return code;
+/** Even afmeting voor codecs (o.a. H.264 yuv420p). */
+function videoDimensionEven(n) {
+  const x = Math.max(2, Math.floor(Number(n) || 0));
+  return x + (x % 2);
 }
 
-function formatStripBindingDisplay(b) {
-  if (!b || !b.code) return '— (geen)';
-  const parts = [];
-  if (b.ctrl) parts.push('Ctrl');
-  if (b.meta) parts.push('Win');
-  if (b.alt) parts.push('Alt');
-  if (b.shift) parts.push('Shift');
-  parts.push(stripCodeToLabel(b.code));
-  return parts.join('+');
-}
-
-function updateStripShortcutRowBinding(tr, binding) {
-  const cell = tr.querySelector('.strip-sc-display');
-  if (!cell) return;
-  tr._stripBinding =
-    binding === null || binding === undefined ? null : { ...binding };
-  cell.textContent =
-    tr._stripBinding && tr._stripBinding.code
-      ? formatStripBindingDisplay(tr._stripBinding)
-      : '— (geen)';
-}
-
-function startStripShortcutCapture(tr) {
-  if (stripShortcutCaptureCleanup) stripShortcutCaptureCleanup();
-  document.body.classList.add('f2f-strip-sc-capturing');
-  tr.classList.add('strip-sc-row-capturing');
-  function cleanup() {
-    document.body.classList.remove('f2f-strip-sc-capturing');
-    tr.classList.remove('strip-sc-row-capturing');
-    window.removeEventListener('keydown', onKeyDown, true);
-    stripShortcutCaptureCleanup = null;
-  }
-  function onKeyDown(e) {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      cleanup();
-      return;
-    }
-    const ignoreKeys = ['Shift', 'Control', 'Alt', 'Meta'];
-    if (ignoreKeys.includes(e.key)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const b = {
-      code: e.code,
-      ctrl: !!e.ctrlKey,
-      shift: !!e.shiftKey,
-      alt: !!e.altKey,
-      meta: !!e.metaKey
-    };
-    if (!b.code) {
-      cleanup();
-      return;
-    }
-    updateStripShortcutRowBinding(tr, b);
-    cleanup();
-  }
-  stripShortcutCaptureCleanup = cleanup;
-  window.addEventListener('keydown', onKeyDown, true);
-}
-
-async function buildStripShortcutsSettingsTable() {
-  const tbody = el(ids.stripShortcutsTbody);
-  if (!tbody || !window.api?.getStripShortcutConfig) return;
-  let cfg;
-  try {
-    cfg = await window.api.getStripShortcutConfig();
-  } catch (_) {
-    return;
-  }
-  if (!cfg || !Array.isArray(cfg.actions)) return;
-  tbody.innerHTML = '';
-  cfg.actions.forEach((a) => {
-    const tr = document.createElement('tr');
-    tr.dataset.actionId = a.id;
-    const td0 = document.createElement('td');
-    td0.textContent = a.label || a.id;
-    const td1 = document.createElement('td');
-    td1.className = 'strip-sc-display';
-    const td2 = document.createElement('td');
-    td2.className = 'strip-sc-btns';
-    const btnCh = document.createElement('button');
-    btnCh.type = 'button';
-    btnCh.className = 'btn btn-secondary small';
-    btnCh.textContent = 'Wijzig…';
-    const btnCl = document.createElement('button');
-    btnCl.type = 'button';
-    btnCl.className = 'btn btn-secondary small';
-    btnCl.textContent = 'Wissen';
-    btnCh.addEventListener('click', () => startStripShortcutCapture(tr));
-    btnCl.addEventListener('click', () => updateStripShortcutRowBinding(tr, null));
-    td2.appendChild(btnCh);
-    td2.appendChild(document.createTextNode(' '));
-    td2.appendChild(btnCl);
-    tr.appendChild(td0);
-    tr.appendChild(td1);
-    tr.appendChild(td2);
-    tbody.appendChild(tr);
-    const b = cfg.bindings && cfg.bindings[a.id];
-    if (b && b.code) {
-      updateStripShortcutRowBinding(tr, { ...b });
-    } else {
-      updateStripShortcutRowBinding(tr, null);
-    }
-  });
-}
-
-function collectStripShortcutsFromSettingsUI() {
-  const out = {};
-  const tbody = el(ids.stripShortcutsTbody);
-  if (!tbody) return out;
-  tbody.querySelectorAll('tr[data-action-id]').forEach((tr) => {
-    const id = tr.dataset.actionId;
-    if (!id) return;
-    out[id] = tr._stripBinding == null || !tr._stripBinding.code ? null : { ...tr._stripBinding };
-  });
+/**
+ * Zet elk frame op dezelfde pixelmaat (zwart gecentreerd). Nodig voor ffmpeg wanneer uitsneden per scan/rij verschillen.
+ */
+function padCanvasToVideoUniformSize(canvas, targetW, targetH) {
+  const w = canvas.width;
+  const h = canvas.height;
+  if (w < 1 || h < 1 || targetW < 1 || targetH < 1) return canvas;
+  if (w === targetW && h === targetH) return canvas;
+  const out = document.createElement('canvas');
+  out.width = targetW;
+  out.height = targetH;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, targetW, targetH);
+  ctx.drawImage(canvas, Math.round((targetW - w) / 2), Math.round((targetH - h) / 2));
   return out;
 }
 
-async function resetAllStripShortcutsToDefaults() {
-  const tbody = el(ids.stripShortcutsTbody);
-  if (!tbody || !window.api?.getStripShortcutConfig) return;
-  let cfg;
-  try {
-    cfg = await window.api.getStripShortcutConfig();
-  } catch (_) {
-    return;
-  }
-  if (!cfg || !Array.isArray(cfg.actions)) return;
-  tbody.querySelectorAll('tr[data-action-id]').forEach((tr) => {
-    const id = tr.dataset.actionId;
-    const a = cfg.actions.find((x) => x.id === id);
-    const def = a && a.default && a.default.code ? { ...a.default } : null;
-    updateStripShortcutRowBinding(tr, def);
-  });
+/** Codecs (H.264/HEVC yuv420p) willen meestal even breedte/hoogte. */
+function ensureVideoEvenCanvas(canvas) {
+  const w = canvas.width;
+  const h = canvas.height;
+  if (w < 1 || h < 1) return canvas;
+  if (w % 2 === 0 && h % 2 === 0) return canvas;
+  const out = document.createElement('canvas');
+  out.width = w + (w % 2);
+  out.height = h + (h % 2);
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(canvas, 0, 0);
+  return out;
 }
 
 function applyTheme(darkMode) {
@@ -1054,42 +1261,14 @@ function applyTheme(darkMode) {
   }
 }
 
-/** Sync hidden input + actieve cel in het 3×3-schikkingraster. */
-function syncArrangementGridUI(layout) {
-  const canonical = layout && typeof layout === 'string' ? layout.trim() : 'horiz-osm';
-  const hidden = el(ids.settingWindowArrangement);
-  if (hidden) hidden.value = canonical || 'horiz-osm';
-  [ids.arrangeGrid, ids.arrangeGridHsu].forEach((gridId) => {
-    const grid = el(gridId);
-    if (grid) {
-      grid.querySelectorAll('.f2f-arrange-cell').forEach((btn) => {
-        const d = btn.getAttribute('data-layout');
-        btn.classList.toggle('f2f-arrange-cell--active', d === canonical);
-      });
-    }
-  });
-}
-
 async function loadAppSettings() {
   try {
     const s = await window.api?.getAppSettings?.();
     if (!s || typeof s !== 'object') return;
-    const set = (id, value, type = 'value') => {
-      const el_ = el(id);
-      if (!el_) return;
-      if (type === 'value') el_.value = value;
-      else if (type === 'checked') el_.checked = !!value;
-    };
-    set(ids.settingDpi, String(s.scanDpi));
-    set(ids.settingDefaultFrames, String(s.defaultFramesPerStrip));
-    set(ids.settingOutputFormat, s.outputFormat || 'png');
     const outNorm = normalizeOutputResolutionId(s.outputResolution);
-    set(ids.settingOutputRes, outNorm);
     if (el(ids.exportOutputRes)) el(ids.exportOutputRes).value = outNorm;
-    set(ids.settingCustomW, String(s.customOutputWidth || 1920));
-    set(ids.settingCustomH, String(s.customOutputHeight || 1080));
+    if (el(ids.videoOutputRes)) el(ids.videoOutputRes).value = outNorm;
     const previewRes = Math.max(512, Math.min(8192, Number(s.stripPreviewRes) || DEFAULT_STRIP_PREVIEW_MAX_DIM));
-    set(ids.settingPreviewRes, String(previewRes));
     setStripPreviewMaxDim(previewRes);
     const stripResMain = el(ids.stripPreviewRes);
     if (stripResMain) {
@@ -1098,78 +1277,35 @@ async function loadAppSettings() {
         : STRIP_PREVIEW_MAX_DIM_OPTIONS.reduce((a, b) => (Math.abs(a - previewRes) <= Math.abs(b - previewRes) ? a : b));
       stripResMain.value = String(closest);
     }
-    set(ids.settingDarkMode, s.darkMode, 'checked');
-    syncArrangementGridUI(s.windowArrangement || 'horiz-osm');
-    set(ids.settingArrangeOnStartup, !!s.arrangeWindowsOnStartup, 'checked');
+    setPreserveGridOnScanNav(s.preserveGridOnScanNav !== false);
+    if (el(ids.videoUniformFit)) {
+      el(ids.videoUniformFit).value = s.videoExportUniformFit === 'cover' ? 'cover' : 'pad';
+    }
+    applyTheme(s.darkMode);
     const arrowPx = (s.arrowStepPx != null && Number(s.arrowStepPx) >= 1) ? Math.min(10, Number(s.arrowStepPx)) : 1;
     const arrowShiftPx = (s.arrowStepShiftPx != null && Number(s.arrowStepShiftPx) >= 10) ? Math.min(100, Number(s.arrowStepShiftPx)) : 10;
-    set(ids.settingArrowStepPx, String(arrowPx));
-    set(ids.settingArrowStepShiftPx, String(arrowShiftPx));
-    applyTheme(s.darkMode);
     setArrowStepPx(arrowPx);
     setArrowStepShiftPx(arrowShiftPx);
-    const wrap = el(ids.settingCustomResWrap);
-    if (wrap) wrap.classList.toggle('hidden', outNorm !== 'custom');
-    await buildStripShortcutsSettingsTable();
+    setScanDpi(Number(s.scanDpi) || 4800);
+    setOutputFormat(s.outputFormat === 'jpg' || s.outputFormat === 'jpeg' ? 'jpg' : 'png');
     updateUI();
+    if (getState().image) refreshPreviews();
   } catch (_) {}
 }
 
-async function saveAppSettings() {
-  const outRes = normalizeOutputResolutionId(
-    el(ids.exportOutputRes)?.value || el(ids.settingOutputRes)?.value || 'original'
-  );
-  if (el(ids.settingOutputRes)) el(ids.settingOutputRes).value = outRes;
-  if (el(ids.exportOutputRes)) el(ids.exportOutputRes).value = outRes;
-  const arrowPx = Math.max(1, Math.min(10, parseInt(el(ids.settingArrowStepPx)?.value, 10) || 1));
-  const arrowShiftPx = Math.max(10, Math.min(100, parseInt(el(ids.settingArrowStepShiftPx)?.value, 10) || 10));
-  const settings = {
-    scanDpi: parseInt(el(ids.settingDpi)?.value, 10) || 4800,
-    defaultFramesPerStrip: parseInt(el(ids.settingDefaultFrames)?.value, 10) || 30,
-    outputFormat: el(ids.settingOutputFormat)?.value || 'png',
-    outputResolution: outRes,
-    customOutputWidth: parseInt(el(ids.settingCustomW)?.value, 10) || 1920,
-    customOutputHeight: parseInt(el(ids.settingCustomH)?.value, 10) || 1080,
-    stripPreviewRes: parseInt(el(ids.settingPreviewRes)?.value, 10) || DEFAULT_STRIP_PREVIEW_MAX_DIM,
-    darkMode: !!el(ids.settingDarkMode)?.checked,
-    windowArrangement: el(ids.settingWindowArrangement)?.value || 'horiz-osm',
-    arrangeWindowsOnStartup: !!el(ids.settingArrangeOnStartup)?.checked,
-    arrowStepPx: arrowPx,
-    arrowStepShiftPx: arrowShiftPx
-  };
-  const tbodySc = el(ids.stripShortcutsTbody);
-  if (tbodySc && tbodySc.querySelector('tr[data-action-id]')) {
-    settings.stripPreviewShortcuts = collectStripShortcutsFromSettingsUI();
-  }
-  await window.api?.setAppSettings?.(settings);
-  applyTheme(settings.darkMode);
-  setScanDpi(settings.scanDpi);
-  setOutputFormat(settings.outputFormat);
-  setStripPreviewMaxDim(settings.stripPreviewRes);
-  setArrowStepPx(settings.arrowStepPx);
-  setArrowStepShiftPx(settings.arrowStepShiftPx);
-  updateUI();
-  if (getState().image) refreshPreviews();
-  /* Direct de gekozen paneelschikking toepassen (zelfde als knop Vensters schikken). */
-  if (window.api?.arrangeWindows) {
-    try {
-      await window.api.arrangeWindows();
-    } catch (_) {}
-  }
-}
-
-function toggleSettingsPanel() {
-  const content = el(ids.settingsContent);
-  const btn = el(ids.settingsToggle);
-  if (!content || !btn) return;
-  content.classList.toggle('hidden');
-  const open = !content.classList.contains('hidden');
-  btn.setAttribute('aria-expanded', String(open));
-  btn.classList.toggle('active', open);
-}
-
-async function onArrangeWindows() {
-  if (window.api?.arrangeWindows) await window.api.arrangeWindows();
+function initSubPanelCollapse() {
+  document.querySelectorAll('.sub-panel-collapse-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const panel = btn.closest('.sub-panel') || btn.closest('.panel-collapsible');
+      if (!panel) return;
+      panel.classList.toggle('sub-panel--collapsed');
+      const collapsed = panel.classList.contains('sub-panel--collapsed');
+      btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      const icon = btn.querySelector('.sub-panel-collapse-icon');
+      if (icon) icon.textContent = collapsed ? '▶' : '▼';
+    });
+  });
 }
 
 function buildPresetPayloadFromState() {
@@ -1187,7 +1323,7 @@ function buildPresetPayloadFromState() {
 async function savePresetWithName(name) {
   const trimmed = (name || '').trim();
   if (!trimmed) {
-    alert('Geef een naam voor de preset.');
+    alert(t('stripPreset.nameRequired'));
     return { ok: false };
   }
   if (!window.api?.presetSave) return { ok: false };
@@ -1203,10 +1339,11 @@ async function savePresetWithName(name) {
 
 async function applyLoadedPresetData(data) {
   if (!data) {
-    alert('Preset niet gevonden.');
+    alert(t('stripPreset.notFound'));
     return;
   }
   applyLintState(data);
+  await restoreFramePaintOverlaysFromSerialized(null);
   if (data.filmFormat) setFilmFormat(data.filmFormat);
   if (data.filmPolarity) setFilmPolarity(data.filmPolarity);
   if (data.numFrames != null) setNumFrames(data.numFrames);
@@ -1215,6 +1352,7 @@ async function applyLoadedPresetData(data) {
   setDirty();
   updateUI();
   refreshPreviews();
+  refreshFramePixelEditor();
 }
 
 async function onStripPresetDoSave(name) {
@@ -1231,10 +1369,10 @@ async function onStripPresetDoLoad(id) {
 
 async function onStripPresetDoDelete(id) {
   if (!id) {
-    alert('Selecteer eerst een preset.');
+    alert(t('stripPreset.selectFirst'));
     return;
   }
-  if (!confirm('Deze preset definitief wissen?')) return;
+  if (!confirm(t('stripPreset.confirmDelete'))) return;
   if (!window.api?.presetDelete) return;
   await window.api.presetDelete(id);
   const meta = getProjectMeta();
@@ -1252,7 +1390,7 @@ async function refreshGridPresetList() {
     const list = await window.api.gridPresetsList();
     const cur = sel.value;
     sel.innerHTML =
-      '<option value="">— Raster-preset —</option>' +
+      `<option value="">${escapeHtml(t('overlay.gridPresetListPlaceholder'))}</option>` +
       (Array.isArray(list)
         ? list
             .map((p) => {
@@ -1269,7 +1407,7 @@ async function refreshGridPresetList() {
 async function onGridPresetSaveClick() {
   const name = el(ids.gridPresetName)?.value?.trim() || '';
   if (!name) {
-    alert('Geef een naam voor het raster-preset.');
+    alert(t('gridPreset.nameRequired'));
     return;
   }
   if (!window.api?.gridPresetSave) return;
@@ -1286,13 +1424,13 @@ async function onGridPresetLoadClick() {
   const sel = el(ids.gridPresetList);
   const id = sel?.value;
   if (!id) {
-    alert('Kies eerst een raster-preset.');
+    alert(t('gridPreset.selectFirst'));
     return;
   }
   if (!window.api?.gridPresetLoad) return;
   const grid = await window.api.gridPresetLoad(id);
   if (!grid || typeof grid !== 'object') {
-    alert('Preset niet gevonden.');
+    alert(t('gridPreset.notFound'));
     return;
   }
   applyGridGeometrySnapshot(grid);
@@ -1305,10 +1443,10 @@ async function onGridPresetLoadClick() {
 async function onGridPresetDeleteClick() {
   const id = el(ids.gridPresetList)?.value;
   if (!id) {
-    alert('Kies eerst een preset.');
+    alert(t('gridPreset.selectToDelete'));
     return;
   }
-  if (!confirm('Dit raster-preset definitief wissen?')) return;
+  if (!confirm(t('gridPreset.confirmDelete'))) return;
   if (!window.api?.gridPresetDelete) return;
   await window.api.gridPresetDelete(id);
   await refreshGridPresetList();
@@ -1319,7 +1457,7 @@ function scanInfosProgressToStatus(d) {
   const current = Number(d?.current) || 0;
   const total = Number(d?.total) || 0;
   if (total > 0) {
-    updateStatus(Math.round((100 * current) / total), `Scanlint ${current} / ${total}`);
+    updateStatus(Math.round((100 * current) / total), t('status.scanStripProgress', { current, total }));
   }
 }
 
@@ -1329,18 +1467,19 @@ async function onRefreshScanList() {
   const location = meta?.location;
   if (!location || !window.api?.getScanInfos) return;
   try {
-    const infos = await getScanInfosWithProgressOverlay(
+    const { cancelled, infos } = await getScanInfosWithProgressOverlay(
       location,
       window.api.getScanInfos.bind(window.api),
       scanInfosProgressToStatus
     );
+    if (cancelled) return;
     if (Array.isArray(infos)) {
       updateProjectScanInfos(infos);
       setDirty();
       updateProjectUI();
     }
   } finally {
-    updateStatus(0, '—');
+    updateStatus(0, t('status.operationEmpty'));
   }
 }
 
@@ -1355,7 +1494,7 @@ function onTimecodeFpsChange() {
 }
 
 async function onPickProjectFolder() {
-  const folder = await window.api?.selectFolder?.({ title: 'Kies projectmap', type: 'projectFolder' });
+  const folder = await window.api?.selectFolder?.({ title: t('project.pickProjectFolderTitle'), type: 'projectFolder' });
   if (folder && el(ids.projectFolderPath)) {
     el(ids.projectFolderPath).setAttribute('data-path', folder);
     el(ids.projectFolderPath).textContent = folder.length > 45 ? '...' + folder.slice(-42) : folder;
@@ -1365,7 +1504,7 @@ async function onPickProjectFolder() {
 let lastScanInfos = [];
 
 async function onPickLocation() {
-  const folder = await window.api?.selectFolder?.({ title: 'Kies bestandslocatie (map met scanlints)', type: 'fileLocation' });
+  const folder = await window.api?.selectFolder?.({ title: t('project.pickFileLocationTitle'), type: 'fileLocation' });
   if (folder) {
     const locEl = el(ids.locationPath);
     if (locEl) {
@@ -1379,15 +1518,17 @@ async function onPickLocation() {
 async function updateScanCountAndOrient(folderPath) {
   const path = folderPath || el(ids.locationPath)?.getAttribute('data-path');
   if (!path || !window.api?.getScanInfos) return;
-  let infos;
+  let infos = [];
   try {
-    infos = await getScanInfosWithProgressOverlay(
+    const result = await getScanInfosWithProgressOverlay(
       path,
       window.api.getScanInfos.bind(window.api),
       scanInfosProgressToStatus
     );
+    if (result.cancelled) return;
+    infos = result.infos;
   } finally {
-    updateStatus(0, '—');
+    updateStatus(0, t('status.operationEmpty'));
   }
   lastScanInfos = Array.isArray(infos) ? infos : [];
   const count = lastScanInfos.length;
@@ -1436,7 +1577,7 @@ async function onRefreshScanCount() {
 async function onCreateProject() {
   const projectFolderPath = el(ids.projectFolderPath)?.getAttribute('data-path')?.trim();
   let locationPath = el(ids.locationPath)?.getAttribute('data-path')?.trim();
-  if (!projectFolderPath) { alert('Kies eerst een projectmap.'); return; }
+  if (!projectFolderPath) { alert(t('project.pickFolderFirst')); return; }
   const name = (el(ids.projectName)?.value || '').trim() || undefined;
   const framesPerLint = parseInt(el(ids.projectFrames)?.value, 10);
   const countPath = locationPath || projectFolderPath;
@@ -1445,7 +1586,7 @@ async function onCreateProject() {
   }
   const scanCountVal = el(ids.scanCount)?.value?.trim();
   const numberOfScans = scanCountVal ? parseInt(scanCountVal, 10) : undefined;
-  updateStatus(30, 'Project aanmaken…');
+  updateStatus(30, t('status.creatingProject'));
   const s = getState();
   let result;
   try {
@@ -1463,20 +1604,23 @@ async function onCreateProject() {
     scanDpi: s.scanDpi || 4800
   });
   } finally {
-    updateStatus(0, '—');
+    updateStatus(0, t('status.operationEmpty'));
   }
   if (result.ok) {
     el(ids.newProjectForm)?.classList.add('hidden');
     el(ids.showNewProjectForm)?.classList.remove('hidden');
     updateProjectUI();
   } else {
-    alert(result.error || 'Project aanmaken mislukt');
+    alert(result.error || t('project.createFailedFallback'));
   }
 }
 
 function onCancelNewProject() {
   el(ids.newProjectForm)?.classList.add('hidden');
   el(ids.showNewProjectForm)?.classList.remove('hidden');
+  if (hasProject()) {
+    el(ids.projectFirstStep)?.classList.add('hidden');
+  }
 }
 
 function onShowNewProjectForm() {
@@ -1484,14 +1628,19 @@ function onShowNewProjectForm() {
   el(ids.showNewProjectForm)?.classList.add('hidden');
 }
 
-async function onOpenProjectClick() {
-  updateStatus(50, 'Project openen…');
-  let result;
-  try {
-    result = await openProject();
-  } finally {
-    updateStatus(0, '—');
-  }
+function onNewProjectClick() {
+  el(ids.projectFirstStep)?.classList.remove('hidden');
+  onShowNewProjectForm();
+}
+
+async function reloadPixelEditorSourceAfterProjectOpen() {
+  const folder = getState().pixelEditorSourceFolder;
+  if (!folder || !window.api?.listFolderImages) return;
+  const paths = await window.api.listFolderImages(folder);
+  if (paths?.length) await loadPixelEditorExternalImagePath(paths[0]);
+}
+
+async function finishOpenProject(result) {
   if (!result.ok) {
     if (result.error) alert(result.error);
     return;
@@ -1501,21 +1650,52 @@ async function onOpenProjectClick() {
   const paths = await getProjectScanPaths();
   const toLoad = pickResumeLintPath(paths, getState().lintStates, result.project?.currentLintPath ?? getProjectMeta()?.currentLintPath);
   if (toLoad) await loadScanByPath(toLoad);
+  await reloadPixelEditorSourceAfterProjectOpen();
+}
+
+async function onOpenProjectClick() {
+  updateStatus(50, t('status.openingProject'));
+  let result;
+  try {
+    result = await openProject();
+  } finally {
+    updateStatus(0, t('status.operationEmpty'));
+  }
+  await finishOpenProject(result);
+}
+
+async function onOpenProjectFileClick() {
+  updateStatus(50, t('status.openingProject'));
+  let result;
+  try {
+    result = await openProjectFromFile();
+  } finally {
+    updateStatus(0, t('status.operationEmpty'));
+  }
+  await finishOpenProject(result);
+}
+
+async function onSuggestProjectFolderClick() {
+  const name = (el(ids.projectName)?.value || '').trim();
+  const suggested = await window.api?.getSuggestedProjectFolder?.(name || undefined);
+  if (!suggested || !el(ids.projectFolderPath)) return;
+  el(ids.projectFolderPath).setAttribute('data-path', suggested);
+  el(ids.projectFolderPath).textContent = suggested.length > 45 ? '...' + suggested.slice(-42) : suggested;
 }
 
 async function onProjectStartenClick() {
   if (hasProject()) return;
   const lastPath = await window.api?.getLastProjectPath?.();
   if (!lastPath) {
-    alert('Geen laatst gebruikt project. Maak een nieuw project of open een bestaand project.');
+    alert(t('project.noLastProject'));
     return;
   }
-  updateStatus(50, 'Project starten…');
+  updateStatus(50, t('status.startingProject'));
   let result;
   try {
     result = await openProjectByPath(lastPath);
   } finally {
-    updateStatus(0, '—');
+    updateStatus(0, t('status.operationEmpty'));
   }
   if (!result?.ok) {
     if (result?.error) alert(result.error);
@@ -1527,15 +1707,16 @@ async function onProjectStartenClick() {
   const paths = await getProjectScanPaths();
   const toLoad = pickResumeLintPath(paths, getState().lintStates, result.project?.currentLintPath ?? getProjectMeta()?.currentLintPath);
   if (toLoad) await loadScanByPath(toLoad);
+  await reloadPixelEditorSourceAfterProjectOpen();
 }
 
 async function onSaveProjectClick() {
-  updateStatus(50, 'Project bewaren…');
+  updateStatus(50, t('status.savingProject'));
   let result;
   try {
     result = await saveProject();
   } finally {
-    updateStatus(0, '—');
+    updateStatus(0, t('status.operationEmpty'));
   }
   if (result.ok) updateProjectUI();
   else if (result.error) alert(result.error);
@@ -1552,21 +1733,44 @@ async function onDeleteProjectClick() {
   } else if (result.error) alert(result.error);
 }
 
-function onNewProjectClick() {
-  if (hasProject()) return;
-  onShowNewProjectForm();
+async function onCloseProjectClick() {
+  if (!hasProject()) return;
+  if (isDirty() && !confirm(t('project.closeProjectConfirm'))) return;
+  clearCache();
+  closeCurrentProject();
+  await loadAppSettings();
+  const snap = await window.api?.getAppSettings?.().catch(() => null);
+  const defFrames = snap?.defaultFramesPerStrip ?? DEFAULT_FRAMES_PER_STRIP;
+  setNumFrames(defFrames);
+  resetGridStateToDefault();
+  updateProjectUI();
+  updateUI();
+  refreshPreviews();
+}
+
+/** Zet Y-marges opnieuw door clamp met strip S/n = zelfde fh als ladder/preview (na referentiemodus-wissel). */
+function snapGridVerticalMarginsToStripClamp() {
+  const canvas = getStripCanvas();
+  const s = getState();
+  const n = Math.max(1, s.numFrames || 1);
+  if (!canvas || canvas.height < 1) return;
+  const fh = canvas.height / n;
+  const cv = clampGridVerticalMarginsCanvas(fh, n, s.gridOffsetY ?? 0, s.gridOffsetYBottom ?? 0);
+  const top = Number(s.gridOffsetY) || 0;
+  const bottom = Number.isFinite(Number(s.gridOffsetYBottom)) ? Math.round(s.gridOffsetYBottom) : 0;
+  if (cv.top !== top || cv.bottom !== bottom) {
+    setGridOffsetYOnly(cv.top);
+    setGridOffsetYBottom(cv.bottom);
+  }
 }
 
 /** Houdt gridSplitLowerPanCanvas binnen clamp; zet op 0 als referentie-modus geen split gebruikt. */
 function syncGridSplitLowerPanClamp() {
   const s = getState();
   if (!usesSplitLowerVerticalPan()) {
-    /* pivotActive / pivotCustom: k=n of k=0 — geen split; d niet op 0 zetten, map blijft per lijn geldig */
-    const m = s.gridVerticalAnchorMode || 'bottomFixed';
-    if (m === 'pivotActive' || m === 'pivotCustom') {
-      return;
-    }
-    setGridSplitLowerPanCanvas(0);
+    /* k=0 of k=n: geen split; oude d maakt eerste split-stap een no-op. */
+    const cur = Math.round(Number(s.gridSplitLowerPanCanvas) || 0);
+    if (cur !== 0) setGridSplitLowerPanCanvas(0);
     return;
   }
   const canvas = getStripCanvas();
@@ -1578,18 +1782,13 @@ function syncGridSplitLowerPanClamp() {
   const cv = clampGridVerticalMarginsCanvas(frameHeight, n, s.gridOffsetY ?? 0, s.gridOffsetYBottom ?? 0);
   const k = resolveVerticalPivotKFromState();
   const d = clampGridSplitLowerPanCanvas(frameHeight, n, cv.top, cv.bottom, k, s.gridSplitLowerPanCanvas);
-  setGridSplitLowerPanCanvas(d);
+  const curD = Math.round(Number(s.gridSplitLowerPanCanvas) || 0);
+  if (d !== curD) setGridSplitLowerPanCanvas(d);
 }
 
-/** Midden-boven/onder + koppeling: alleen split, geen Y-marges (anders schuift de referentielijn op het lint). */
+/** Referentielijn midden (2≤k<n): T±/B± en Duw (ook Shift+tot rand) gebruiken split-pan d; koppel hoeft niet aan. Hand ▲▼ verschuift het hele raster (rigide). */
 function isMiddleSplitVerticalRefWithLink() {
-  const s = getState();
-  const mode = s.gridVerticalAnchorMode || 'bottomFixed';
-  return (
-    panelUsesVerticalAnchorLink() &&
-    usesSplitLowerVerticalPan() &&
-    (mode === 'pivotMiddleUpper' || mode === 'pivotMiddleLower')
-  );
+  return usesSplitLowerVerticalPan();
 }
 
 function applyMiddleSplitPanFromStripControls(frameHeight, n, curTop, curBottom, splitStepCanvas) {
@@ -1613,10 +1812,21 @@ async function onOpenAlignPreview() {
   try {
     if (window.api?.openAlignPreview) {
       const r = await window.api.openAlignPreview();
-      if (r && !r.ok && r.error) console.warn('[Film2Frame] Uitlijning-venster:', r.error);
+      if (r && !r.ok && r.error) console.warn(t('errors.logAlignWindow', { error: r.error }));
     }
   } catch (_) {}
   refreshPreviews();
+}
+
+async function onOpenPixelEditor() {
+  try {
+    const focusR = await window.api?.focusPixelEditorWindow?.();
+    if (focusR?.ok) return;
+    if (window.api?.openPixelEditorWindow) {
+      const r = await window.api.openPixelEditorWindow();
+      if (r && !r.ok && r.error) console.warn(t('errors.logPixelEditor', { error: r.error }));
+    }
+  } catch (_) {}
 }
 
 async function onOpenStrip() {
@@ -1627,11 +1837,11 @@ async function onOpenStrip() {
       ? pickResumeLintPath(paths, getState().lintStates, getProjectMeta()?.currentLintPath)
       : null;
     if (resume) {
-      updateStatus(50, 'Scanlint laden…');
+      updateStatus(50, t('status.stripLoading'));
       try {
         await loadScanByPath(resume);
       } finally {
-        updateStatus(0, '—');
+        updateStatus(0, t('status.operationEmpty'));
       }
     }
   }
@@ -1724,41 +1934,17 @@ function onFrameGridOffsetFromPreview(payload) {
       setGridOffsetXMargins(c.left, c.right);
     }
     if (dy !== 0) {
-      if (handVerticalUsesSplitPan()) {
-        const k = resolveVerticalPivotKFromState();
-        const d = applySplitLowerPanStepCanvas(
-          frameHeight,
-          nFrames,
-          s.gridOffsetY || 0,
-          s.gridOffsetYBottom ?? 0,
-          k,
-          s.gridSplitLowerPanCanvas,
-          dy
-        );
-        setGridSplitLowerPanCanvas(d);
-      } else {
-        setGridSplitLowerPanCanvas(0);
-        /* Alleen pivotActive + actief onderste frame: lijn = strip-onder; anders zou rigide pan de lijn op de film verschuiven. */
-        const useBottomAnchored =
-          panelUsesVerticalAnchorLink() && pivotActiveAnchorsStripBottom();
-        const cv = useBottomAnchored
-          ? applyBottomAnchoredVerticalPanStepCanvas(
-              frameHeight,
-              nFrames,
-              s.gridOffsetY || 0,
-              s.gridOffsetYBottom ?? 0,
-              dy
-            )
-          : applyRigidVerticalPanStepCanvas(
-              frameHeight,
-              nFrames,
-              s.gridOffsetY || 0,
-              s.gridOffsetYBottom ?? 0,
-              dy
-            );
-        setGridOffsetYOnly(cv.top);
-        setGridOffsetYBottom(cv.bottom);
-      }
+      /* Hand ▲▼: altijd heel raster (T/B); split-pan blijft voor T±/B±/Duw. Anders “doen” de knoppen niets bij 2≤k<n als d op clamp zit. */
+      const cv = applyRigidVerticalPanStepCanvas(
+        frameHeight,
+        nFrames,
+        s.gridOffsetY || 0,
+        s.gridOffsetYBottom ?? 0,
+        dy
+      );
+      setGridOffsetYOnly(cv.top);
+      setGridOffsetYBottom(cv.bottom);
+      syncGridSplitLowerPanClamp();
     }
   } else if (tool === 'verticaal') {
     const newY = clampGridOffsetY(frameHeight, s.gridOffsetY + dy, s.gridOffsetYBottom, s.numFrames);
@@ -1772,7 +1958,7 @@ function onFrameGridOffsetFromPreview(payload) {
   if (canvas && dim && dim.width >= 1 && dim.height >= 1 && canvas.height > 0) {
     const scale = dim.height / canvas.height;
     const overrideX = getState().gridOffsetXAsymmetric ? undefined : newX;
-    const gridPayload = buildGridPayload(dim.width, dim.height, scale, overrideX);
+    const gridPayload = buildGridPayload(dim.width, dim.height, scale, overrideX, canvas.width);
     refreshPreviewsGridOnly(gridPayload);
   } else {
     refreshPreviewsGridOnly();
@@ -1838,7 +2024,7 @@ function onStripAdjustWidthEdge(payload) {
   updateUI();
   if (canvas && dim && dim.width >= 1 && dim.height >= 1 && canvas.height > 0) {
     const scale = dim.height / canvas.height;
-    refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale));
+    refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale, undefined, canvas.width));
   } else {
     refreshPreviewsGridOnly();
   }
@@ -1887,7 +2073,7 @@ function onStripAdjustHeightEdge(payload) {
     updateUI();
     if (canvas && dim && dim.width >= 1 && dim.height >= 1 && canvas.height > 0) {
       const scale = dim.height / canvas.height;
-      refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale));
+      refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale, undefined, canvas.width));
     } else {
       refreshPreviewsGridOnly();
     }
@@ -1911,7 +2097,7 @@ function onStripAdjustHeightEdge(payload) {
   updateUI();
   if (canvas && dim && dim.width >= 1 && dim.height >= 1 && canvas.height > 0) {
     const scale = dim.height / canvas.height;
-    refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale));
+    refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale, undefined, canvas.width));
   } else {
     refreshPreviewsGridOnly();
   }
@@ -1925,20 +2111,23 @@ function onStripVerticalRigidPanBoundaryFromPreview(towardCompress) {
   const n = Math.max(1, s.numFrames || 1);
   const top = Number(s.gridOffsetY) || 0;
   const bottom = Number.isFinite(Number(s.gridOffsetYBottom)) ? Math.round(s.gridOffsetYBottom) : 0;
-  if (handVerticalUsesSplitPan()) {
+  /* Shift+Duw (strip-preview): bij midden-split alleen d naar min/max; anders heel raster (of onder vast bij k=n+koppel). */
+  if (usesSplitLowerVerticalPan()) {
     const k = resolveVerticalPivotKFromState();
     const d = splitLowerPanToBoundaryCanvas(frameHeight, n, top, bottom, k, !!towardCompress);
     setGridSplitLowerPanCanvas(d);
+    syncGridSplitLowerPanClamp();
   } else {
     setGridSplitLowerPanCanvas(0);
-    const mode = s.gridVerticalAnchorMode || 'bottomFixed';
+    const kRef = resolveVerticalPivotKFromState();
     const link = panelUsesVerticalAnchorLink();
     const c =
-      link && (mode === 'bottomFixed' || pivotActiveAnchorsStripBottom())
+      link && kRef === n
         ? bottomAnchoredVerticalPanToBoundaryCanvas(frameHeight, n, top, bottom, !!towardCompress)
         : rigidVerticalPanToBoundaryCanvas(frameHeight, n, top, bottom, !!towardCompress);
     setGridOffsetYOnly(c.top);
     setGridOffsetYBottom(c.bottom);
+    syncGridSplitLowerPanClamp();
   }
   setDirty();
   updateUI();
@@ -1946,15 +2135,15 @@ function onStripVerticalRigidPanBoundaryFromPreview(towardCompress) {
   if (canvas) dim = getScaledDimensions(canvas);
   if (canvas && dim && dim.width >= 1 && dim.height >= 1 && canvas.height > 0) {
     const scale = dim.height / canvas.height;
-    refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale));
+    refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale, undefined, canvas.width));
   } else {
     refreshPreviewsGridOnly();
   }
 }
 
 /**
- * Duw Omhoog/Omlaag: bij referentie Onderkant raster = onder vast, alleen Y-boven (celhoogte varieert).
- * Bij midden-boven / midden-onder mét koppeling: alleen split-pan (zelfde inner en middenlijn op strip-Y).
+ * Duw Omhoog/Omlaag: bij lijn k=n + koppel aan = onder vast, alleen Y-boven (celhoogte varieert).
+ * Bij 0<k<n: alleen split-pan (zelfde inner en lijn op strip-Y).
  * Anders = rigide pan zoals Hand in niet-split-modus.
  *
  * Payload: { delta } (getekend, legacy) of { delta, duwKind: 'compress'|'stretch' } met delta = stap (≥0).
@@ -1992,17 +2181,8 @@ function onStripVerticalFixedBottomStep(payload) {
 
   const curTop = Number(s.gridOffsetY) || 0;
   const bottom = Number.isFinite(Number(s.gridOffsetYBottom)) ? Math.round(s.gridOffsetYBottom) : 0;
-  const mode = s.gridVerticalAnchorMode || 'bottomFixed';
+  const kRef = resolveVerticalPivotKFromState();
   const link = panelUsesVerticalAnchorLink();
-
-  /*
-   * Midden-boven / midden-onder + koppeling: geen Y-marges wijzigen — dat verschuift de middenlijn op het lint.
-   * Duw = zelfde als Hand split: alleen gridSplitLowerPanCanvas binnen het flexibele blok.
-   */
-  const middleSplitDuw =
-    link &&
-    usesSplitLowerVerticalPan() &&
-    (mode === 'pivotMiddleUpper' || mode === 'pivotMiddleLower');
 
   const mag = Math.max(1, Math.round(Math.abs(d) * scaleY));
   let stepC;
@@ -2014,13 +2194,17 @@ function onStripVerticalFixedBottomStep(payload) {
     if (stepC === 0) stepC = d > 0 ? 1 : -1;
   }
 
-  if (middleSplitDuw) {
+  /*
+   * Midden-split (2≤k<n): alleen gridSplitLowerPanCanvas (zelfde familie als Shift+Duw tot rand).
+   * Geen T/B (anders schuift de vaste rand mee op het lint). Hand ▲▼ gebruikt hier juist wél rigide T/B.
+   */
+  if (isMiddleSplitVerticalRefWithLink()) {
     applyMiddleSplitPanFromStripControls(frameHeight, n, curTop, bottom, stepC);
     setDirty();
     updateUI();
     if (canvas && dim && dim.width >= 1 && dim.height >= 1 && canvas.height > 0) {
       const scale = dim.height / canvas.height;
-      refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale));
+      refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale, undefined, canvas.width));
     } else {
       refreshPreviewsGridOnly();
     }
@@ -2029,14 +2213,9 @@ function onStripVerticalFixedBottomStep(payload) {
 
   /*
    * Koppeling uit: Duw altijd rigide.
-   * Koppeling aan: Y-onder vast + Y-boven (inner varieert) bij Onderkant raster, pivot-onder, of overige split (actief/custom).
-   * Anders (o.a. pivotTop k=0): rigide pan.
+   * Koppeling aan + lijn k=n: Y-onder vast (Duw). Split gaat hierboven; anders rigide pan.
    */
-  const useBottomAnchoredDuw =
-    link &&
-    (mode === 'bottomFixed' ||
-      pivotActiveAnchorsStripBottom() ||
-      usesSplitLowerVerticalPan());
+  const useBottomAnchoredDuw = link && kRef === n;
   const c = useBottomAnchoredDuw
     ? applyBottomAnchoredVerticalPanStepCanvas(frameHeight, n, curTop, bottom, stepC)
     : applyRigidVerticalPanStepCanvas(frameHeight, n, curTop, bottom, stepC);
@@ -2048,7 +2227,7 @@ function onStripVerticalFixedBottomStep(payload) {
   updateUI();
   if (canvas && dim && dim.width >= 1 && dim.height >= 1 && canvas.height > 0) {
     const scale = dim.height / canvas.height;
-    refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale));
+    refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale, undefined, canvas.width));
   } else {
     refreshPreviewsGridOnly();
   }
@@ -2056,9 +2235,16 @@ function onStripVerticalFixedBottomStep(payload) {
 
 function onStripVerticalAnchorFromPreview(payload) {
   const p = payload && typeof payload === 'object' ? payload : {};
-  if (typeof p.mode === 'string') setGridVerticalAnchorMode(p.mode);
-  if (p.customK != null) setGridVerticalPivotCustomK(p.customK);
+  if (typeof p.mode !== 'string' && p.customK == null) return;
+
+  if (typeof p.mode === 'string') {
+    setGridVerticalAnchorMode(p.mode);
+  }
+  if (p.customK != null) {
+    setGridVerticalPivotCustomK(p.customK);
+  }
   syncGridSplitLowerPanClamp();
+  /* Geen snapGridVerticalMarginsToStripClamp hier: bij eerste k van n→midden gaf dat ~1px rasterverschuiving na Enter; T/B blijven via clamp elders consistent. */
   setDirty();
   updateUI();
   const canvas = getStripCanvas();
@@ -2066,7 +2252,7 @@ function onStripVerticalAnchorFromPreview(payload) {
     const dim = getScaledDimensions(canvas);
     if (dim && dim.width >= 1 && dim.height >= 1 && canvas.height > 0) {
       const scale = dim.height / canvas.height;
-      refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale));
+      refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale, undefined, canvas.width));
       return;
     }
   }
@@ -2097,7 +2283,7 @@ function onSetGridOffsetAbsolute(payload) {
     const dim = getScaledDimensions(canvas);
     if (dim && dim.width >= 1 && dim.height >= 1 && canvas.height > 0) {
       const scale = dim.height / canvas.height;
-      refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale, newX));
+      refreshPreviewsGridOnly(buildGridPayload(dim.width, dim.height, scale, newX, canvas.width));
     } else {
       refreshPreviewsGridOnly();
     }
@@ -2110,8 +2296,11 @@ function bind() {
   el(ids.newProject)?.addEventListener('click', onNewProjectClick);
   el(ids.projectStarten)?.addEventListener('click', onProjectStartenClick);
   el(ids.openProject)?.addEventListener('click', onOpenProjectClick);
+  el(ids.openProjectFile)?.addEventListener('click', onOpenProjectFileClick);
+  el(ids.suggestProjectFolder)?.addEventListener('click', () => { onSuggestProjectFolderClick().catch(() => {}); });
   el(ids.saveProject)?.addEventListener('click', onSaveProjectClick);
   el(ids.deleteProject)?.addEventListener('click', onDeleteProjectClick);
+  el(ids.closeProject)?.addEventListener('click', () => { onCloseProjectClick().catch(() => {}); });
   el(ids.showNewProjectForm)?.addEventListener('click', onShowNewProjectForm);
   el(ids.pickProjectFolder)?.addEventListener('click', onPickProjectFolder);
   el(ids.pickLocation)?.addEventListener('click', onPickLocation);
@@ -2131,24 +2320,15 @@ function bind() {
   el(ids.tiltPivot)?.addEventListener('change', onTiltPivotChange);
   el(ids.outputFormat)?.addEventListener('change', onOutputFormatChange);
   el(ids.openOutputPreview)?.addEventListener('click', onOpenOutputPreview);
-  el(ids.settingsToggle)?.addEventListener('click', toggleSettingsPanel);
-  function onOutputResolutionChange(ev) {
-    syncOutputResolutionSelects(ev?.target || el(ids.settingOutputRes));
-  }
-  el(ids.settingOutputRes)?.addEventListener('change', onOutputResolutionChange);
-  el(ids.exportOutputRes)?.addEventListener('change', onOutputResolutionChange);
-  el(ids.arrangeWindowsBtn)?.addEventListener('click', onArrangeWindows);
-  function onArrangeGridPick(e) {
-    const btn = e.target.closest('.f2f-arrange-cell');
-    if (!btn || !btn.dataset.layout) return;
-    syncArrangementGridUI(btn.dataset.layout);
-  }
-  el(ids.arrangeGrid)?.addEventListener('click', onArrangeGridPick);
-  el(ids.arrangeGridHsu)?.addEventListener('click', onArrangeGridPick);
-  el(ids.settingsSaveBtn)?.addEventListener('click', saveAppSettings);
-  el(ids.stripShortcutsResetAll)?.addEventListener('click', () => {
-    resetAllStripShortcutsToDefaults();
+  el(ids.openSettings)?.addEventListener('click', () => {
+    void window.api?.openSettingsWindow?.();
   });
+  initSubPanelCollapse();
+  function onOutputResolutionChange(ev) {
+    syncOutputResolutionSelects(ev?.target || el(ids.exportOutputRes));
+  }
+  el(ids.exportOutputRes)?.addEventListener('change', onOutputResolutionChange);
+  el(ids.videoOutputRes)?.addEventListener('change', onOutputResolutionChange);
   el(ids.fineRotation)?.addEventListener('input', onFineRotation);
   el(ids.fineRotationValue)?.addEventListener('input', onFineRotation);
   el(ids.fineRotationValue)?.addEventListener('change', onFineRotation);
@@ -2161,17 +2341,21 @@ function bind() {
   el(ids.prevFrame)?.addEventListener('click', onPrevFrame);
   el(ids.nextFrame)?.addEventListener('click', onNextFrame);
   el(ids.zoom)?.addEventListener('input', onZoom);
-  el(ids.preset16mmDouble)?.addEventListener('click', () => applyGridOffsetPreset('16mm-double'));
-  el(ids.preset16mmSingle)?.addEventListener('click', () => applyGridOffsetPreset('16mm-single'));
-  el(ids.presetSuper16)?.addEventListener('click', () => applyGridOffsetPreset('super16'));
-  el('f2f-preset-8mm')?.addEventListener('click', () => applyGridOffsetPreset('8mm'));
-  el('f2f-preset-super8')?.addEventListener('click', () => applyGridOffsetPreset('super8'));
-  el('f2f-preset-9.5mm')?.addEventListener('click', () => applyGridOffsetPreset('9.5mm'));
-  el('f2f-preset-35mm')?.addEventListener('click', () => applyGridOffsetPreset('35mm'));
-  el(ids.applyGridFromMm)?.addEventListener('click', applyGridFromMm);
+  el(ids.preset16mmDouble)?.addEventListener('click', () => applyFilmFormatQuickPreset('16mm-double'));
+  el(ids.preset16mmSingle)?.addEventListener('click', () => applyFilmFormatQuickPreset('16mm-single'));
+  el(ids.presetSuper16)?.addEventListener('click', () => applyFilmFormatQuickPreset('super16'));
+  el('f2f-preset-8mm')?.addEventListener('click', () => applyFilmFormatQuickPreset('8mm'));
+  el('f2f-preset-super8')?.addEventListener('click', () => applyFilmFormatQuickPreset('super8'));
+  el('f2f-preset-9.5mm')?.addEventListener('click', () => applyFilmFormatQuickPreset('9.5mm'));
+  el('f2f-preset-35mm')?.addEventListener('click', () => applyFilmFormatQuickPreset('35mm'));
+    el(ids.applyGridFromMm)?.addEventListener('click', applyGridFromMm);
+    el(ids.applyGridFromPx)?.addEventListener('click', applyGridFromPxInputs);
+    el(ids.captureGridRefPx)?.addEventListener('click', fillGridPxFieldsFromCurrentCell);
   el(ids.gridPresetSave)?.addEventListener('click', () => onGridPresetSaveClick().catch(() => {}));
   el(ids.gridPresetLoad)?.addEventListener('click', () => onGridPresetLoadClick().catch(() => {}));
   el(ids.gridPresetDelete)?.addEventListener('click', () => onGridPresetDeleteClick().catch(() => {}));
+  el(ids.workflowSingleFrame)?.addEventListener('click', onWorkflowSingleFrameClick);
+  el(ids.workflowApplyStarter)?.addEventListener('click', onWorkflowApplyStarterClick);
   const stripResEl = el(ids.stripPreviewRes);
   if (stripResEl) {
     stripResEl.addEventListener('change', function () {
@@ -2183,6 +2367,21 @@ function bind() {
     });
   }
   el(ids.pickExportFolder)?.addEventListener('click', onPickExportFolder);
+  el(ids.pickPixelEditorFolder)?.addEventListener('click', () => onPickPixelEditorOutputFolder().catch(() => {}));
+  el(ids.pickPixelEditorSourceFolder)?.addEventListener('click', () => onPickPixelEditorSourceFolder().catch(() => {}));
+  el(ids.clearPixelEditorSourceFolder)?.addEventListener('click', onClearPixelEditorSourceFolder);
+  el(ids.pixelEditorSourcePrev)?.addEventListener('click', () => void onPixelEditorSourcePrevFile());
+  el(ids.pixelEditorSourceNext)?.addEventListener('click', () => void onPixelEditorSourceNextFile());
+  el(ids.pixelEditorPrevFrame)?.addEventListener('click', () => void onPixelEditorPrevFrame());
+  el(ids.pixelEditorNextFrame)?.addEventListener('click', () => void onPixelEditorNextFrame());
+  el(ids.pixelEditorGotoFrameGo)?.addEventListener('click', () => void onPixelEditorGoToFrame());
+  el(ids.pixelEditorGotoFrame)?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void onPixelEditorGoToFrame();
+    }
+  });
+  el(ids.openPixelEditor)?.addEventListener('click', () => onOpenPixelEditor().catch(() => {}));
   el(ids.exportBaseName)?.addEventListener('change', function () { setExportBaseName(el(ids.exportBaseName)?.value); });
   el(ids.exportBaseName)?.addEventListener('input', function () { setExportBaseName(el(ids.exportBaseName)?.value); });
   el(ids.exportPause)?.addEventListener('change', function () { setExportPauseSeconds(el(ids.exportPause)?.value); });
@@ -2192,6 +2391,10 @@ function bind() {
   el(ids.pickFramesFolder)?.addEventListener('click', onPickFramesFolder);
   el(ids.pickVideoOutput)?.addEventListener('click', onPickVideoOutput);
   el(ids.exportVideo)?.addEventListener('click', onExportVideo);
+  el(ids.videoExportStop)?.addEventListener('click', onVideoExportStop);
+  el(ids.videoUniformFit)?.addEventListener('change', () => {
+    persistVideoExportUniformFit().catch(() => {});
+  });
   el(ids.openStrip)?.addEventListener('click', onOpenStrip);
   el(ids.openAlignPreview)?.addEventListener('click', () => onOpenAlignPreview().catch(() => {}));
 
@@ -2235,7 +2438,11 @@ function registerQuitSaveHandler() {
           await saveProject();
         }
       } catch (err) {
-        console.error('[Film2Frame] Automatisch bewaren bij afsluiten mislukt:', err);
+        console.error(
+          t('errors.logQuitSaveFailed', {
+            message: err && err.message != null ? err.message : String(err)
+          })
+        );
       } finally {
         window.api?.sendQuitSaveComplete?.();
       }
@@ -2244,6 +2451,39 @@ function registerQuitSaveHandler() {
 }
 
 async function init() {
+  installPixelEditorBridgeInMainWindow(() => {
+    refreshPreviews();
+  });
+  window.__f2fPixelEditorMainUi = async (action, payload) => {
+    switch (action) {
+      case 'pickOutputFolder':
+        await onPickPixelEditorOutputFolder();
+        return { ok: true };
+      case 'pickSourceFolder':
+        await onPickPixelEditorSourceFolder();
+        return { ok: true };
+      case 'clearSourceFolder':
+        onClearPixelEditorSourceFolder();
+        return { ok: true };
+      case 'sourcePrev':
+        await onPixelEditorSourcePrevFile();
+        return { ok: true };
+      case 'sourceNext':
+        await onPixelEditorSourceNextFile();
+        return { ok: true };
+      case 'prevFrame':
+        await onPixelEditorPrevFrame();
+        return { ok: true };
+      case 'nextFrame':
+        await onPixelEditorNextFrame();
+        return { ok: true };
+      case 'gotoFrame':
+        return onPixelEditorGoToFrameWithValue(payload?.frameOneBased);
+      default:
+        return { ok: false, error: 'unknown-action' };
+    }
+  };
+
   bind();
   if (window.api?.getTranslations) {
     await initI18n(window.api);
@@ -2278,11 +2518,11 @@ async function init() {
           const paths = await getProjectScanPaths();
           const toLoad = pickResumeLintPath(paths, getState().lintStates, result.project?.currentLintPath ?? getProjectMeta()?.currentLintPath);
           if (toLoad) await loadScanByPath(toLoad);
+          await reloadPixelEditorSourceAfterProjectOpen();
         }
       } catch (_) {}
     }
   }
-  syncArrangementGridUI(el(ids.settingWindowArrangement)?.value || 'horiz-osm');
   loadAppSettings().catch(() => {});
   const v = await window.api?.getAppVersion?.().catch(() => null);
   const buildVer = v?.buildVersion || '—';
@@ -2295,6 +2535,9 @@ async function init() {
   el(ids.aboutClose)?.addEventListener('click', () => {
     if (el(ids.aboutOverlay)) el(ids.aboutOverlay).classList.add('hidden');
     if (el(ids.aboutOverlay)) el(ids.aboutOverlay).setAttribute('aria-hidden', 'true');
+  });
+  window.api?.onAppSettingsSynced?.(() => {
+    loadAppSettings().catch(() => {});
   });
   window.api?.onStripPreviewClosed?.(refreshPreviews);
   window.api?.onStripPreviewReady?.(() => {
@@ -2339,7 +2582,9 @@ async function init() {
   });
   window.api?.onStripPanelLinkVerticalAnchor?.((payload) => {
     const p = payload && typeof payload === 'object' ? payload : {};
-    setGridPanelLinkVerticalAnchor(!!p.link);
+    const link = !!p.link;
+    if (link === (getState().gridPanelLinkVerticalAnchor !== false)) return;
+    setGridPanelLinkVerticalAnchor(link);
     syncGridSplitLowerPanClamp();
     setDirty();
     updateUI();
@@ -2359,6 +2604,32 @@ function resetGridToDefault() {
   setDirty();
   updateUI();
   requestAnimationFrame(() => refreshPreviewsGridOnly());
+}
+
+/**
+ * Raster in scanlint-canvas-pixels: celbreedte (= rasteropening), celhoogte, aantal frames.
+ * Horizontaal centreren; als n×hoogte ≤ striphoogte: rest als Y-onder (zoals mm-pad).
+ */
+function applyGridFromReferenceCellPx(frameWidthPx, frameHeightPx, numFrames) {
+  const canvas = getStripCanvas();
+  if (!canvas) return false;
+  const stripWidth = canvas.width;
+  const stripHeight = canvas.height;
+  if (stripWidth < 1 || stripHeight < 1) return false;
+  const n = Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, Math.round(Number(numFrames)) || MIN_FRAMES));
+  const fw = Math.max(1, Math.round(Number(frameWidthPx)));
+  const fh = Math.max(1, Math.round(Number(frameHeightPx)));
+  const totalGridHeight = n * fh;
+  let gridOffsetX = Math.max(0, Math.round((stripWidth - fw) / 2));
+  let gridOffsetY = 0;
+  let gridOffsetYBottom = 0;
+  if (totalGridHeight <= stripHeight) {
+    gridOffsetYBottom = Math.max(0, stripHeight - totalGridHeight);
+  }
+  setNumFrames(n);
+  setGridOffset(gridOffsetX, gridOffsetY);
+  setGridOffsetYBottom(gridOffsetYBottom);
+  return true;
 }
 
 /**
@@ -2384,20 +2655,44 @@ function applyGridFromMm() {
   numFrames = Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, Number.isFinite(numFrames) ? numFrames : MIN_FRAMES));
   const frameWidthPx = Math.max(1, Math.round(widthMm * pxPerMm));
   const frameHeightPx = Math.max(1, Math.round(heightMm * pxPerMm));
-  const totalGridHeight = numFrames * frameHeightPx;
-  let gridOffsetX = Math.max(0, Math.round((stripWidth - frameWidthPx) / 2));
-  let gridOffsetY = 0;
-  let gridOffsetYBottom = 0;
-  if (totalGridHeight <= stripHeight) {
-    gridOffsetYBottom = Math.max(0, stripHeight - totalGridHeight);
-  }
-  /* Anders: totalGridHeight > stripHeight → offsets 0,0; celhoogte wordt stripHeight/numFrames */
-  setNumFrames(numFrames);
-  setGridOffset(gridOffsetX, gridOffsetY);
-  setGridOffsetYBottom(gridOffsetYBottom);
+  if (!applyGridFromReferenceCellPx(frameWidthPx, frameHeightPx, numFrames)) return;
   setDirty();
   updateUI();
   refreshPreviewsGridOnly();
+}
+
+function applyGridFromPxInputs() {
+  const canvas = getStripCanvas();
+  if (!canvas) {
+    if (el(ids.loadLint)) el(ids.loadLint).focus();
+    return;
+  }
+  const w = Number(el(ids.gridRefPxWidth)?.value);
+  const h = Number(el(ids.gridRefPxHeight)?.value);
+  let numFrames = parseInt(el(ids.gridRefPxFrames)?.value, 10);
+  if (!Number.isFinite(w) || w < 1 || !Number.isFinite(h) || h < 1) return;
+  numFrames = Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, Number.isFinite(numFrames) ? numFrames : MIN_FRAMES));
+  if (!applyGridFromReferenceCellPx(w, h, numFrames)) return;
+  setDirty();
+  updateUI();
+  refreshPreviewsGridOnly();
+}
+
+/** Vul pixelvelden met afmetingen van het actieve frame volgens het huidige raster (scanlint-canvas). */
+function fillGridPxFieldsFromCurrentCell() {
+  const canvas = getStripCanvas();
+  if (!canvas) return;
+  const s = getState();
+  const n = Math.max(1, s.numFrames);
+  const rows = getLadderRowsCanvas(canvas.height, n);
+  const idx = Math.max(0, Math.min(n - 1, s.activeFrameIndex));
+  const row = rows[idx];
+  const gr = getGridRect(canvas.width, row.h);
+  const wPx = Math.max(1, Math.round(gr.width));
+  const hPx = Math.max(1, Math.round(row.h));
+  if (el(ids.gridRefPxWidth)) el(ids.gridRefPxWidth).value = String(wPx);
+  if (el(ids.gridRefPxHeight)) el(ids.gridRefPxHeight).value = String(hPx);
+  if (el(ids.gridRefPxFrames)) el(ids.gridRefPxFrames).value = String(n);
 }
 
 function onFramePreviewJump(position) {
@@ -2448,6 +2743,24 @@ async function onPickVideoOutput() {
   }
 }
 
+function getVideoUniformFit() {
+  return el(ids.videoUniformFit)?.value === 'cover' ? 'cover' : 'pad';
+}
+
+async function persistVideoExportUniformFit() {
+  const v = getVideoUniformFit();
+  try {
+    const s = await window.api?.getAppSettings?.();
+    if (!s || typeof s !== 'object') return;
+    await window.api?.setAppSettings?.({ ...s, videoExportUniformFit: v });
+  } catch (_) {}
+}
+
+function onVideoExportStop() {
+  videoExportStopRequested = true;
+  window.api?.cancelVideoExport?.();
+}
+
 /** Exporteert frames naar MP4 via ffmpeg. Gebruikt map met frames indien gekozen, anders projectscans. */
 async function onExportVideo() {
   const outputPath = getState().videoOutputPath;
@@ -2456,32 +2769,107 @@ async function onExportVideo() {
     return;
   }
   const fps = Math.max(1, Math.min(60, parseInt(el(ids.videoFps)?.value, 10) || 24));
-  const progressWrap = el(ids.videoExportProgressWrap);
-  const progressEl = el(ids.videoExportProgress);
-  if (progressWrap) progressWrap.classList.remove('hidden');
-  const setProgress = (msg) => { if (progressEl) progressEl.textContent = msg || '—'; };
-  try {
-    const framesFolder = getState().videoFramesFolderPath;
-    if (framesFolder) {
-      setProgress(t('videoExport.progressCopy'));
-      window.api?.onVideoExportProgress?.(({ phase }) => {
-        if (phase === 'copy') setProgress(t('videoExport.progressCopy'));
-        if (phase === 'encoding') setProgress(t('videoExport.progressEncoding'));
-        if (phase === 'done') setProgress(t('videoExport.progressDone'));
-      });
-      const formatId = el(ids.videoFormat)?.value || 'h264';
-      const result = await window.api?.createVideoFromFolder?.({ folderPath: framesFolder, outputPath, fps, formatId });
-      if (result?.ok) {
-        setProgress('');
-        alert(t('videoExport.success', { path: outputPath }));
-      } else throw new Error(result?.error || 'Video maken mislukt');
-      return;
-    }
+  const framesFolder = getState().videoFramesFolderPath;
+  if (!framesFolder) {
     const paths = await getProjectScanPaths();
     if (!paths.length) {
       alert(t('videoExport.noScans'));
       return;
     }
+  }
+
+  const progressWrap = el(ids.videoExportProgressWrap);
+  const progressEl = el(ids.videoExportProgress);
+  const progressBar = el(ids.videoExportProgressBar);
+  const progressBarhost = el(ids.videoExportProgressBarhost);
+  const progressPctEl = el(ids.videoExportProgressPct);
+  const stopBtn = el(ids.videoExportStop);
+  /** Statustekst, voortgangsbalk in paneel + titelbalk-load (0–100). */
+  const setProgress = (msg, percent) => {
+    const label = msg === '' || msg == null ? '' : String(msg);
+    if (progressEl) progressEl.textContent = label || '—';
+    if (percent != null && Number.isFinite(Number(percent))) {
+      const p = Math.max(0, Math.min(100, Math.round(Number(percent))));
+      if (progressBar) progressBar.style.width = p + '%';
+      if (progressPctEl) progressPctEl.textContent = p + '%';
+      if (progressBarhost) {
+        progressBarhost.setAttribute('aria-valuenow', String(p));
+        progressBarhost.setAttribute('aria-label', label || t('videoExport.sectionTitle'));
+      }
+      updateStatus(p, label || '—');
+    } else if (msg === '' || msg == null) {
+      if (progressBar) progressBar.style.width = '0%';
+      if (progressPctEl) progressPctEl.textContent = '0%';
+      if (progressBarhost) {
+        progressBarhost.setAttribute('aria-valuenow', '0');
+        progressBarhost.setAttribute('aria-label', t('videoExport.sectionTitle'));
+      }
+    }
+  };
+  /** Encoder gebruikt dit bereik (map-export vs projectframes). */
+  const loadCtx = { encodeBase: 40, encodeSpan: 55 };
+
+  let videoTempFolder = null;
+  await window.api?.prepareVideoExport?.();
+  videoExportStopRequested = false;
+  window.api?.onVideoExportProgress?.(({ phase, detail }) => {
+    if (phase === 'copy' && detail && typeof detail === 'object' && detail.total > 0) {
+      const cur = Math.max(0, Number(detail.current) || 0);
+      const tot = detail.total;
+      const p = 5 + Math.round(35 * (cur / tot));
+      setProgress(t('videoExport.progressCopy') + ` (${cur}/${tot})`, p);
+    }
+    if (phase === 'encoding') {
+      const baseMsg = t('videoExport.progressEncoding');
+      if (detail && typeof detail === 'object' && detail.total > 0 && detail.current > 0) {
+        const cur = Math.min(Number(detail.current), Number(detail.total));
+        const tot = Number(detail.total);
+        const p = loadCtx.encodeBase + Math.round(loadCtx.encodeSpan * (cur / tot));
+        setProgress(baseMsg + ` (${cur}/${tot})`, p);
+      } else {
+        const mid = loadCtx.encodeBase + Math.round(loadCtx.encodeSpan * 0.55);
+        setProgress(baseMsg, mid);
+      }
+    }
+    if (phase === 'done') setProgress(t('videoExport.progressDone'), 100);
+  });
+
+  const assertNotStopped = () => {
+    if (videoExportStopRequested) throw new Error(VIDEO_EXPORT_STOP_ERROR);
+  };
+
+  try {
+    if (progressWrap) progressWrap.classList.remove('hidden');
+    if (stopBtn) stopBtn.classList.remove('hidden');
+    await yieldToEventLoop();
+    setProgress(t('videoExport.sectionTitle'), 2);
+
+    if (framesFolder) {
+      loadCtx.encodeBase = 40;
+      loadCtx.encodeSpan = 55;
+      setProgress(t('videoExport.progressCopy'), 8);
+      const formatId = el(ids.videoFormat)?.value || 'h264';
+      const uniformFit = getVideoUniformFit();
+      const result = await window.api?.createVideoFromFolder?.({
+        folderPath: framesFolder,
+        outputPath,
+        fps,
+        formatId,
+        uniformFit
+      });
+      if (result?.cancelled) {
+        setProgress(t('videoExport.cancelled'), 0);
+        return;
+      }
+      if (result?.ok) {
+        alert(t('videoExport.success', { path: outputPath }));
+      } else {
+        throw new Error(result?.error || t('ipc.errorVideoFailed'));
+      }
+      return;
+    }
+
+    const paths = await getProjectScanPaths();
     const fromVal = parseInt(el(ids.videoScanFrom)?.value, 10);
     const toVal = parseInt(el(ids.videoScanTo)?.value, 10);
     const from = Number.isFinite(fromVal) && fromVal >= 1 ? fromVal : 1;
@@ -2493,28 +2881,79 @@ async function onExportVideo() {
       alert(t('videoExport.noScansInRange'));
       return;
     }
-    setProgress(t('videoExport.progressFrames'));
+
+    setProgress(t('videoExport.progressFrames'), 4);
     const tempFolder = await window.api?.getTempVideoFolder?.();
-    if (!tempFolder) throw new Error('Tijdelijke map maken mislukt');
+    if (!tempFolder) throw new Error(t('videoExport.tempFolderFailed'));
+    videoTempFolder = tempFolder;
     const appSettings = await window.api?.getAppSettings?.().catch(() => null);
     const outDims = getExportOutputDimensions(appSettings);
+    const uniformFit = getVideoUniformFit();
     const total = scanPaths.length;
-    let frameIndex = 1;
+    const framesPerStrip = Math.max(1, getState().numFrames);
+    const totalFramesToWrite = total * framesPerStrip;
     const writeFrame = window.api?.writeFrame || window.api?.writeFramePng;
+
+    let videoUniformW = 0;
+    let videoUniformH = 0;
+    if (!outDims) {
+      setProgress(t('videoExport.progressMeasure'), 6);
+      let maxW = 0;
+      let maxH = 0;
+      for (let scanIdx = 0; scanIdx < total; scanIdx++) {
+        assertNotStopped();
+        const measurePct = 6 + Math.round(19 * ((scanIdx + 1) / total));
+        setProgress(t('videoExport.progressScan', { current: scanIdx + 1, total }), measurePct);
+        const ok = await loadScanByPath(scanPaths[scanIdx], LOAD_SCAN_FOR_VIDEO_EXPORT);
+        if (!ok) continue;
+        const pair = getStripCanvasPairForExport();
+        if (!pair) continue;
+        const { preview: previewStrip, export: exportStrip } = pair;
+        const n = Math.max(1, getState().numFrames);
+        for (let i = 0; i < n; i++) {
+          const c = cropFrameAtIndexForExport(exportStrip, previewStrip, i);
+          if (!c) continue;
+          maxW = Math.max(maxW, c.width);
+          maxH = Math.max(maxH, c.height);
+        }
+        await yieldToEventLoop();
+      }
+      assertNotStopped();
+      if (maxW < 1 || maxH < 1) {
+        throw new Error(t('videoExport.noFramesExtracted'));
+      }
+      videoUniformW = videoDimensionEven(maxW);
+      videoUniformH = videoDimensionEven(maxH);
+    }
+
+    const extractLo = outDims ? 5 : 28;
+    const extractHi = 80;
+    const extractSpan = extractHi - extractLo;
+    let frameIndex = 1;
+    let framesWritten = 0;
     for (let scanIdx = 0; scanIdx < total; scanIdx++) {
-      setProgress(t('videoExport.progressScan', { current: scanIdx + 1, total }));
-      const ok = await loadScanByPath(scanPaths[scanIdx]);
+      assertNotStopped();
+      const ok = await loadScanByPath(scanPaths[scanIdx], LOAD_SCAN_FOR_VIDEO_EXPORT);
       if (!ok) continue;
       const pair = getStripCanvasPairForExport();
       if (!pair) continue;
       const { preview: previewStrip, export: exportStrip } = pair;
       const n = Math.max(1, getState().numFrames);
       for (let i = 0; i < n; i++) {
+        assertNotStopped();
         let canvas = cropFrameAtIndexForExport(exportStrip, previewStrip, i);
         if (!canvas) continue;
         if (outDims) {
-          canvas = scaleCanvasToSize(canvas, outDims.w, outDims.h, outDims.allowUpscale !== false);
+          canvas =
+            uniformFit === 'cover'
+              ? scaleCanvasToCover(canvas, outDims.w, outDims.h)
+              : scaleCanvasToSize(canvas, outDims.w, outDims.h, outDims.allowUpscale !== false);
+        } else if (uniformFit === 'cover') {
+          canvas = scaleCanvasToCover(canvas, videoUniformW, videoUniformH);
+        } else {
+          canvas = padCanvasToVideoUniformSize(canvas, videoUniformW, videoUniformH);
         }
+        canvas = ensureVideoEvenCanvas(canvas);
         const dataUrl = canvas.toDataURL('image/png');
         if (writeFrame) {
           await window.api.writeFrame(tempFolder, 'frame', frameIndex, dataUrl, 'png');
@@ -2522,42 +2961,88 @@ async function onExportVideo() {
           await window.api?.writeFramePng?.(tempFolder, 'frame', frameIndex, dataUrl);
         }
         frameIndex++;
+        framesWritten++;
+        if (totalFramesToWrite > 0 && (framesWritten % 4 === 0 || framesWritten === totalFramesToWrite)) {
+          const wPct = extractLo + Math.round((extractSpan * framesWritten) / totalFramesToWrite);
+          setProgress(
+            t('videoExport.progressScan', { current: scanIdx + 1, total }) +
+              ` · ${t('videoExport.progressFrames')} ${framesWritten}/${totalFramesToWrite}`,
+            wPct
+          );
+        }
+        if ((frameIndex - 1) % 8 === 0) await yieldToEventLoop();
       }
+      await yieldToEventLoop();
     }
+    assertNotStopped();
     if (frameIndex <= 1) {
       throw new Error(t('videoExport.noFramesExtracted'));
     }
-    setProgress(t('videoExport.progressEncoding'));
-    window.api?.onVideoExportProgress?.(({ phase }) => {
-      if (phase === 'encoding') setProgress(t('videoExport.progressEncoding'));
-      if (phase === 'done') setProgress(t('videoExport.progressDone'));
-    });
+    loadCtx.encodeBase = 82;
+    loadCtx.encodeSpan = 16;
+    setProgress(t('videoExport.progressEncoding'), 82);
     const formatId = el(ids.videoFormat)?.value || 'h264';
     const result = await window.api?.createVideoFromFrames?.({ tempFolder, outputPath, fps, formatId });
+    if (result?.cancelled) {
+      setProgress(t('videoExport.cancelled'), 0);
+      return;
+    }
     if (result?.ok) {
-      setProgress('');
       alert(t('videoExport.success', { path: outputPath }));
     } else {
-      throw new Error(result?.error || 'Video maken mislukt');
+      throw new Error(result?.error || t('ipc.errorVideoFailed'));
     }
   } catch (e) {
-    alert(t('videoExport.error') + ': ' + (e?.message || e));
+    if (e?.message === VIDEO_EXPORT_STOP_ERROR) {
+      setProgress(t('videoExport.cancelled'), 0);
+    } else {
+      alert(t('videoExport.error') + ': ' + (e?.message || e));
+    }
   } finally {
+    window.api?.clearVideoExportProgressListener?.();
+    if (stopBtn) stopBtn.classList.add('hidden');
     if (progressWrap) progressWrap.classList.add('hidden');
     setProgress('');
+    updateStatus(0, t('status.operationEmpty'));
+    if (videoTempFolder) {
+      await window.api?.removeTempVideoFolder?.(videoTempFolder).catch(() => {});
+    }
+    if (hasProject()) {
+      try {
+        await persistProjectAfterLintLoad();
+      } catch (_) {}
+    }
+    await yieldToEventLoop();
   }
+}
+
+function setFrameGeneratorProgress(opts) {
+  const { visible, pct = 0, message = '' } = opts || {};
+  const wrap = el(ids.frameGeneratorProgressWrap);
+  const bar = el(ids.frameGeneratorProgressBar);
+  const host = el(ids.frameGeneratorProgressBarhost);
+  const pctEl = el(ids.frameGeneratorProgressPct);
+  const labelEl = el(ids.frameGeneratorProgressLabel);
+  if (!wrap || !bar) return;
+  if (visible) wrap.classList.remove('hidden');
+  else wrap.classList.add('hidden');
+  const p = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+  bar.style.width = `${p}%`;
+  if (host) host.setAttribute('aria-valuenow', String(p));
+  if (pctEl) pctEl.textContent = `${p}%`;
+  if (labelEl) labelEl.textContent = message || '';
 }
 
 /** Exporteert alle frames van de huidige scan naar de doelmap. Nummering 000001–999999, geen overschrijven. Uitsnede uit volle strip (tot EXPORT_STRIP_MAX_DIM); daarna optioneel schalen via instellingen (SD/HD/UHD/custom). */
 async function onExportCurrentScan() {
   const folder = getState().exportFolderPath;
   if (!folder) {
-    alert('Kies eerst een doelmap (Frame uitsnijden en bewaren).');
+    alert(t('frameExport.pickFolderFirst'));
     return;
   }
   const pair = getStripCanvasPairForExport();
   if (!pair) {
-    alert('Geen scanlint geladen.');
+    alert(t('frameExport.noStripLoaded'));
     return;
   }
   const { preview: previewStrip, export: exportStrip } = pair;
@@ -2567,14 +3052,18 @@ async function onExportCurrentScan() {
   const ext = (s.outputFormat || 'png').toLowerCase().replace(/^\./, '');
   const appSettings = await window.api?.getAppSettings?.().catch(() => null);
   const outDims = getExportOutputDimensions(appSettings);
-  updateStatus(5, 'Volgende framenummer ophalen…');
+  setFrameGeneratorProgress({
+    visible: true,
+    pct: 2,
+    message: t('frameGenerator.progressNextNumber')
+  });
+  updateStatus(5, t('status.nextFrameNumber'));
   let startIndex = 1;
   try {
     if (window.api?.getNextFrameNumber) {
       startIndex = await window.api.getNextFrameNumber({ outputFolder: folder, baseName, ext });
     }
   } catch (_) {}
-  updateStatus(10, 'Frames bewaren…');
   let written = 0;
   try {
     const writeFrame = window.api?.writeFrame || window.api?.writeFramePng;
@@ -2594,13 +3083,28 @@ async function onExportCurrentScan() {
         written++;
         if (window.api?.sendOutputPreviewImage) window.api.sendOutputPreviewImage(dataUrl);
       }
-      updateStatus(10 + Math.round((80 * (i + 1)) / n), `Frame ${idx}…`);
+      const barPct = 5 + Math.round((95 * (i + 1)) / n);
+      setFrameGeneratorProgress({
+        visible: true,
+        pct: barPct,
+        message: t('frameGenerator.progressCurrentScan', { current: i + 1, total: n, index: idx })
+      });
+      updateStatus(10 + Math.round((80 * (i + 1)) / n), t('status.exportFrameIndex', { index: idx }));
     }
-    updateStatus(0, '—');
-    if (written > 0) alert(`${written} frame(s) bewaard in ${folder} (vanaf ${String(startIndex).padStart(6, '0')})`);
+    if (written > 0) {
+      alert(
+        t('frameExport.savedCount', {
+          count: written,
+          folder,
+          start: String(startIndex).padStart(6, '0')
+        })
+      );
+    }
   } catch (e) {
-    updateStatus(0, '—');
-    alert('Bewaren mislukt: ' + (e?.message || e));
+    alert(t('frameExport.saveFailed', { message: e?.message || e }));
+  } finally {
+    setFrameGeneratorProgress({ visible: false });
+    updateStatus(0, t('status.operationEmpty'));
   }
 }
 
@@ -2614,6 +3118,7 @@ async function exportPaths(paths) {
   const outDims = getExportOutputDimensions(appSettings);
   let fileNumber = 0;
   let startIndex = 1;
+  setFrameGeneratorProgress({ visible: true, pct: 1, message: t('frameGenerator.progressNextNumber') });
   try {
     if (window.api?.getNextFrameNumber) {
       startIndex = await window.api.getNextFrameNumber({ outputFolder: folder, baseName, ext });
@@ -2623,14 +3128,25 @@ async function exportPaths(paths) {
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
   const total = paths.length;
   const writeFrame = window.api?.writeFrame || window.api?.writeFramePng;
+  let completedFrameCount = 0;
   for (let scanIdx = 0; scanIdx < total; scanIdx++) {
-    updateStatus(5 + Math.round((70 * scanIdx) / total), `Scan ${scanIdx + 1}/${total} laden…`);
+    setFrameGeneratorProgress({
+      visible: true,
+      pct: Math.min(8, Math.round((100 * scanIdx) / Math.max(1, total * 2))),
+      message: t('frameGenerator.progressLoadingScan', { current: scanIdx + 1, total })
+    });
+    updateStatus(
+      5 + Math.round((70 * scanIdx) / total),
+      t('status.scanLoadProject', { current: scanIdx + 1, total })
+    );
     const ok = await loadScanByPath(paths[scanIdx]);
     if (!ok) continue;
     const pair = getStripCanvasPairForExport();
     if (!pair) continue;
     const { preview: previewStrip, export: exportStrip } = pair;
     const n = Math.max(1, getState().numFrames);
+    const remainingScans = total - scanIdx - 1;
+    const estimatedTotalFrames = completedFrameCount + n + remainingScans * n;
     const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png';
     for (let i = 0; i < n; i++) {
       let canvas = cropFrameAtIndexForExport(exportStrip, previewStrip, i);
@@ -2646,9 +3162,27 @@ async function exportPaths(paths) {
         await window.api?.writeFramePng?.(folder, baseName, fileNumber, dataUrl);
       }
       if (window.api?.sendOutputPreviewImage) window.api.sendOutputPreviewImage(dataUrl);
+      const done = completedFrameCount + i + 1;
+      const barPct = Math.min(99, Math.round((100 * done) / Math.max(1, estimatedTotalFrames)));
+      setFrameGeneratorProgress({
+        visible: true,
+        pct: barPct,
+        message: t('frameGenerator.progressWriting', {
+          scan: scanIdx + 1,
+          totalScans: total,
+          frame: i + 1,
+          framesInScan: n
+        })
+      });
     }
+    completedFrameCount += n;
     if (pauseSec > 0 && scanIdx < total - 1) {
-      updateStatus(80, `Pauze ${pauseSec}s (scan ${scanIdx + 1} klaar)…`);
+      setFrameGeneratorProgress({
+        visible: true,
+        pct: Math.min(99, Math.round((100 * completedFrameCount) / Math.max(1, estimatedTotalFrames))),
+        message: t('frameGenerator.progressPause', { seconds: pauseSec, scan: scanIdx + 1 })
+      });
+      updateStatus(80, t('status.exportPause', { seconds: pauseSec, scan: scanIdx + 1 }));
       await delay(pauseSec * 1000);
     }
   }
@@ -2659,22 +3193,23 @@ async function exportPaths(paths) {
 async function onExportBatch() {
   const folder = getState().exportFolderPath;
   if (!folder) {
-    alert('Kies eerst een doelmap (Frame uitsnijden en bewaren).');
+    alert(t('frameExport.pickFolderFirst'));
     return;
   }
   const paths = await getProjectScanPaths();
   if (!paths.length) {
-    alert('Geen scanlints in dit project. Open een project met scanlints.');
+    alert(t('frameExport.noScansInProject'));
     return;
   }
-  updateStatus(5, 'Batch start…');
+  updateStatus(5, t('status.batchStart'));
   try {
     const fileNumber = await exportPaths(paths);
-    updateStatus(0, '—');
-    if (fileNumber > 0) alert(`Batch klaar: ${fileNumber} frame(s) bewaard in ${folder}`);
+    if (fileNumber > 0) alert(t('frameExport.batchDone', { count: fileNumber, folder }));
   } catch (e) {
-    updateStatus(0, '—');
-    alert('Batch mislukt: ' + (e?.message || e));
+    alert(t('frameExport.batchFailed', { message: e?.message || e }));
+  } finally {
+    setFrameGeneratorProgress({ visible: false });
+    updateStatus(0, t('status.operationEmpty'));
   }
 }
 
@@ -2682,12 +3217,12 @@ async function onExportBatch() {
 async function onExportBatchRange() {
   const folder = getState().exportFolderPath;
   if (!folder) {
-    alert('Kies eerst een doelmap (Frame uitsnijden en bewaren).');
+    alert(t('frameExport.pickFolderFirst'));
     return;
   }
   const paths = await getProjectScanPaths();
   if (!paths.length) {
-    alert('Geen scanlints in dit project. Open een project met scanlints.');
+    alert(t('frameExport.noScansInProject'));
     return;
   }
   const fromVal = parseInt(el(ids.exportScanFrom)?.value, 10);
@@ -2695,22 +3230,28 @@ async function onExportBatchRange() {
   const from = Number.isFinite(fromVal) && fromVal >= 1 ? fromVal : 1;
   const to = Number.isFinite(toVal) && toVal >= 1 ? toVal : paths.length;
   if (from > to) {
-    alert('Van scan moet kleiner of gelijk zijn aan tot scan.');
+    alert(t('frameExport.rangeInvalid'));
     return;
   }
   const pathsToUse = paths.slice(from - 1, to);
   if (!pathsToUse.length) {
-    alert('Geen scans in dit bereik.');
+    alert(t('frameExport.noScansInRange'));
     return;
   }
-  updateStatus(5, `Scans ${from}–${to} (${pathsToUse.length} scan(s))…`);
+  updateStatus(
+    5,
+    t('status.exportScanRangeOverview', { from, to, count: pathsToUse.length })
+  );
   try {
     const fileNumber = await exportPaths(pathsToUse);
-    updateStatus(0, '—');
-    if (fileNumber > 0) alert(`${fileNumber} frame(s) bewaard (scans ${from}–${to}) in ${folder}`);
+    if (fileNumber > 0) {
+      alert(t('frameExport.rangeSaved', { count: fileNumber, from, to, folder }));
+    }
   } catch (e) {
-    updateStatus(0, '—');
-    alert('Bewaren mislukt: ' + (e?.message || e));
+    alert(t('frameExport.saveFailed', { message: e?.message || e }));
+  } finally {
+    setFrameGeneratorProgress({ visible: false });
+    updateStatus(0, t('status.operationEmpty'));
   }
 }
 

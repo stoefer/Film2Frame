@@ -1,0 +1,55 @@
+{
+  "name": "optical-sound-decoder",
+  "version": "1.0.0",
+  "description": "16mm optisch geluidspoor decoderen van gescande filmstrips (1–40 frames)",
+  "main": "main/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "prestart": "node scripts/bump-version.js",
+    "prepack": "node scripts/bump-version.js",
+    "prebuild": "node scripts/bump-version.js",
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "build": "electron-builder",
+    "version:bump": "node scripts/bump-version.js"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ffmpeg-static": "^5.3.0"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "com.opticalsound.decoder",
+    "productName": "Optical Sound Decoder",
+    "artifactName": "Optical-Sound-Decoder-Setup-${version}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**/*"
+    ],
+    "files": [
+      "main/**/*",
+      "renderer/**/*",
+      "build/icon.png",
+      "build/icon.ico",
+      "package.json",
+      "version.json"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
+  }
+}

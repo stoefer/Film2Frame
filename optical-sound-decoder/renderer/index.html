@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file: data: blob:; media-src 'self' blob:; script-src 'self'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Optical Sound Decoder</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="busy-overlay" class="busy-overlay busy-overlay--hidden" aria-live="polite" aria-busy="true">
+    <div class="busy-overlay__card">
+      <div class="busy-overlay__spinner" aria-hidden="true"></div>
+      <div class="busy-overlay__title">Deze actie kan lang duren! Wees geduldig!</div>
+      <div id="busy-message" class="busy-overlay__message">Bezig…</div>
+      <div class="busy-overlay__progress-wrap">
+        <div id="busy-progress-bar" class="busy-overlay__progress-bar"></div>
+      </div>
+      <div class="busy-overlay__actions">
+        <button type="button" id="btn-busy-cancel" class="small-btn" disabled>Annuleer export</button>
+      </div>
+    </div>
+  </div>
+  <header class="top">
+    <div class="top-bar">
+      <div class="top-bar__main">
+        <h1 class="top-title-row">Optical Sound Decoder <span id="osd-build-version" class="build-version" title="Bouwversie (datum + volgnummer)">—</span></h1>
+        <p class="tagline">16mm optisch geluidspoor uit gescande strips — digitaal WAV voor synchronisatie met uw beeld.</p>
+      </div>
+      <div class="top-status" aria-live="polite">
+        <dl class="top-status__dl">
+          <dt>Scanlinten</dt>
+          <dd id="info-scan-count">—</dd>
+          <dt>Frames</dt>
+          <dd id="info-frames">—</dd>
+          <dt>Per lint</dt>
+          <dd id="info-per-scan-time">—</dd>
+          <dt>Totaal</dt>
+          <dd id="info-total-time">—</dd>
+          <dt>Huidig</dt>
+          <dd id="info-current">—</dd>
+        </dl>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel panel--preview">
+      <h2>Strip &amp; geluidsspoor</h2>
+      <p class="hint">Sleep een rechthoek om <strong>spoor (X)</strong> en <strong>filmbereik (Y)</strong> grof in te stellen. De lint is vaak langer dan het beeld: gebruik de schuifregelaars om het <strong>exacte verticale stuk</strong> te zetten dat bij uw frame-aantal hoort (tijd = boven → onder). Per scanlint apart opgeslagen. In de bestandslijst: <strong>dubbelklik</strong> om een lint te laden; enkele klik selecteert alleen. <strong>Pijlen</strong> op het groene kader: breedte (rechterrand) en hoogte (onderrand) met <strong>1 px</strong>; <strong>Shift+pijl</strong> = <strong>10 px</strong>. <strong>Alt+Pijl ←/→</strong>: vorige/volgende scan (laadt wel).</p>
+
+      <div class="preview-toolbar">
+        <div class="toolbar-row toolbar-row--zoom">
+          <label for="sel-zoom">Zoom</label>
+          <select id="sel-zoom" class="sel-zoom" title="100% = passend op paneelbreedte; hoger = inzoomen.">
+            <option value="fit-width">Volle breedte</option>
+            <option value="fit-height">Volle hoogte</option>
+            <option value="p25">25%</option>
+            <option value="p33">33%</option>
+            <option value="p50">50%</option>
+            <option value="p67">67%</option>
+            <option value="p75">75%</option>
+            <option value="p100" selected>100%</option>
+            <option value="p125">125%</option>
+            <option value="p150">150%</option>
+            <option value="p175">175%</option>
+            <option value="p200">200%</option>
+            <option value="p250">250%</option>
+            <option value="p300">300%</option>
+            <option value="p400">400%</option>
+            <option value="p500">500%</option>
+            <option value="p600">600%</option>
+            <option value="p750">750%</option>
+            <option value="p800">800%</option>
+            <option value="p900">900%</option>
+            <option value="p1000">1000%</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="canvas-wrap" id="canvas-wrap" tabindex="-1">
+        <div class="canvas-stack">
+          <canvas id="view-canvas"></canvas>
+          <canvas id="waveform-canvas" class="waveform-canvas" aria-hidden="true"></canvas>
+        </div>
+      </div>
+      <p class="hint waveform-hint">Onder de strip: gedecodeerde golfvorm (tijd: bij 0°/180° links = boven op de strip; bij 90°/270° links = links op de strip). Rode lijn = afspeelpositie. Paarse banden = stiltezones (na decoderen).</p>
+
+      <div class="preview-sub-panels-row">
+        <div class="preview-col">
+          <div class="sub-panel sub-panel--files">
+            <h2 class="sub-panel__title">Bestanden</h2>
+            <p class="status status--files" id="status-text">Geen bestand geladen.</p>
+            <div class="btn-row">
+              <button type="button" id="btn-pick-files">Afbeeldingen kiezen…</button>
+              <button type="button" id="btn-pick-folder">Map kiezen…</button>
+              <button type="button" id="btn-select-all-files" class="small-btn">Alles selecteren</button>
+              <button type="button" id="btn-clear-file-selection" class="small-btn">Selectie wissen</button>
+            </div>
+            <p class="hint hint--compact">PNG, JPG, TIFF, BMP, WebP. Enkele klik = selectie (geen herladen). <strong>Dubbelklik</strong> = lint in het beeld laden. <strong>Shift</strong>+klik: bereik (max. 32). <strong>Ctrl</strong>/<strong>Cmd</strong>+klik: toevoegen. <strong>Alles selecteren</strong> markeert de hele lijst zonder meteen te laden of acties uit te voeren. Rotatie/spiegel gelden voor de selectie (of de geladen lint). Lijst toont ° en H/V.</p>
+            <div class="batch-toolbar">
+              <label for="sel-batch-scope" class="batch-toolbar__lbl">Bulk</label>
+              <select id="sel-batch-scope" class="batch-toolbar__sel" title="Waarop rotatie/spiegeling/auto-rotatie wordt toegepast">
+                <option value="selection">Selectie in lijst</option>
+                <option value="all">Alle linten in map</option>
+              </select>
+              <select id="sel-batch-rotation" class="batch-toolbar__sel" title="Hoofdrotatie (0–270°)">
+                <option value="0">0°</option>
+                <option value="90">90°</option>
+                <option value="180">180°</option>
+                <option value="270">270°</option>
+              </select>
+              <button type="button" id="btn-batch-rotation" class="small-btn">Rotatie toepassen</button>
+              <button type="button" id="btn-batch-mirror-h" class="small-btn mirror-btn" title="Spiegel H omzetten (bulk)">↔</button>
+              <button type="button" id="btn-batch-mirror-v" class="small-btn mirror-btn" title="Spiegel V omzetten (bulk)">↕</button>
+              <button type="button" id="btn-batch-suggest-rot" class="small-btn" title="Per bestand: breed→90° zoals bij eerste import">Auto-rotatie</button>
+            </div>
+            <div class="goto-row">
+              <label for="inp-goto">Ga naar #</label>
+              <input type="number" id="inp-goto" min="1" value="1" class="input-goto" />
+              <button type="button" id="btn-goto" class="small-btn">Ga</button>
+            </div>
+            <div class="file-list-scroll file-list-scroll--hidden" id="file-list-scroll-wrap">
+              <label for="rng-file-list-window" class="file-list-scroll__label">Lijst</label>
+              <input type="range" id="rng-file-list-window" min="0" max="0" value="0" step="1" disabled aria-label="Schuif door de bestandslijst" />
+              <span id="lbl-file-list-window" class="file-list-window-lbl" aria-live="polite"></span>
+            </div>
+            <ul id="file-list" class="file-list file-list--embedded"></ul>
+          </div>
+
+        </div>
+
+        <div class="preview-col">
+          <div class="sub-panel sub-panel--trim">
+            <h2 class="sub-panel__title">SCANLINT</h2>
+            <p class="hint hint--compact trim-cursor-hint">0°/180°: blauw/oranje = horizontale lijnen (film boven/onder), sleep verticaal. 90°/270°: verticale lijnen (film links/rechts langs het lint), sleep horizontaal. Schuifregelaars volgen dezelfde assen. <strong>Pijlen</strong>: kader smaller/breder (links/rechts) en lager/hoger (omhoog/omlaag) op het werkcanvas; <strong>Shift</strong> = 10 px per stap.</p>
+            <div class="slider-block">
+              <div class="slider-row">
+                <label for="rng-y-start">Film start (boven) <span id="lbl-y-start" class="slider-val">0,0%</span></label>
+                <input type="range" id="rng-y-start" min="0" max="1000" value="0" />
+              </div>
+              <div class="slider-row">
+                <label for="rng-y-end">Film einde (onder) <span id="lbl-y-end" class="slider-val">100,0%</span></label>
+                <input type="range" id="rng-y-end" min="0" max="1000" value="1000" />
+              </div>
+            </div>
+            <div class="slider-block">
+              <div class="slider-row">
+                <label for="rng-x-left">Spoor links <span id="lbl-x-left" class="slider-val">70,0%</span></label>
+                <input type="range" id="rng-x-left" min="0" max="1000" value="700" />
+              </div>
+              <div class="slider-row">
+                <label for="rng-x-right">Spoor rechts <span id="lbl-x-right" class="slider-val">99,5%</span></label>
+                <input type="range" id="rng-x-right" min="0" max="1000" value="995" />
+              </div>
+            </div>
+            <div class="btn-row trim-actions">
+              <button type="button" id="btn-trim-y-full" class="small-btn">Y: volledige hoogte</button>
+              <button type="button" id="btn-trim-x-default" class="small-btn">X: standaard spoor</button>
+              <span class="trim-actions__spacer" aria-hidden="true"></span>
+              <button type="button" id="btn-prev-scan" class="small-btn" title="Alt+Pijl links">◀ Vorige</button>
+              <button type="button" id="btn-next-scan" class="small-btn" title="Alt+Pijl rechts">Volgende ▶</button>
+              <button type="button" id="btn-scroll-begin" class="small-btn" title="Scroll naar begin van het lint">BEGIN</button>
+              <button type="button" id="btn-scroll-middle" class="small-btn" title="Scroll naar midden">MIDDEN</button>
+              <button type="button" id="btn-scroll-end" class="small-btn" title="Scroll naar einde van het lint">EINDE</button>
+            </div>
+          </div>
+
+          <div class="edit-panel">
+            <h3 class="edit-panel__title">EDIT</h3>
+            <p class="hint hint--compact">Selecteer een aparte zone op de golfvorm voor fade-in/out en limiter. Deze bewerkingen gelden alleen voor het huidige lint en zijn undo-baar.</p>
+            <div class="mute-panel__row">
+              <label class="inline"><input type="checkbox" id="inp-edit-mark-mode" /> Bewerkingszone slepen op golfvorm</label>
+              <button type="button" id="btn-edit-undo" class="small-btn">Undo</button>
+              <button type="button" id="btn-edit-redo" class="small-btn">Redo</button>
+              <button type="button" id="btn-edit-reset-lint" class="small-btn">Reset lint</button>
+              <button type="button" id="btn-edit-reset-all" class="small-btn">Alle bewerkingen wissen</button>
+            </div>
+            <div class="mute-panel__row">
+              <button type="button" id="btn-edit-fade-in" class="small-btn" aria-pressed="false">Fade-in</button>
+              <button type="button" id="btn-edit-fade-out" class="small-btn" aria-pressed="false">Fade-out</button>
+              <button type="button" id="btn-edit-fade-both" class="small-btn" aria-pressed="false">Fade in+out</button>
+              <button type="button" id="btn-edit-fade-toggle" class="small-btn" aria-pressed="false">Fade uit</button>
+            </div>
+            <div class="mute-panel__row mute-panel__row--fade">
+              <label for="inp-edit-limiter-peak">Limiter peak</label>
+              <input type="number" id="inp-edit-limiter-peak" min="0.05" max="1" value="0.8" step="0.05" />
+              <button type="button" id="btn-edit-limiter-apply" class="small-btn">Limiter toepassen</button>
+              <button type="button" id="btn-edit-clear-zone" class="small-btn">Zone wissen</button>
+            </div>
+            <ul id="edit-region-list" class="mute-region-list" aria-label="Bewerkingszone op dit lint"></ul>
+
+            <h3 class="mute-panel__title">Stiltezones</h3>
+            <p class="hint hint--compact">Eerst <strong>Decoderen &amp; beluisteren</strong>. Vink modus aan en <strong>sleep horizontaal op de golfvorm</strong> om een stuk te markeren; dat wordt naar stil gezet met zachte fade in/uit. Per scanlint opgeslagen; geldt voor export en voorbeluisteren.</p>
+            <div class="mute-panel__row">
+              <label class="inline"><input type="checkbox" id="inp-mute-mark-mode" /> Stilte slepen op golfvorm</label>
+            </div>
+            <div class="mute-panel__row mute-panel__row--fade">
+              <label for="inp-mute-fade-ms">Fade in/uit (ms)</label>
+              <button type="button" id="btn-mute-fade-down" class="small-btn" title="-5 ms">-5</button>
+              <input type="number" id="inp-mute-fade-ms" min="1" max="500" value="15" step="1" title="Duur van het uitfaden vóór de zone en infaden erna" />
+              <button type="button" id="btn-mute-fade-up" class="small-btn" title="+5 ms">+5</button>
+            </div>
+            <ul id="mute-region-list" class="mute-region-list" aria-label="Stiltezones op dit lint"></ul>
+            <button type="button" id="btn-mute-clear-all" class="small-btn">Alle zones van dit lint wissen</button>
+          </div>
+        </div>
+
+        <div class="preview-col">
+          <div class="preview-playback-panel">
+            <h3 class="preview-playback-panel__title">Decoderen &amp; afspelen</h3>
+            <div class="preview-playback-panel__actions">
+              <button type="button" id="btn-decode-preview" class="primary preview-playback-panel__btn">Decoderen &amp; beluisteren</button>
+              <button type="button" id="btn-preview-queue" class="preview-playback-panel__btn" title="Speelt geselecteerde linten na elkaar (of alleen de huidige)">Speel wachtrij</button>
+              <button type="button" id="btn-preview-stop" class="small-btn preview-playback-panel__btn" title="Voorbeluisteren en wachtrij stoppen">Stop afspelen</button>
+              <button type="button" id="btn-load-audio" class="preview-playback-panel__btn">Audio laden…</button>
+              <button type="button" id="btn-unload-audio" class="small-btn preview-playback-panel__btn">Geladen audio sluiten</button>
+              <button type="button" id="btn-join-prev" class="small-btn preview-playback-panel__btn">Vorige join</button>
+              <button type="button" id="btn-join-next" class="small-btn preview-playback-panel__btn">Volgende join</button>
+              <label class="inline preview-loop-lbl preview-playback-panel__loop" title="Herhaal huidige track of de hele wachtrij tot u stopt (volgende preview of navigatie)">
+                <input type="checkbox" id="inp-preview-loop" /> Loop
+              </label>
+            </div>
+            <input type="file" id="inp-audio-file" accept=".wav,.mp3,audio/wav,audio/x-wav,audio/mpeg,audio/mp3" hidden />
+          </div>
+
+          <div class="sub-panel sub-panel--params">
+            <h2 class="sub-panel__title">Instellingen</h2>
+            <p class="hint hint--compact">Bij <strong>Volgende</strong> (of <strong>Alt+pijl →</strong>) erft de volgende lint het groene kader, rotatie, spiegel, fijn en decodemodus van de vorige; opgeslagen per lint tot u ze wijzigt.</p>
+            <div class="settings-cols">
+              <div class="settings-cols__col">
+                <div class="field-grid field-grid--settings">
+                  <label>Filmframes <span class="small">(1–40)</span></label>
+                  <input type="number" id="inp-frames" min="1" max="40" value="31" />
+
+                  <label>Beeldsnelheid</label>
+                  <select id="inp-fps">
+                    <option value="23.976">23,976</option>
+                    <option value="24" selected>24</option>
+                    <option value="25">25</option>
+                  </select>
+
+                  <label>Rotatie <span class="small">(per lint)</span></label>
+                  <select id="inp-rotation">
+                    <option value="0">0°</option>
+                    <option value="90">90°</option>
+                    <option value="180">180°</option>
+                    <option value="270">270°</option>
+                  </select>
+
+                  <label>Spiegelen</label>
+                  <div class="mirror-btn-row">
+                    <button type="button" id="btn-mirror-h" class="small-btn mirror-btn" title="Horizontaal" aria-pressed="false">↔</button>
+                    <button type="button" id="btn-mirror-v" class="small-btn mirror-btn" title="Verticaal" aria-pressed="false">↕</button>
+                  </div>
+
+                  <label>Fijncorr. <span class="small">(±1°)</span></label>
+                  <div class="fine-rot-row">
+                    <button type="button" id="btn-fine-rot-minus" class="small-btn" title="−0,05°">−</button>
+                    <input type="range" id="rng-fine-rot" min="-1" max="1" value="0" step="0.05" />
+                    <button type="button" id="btn-fine-rot-plus" class="small-btn" title="+0,05°">+</button>
+                    <span id="lbl-fine-rot" class="fine-rot-val">0,00°</span>
+                  </div>
+
+                  <label>Decodemodus</label>
+                  <select id="inp-decode-mode" title="Dichtheid vs. oppervlakte">
+                    <option value="density">Variabele dichtheid</option>
+                    <option value="area">Variabele oppervlakte</option>
+                  </select>
+
+                  <label>Film</label>
+                  <label class="inline"><input type="checkbox" id="inp-invert" /> Negatief</label>
+
+                  <div class="settings-divider" aria-hidden="true"></div>
+
+                  <label>Optical EQ / de-emphasis</label>
+                  <select id="inp-optical-eq" title="Schakelbare klankcorrectie voor optisch geluid">
+                    <option value="off" selected>Uit</option>
+                    <option value="mild">Mild</option>
+                    <option value="academy">Academy-achtig</option>
+                    <option value="noise-cut">Ruisreductie hoog</option>
+                    <option value="voice">Spraak / verstaanbaarheid</option>
+                  </select>
+
+                  <label>De-click / spikes</label>
+                  <select id="inp-declick" title="Onderdrukt extreem korte impuls-pieken zonder zware toonverlies">
+                    <option value="off" selected>Uit</option>
+                    <option value="light">Licht</option>
+                    <option value="medium">Normaal</option>
+                    <option value="strong">Sterk</option>
+                  </select>
+
+                  <label>Stilte tussen strips (ms)</label>
+                  <input type="number" id="inp-join-mute-ms" min="0" max="100" value="0" step="1" title="Voegt bij samenvoegen een korte stilte tussen opeenvolgende strips in om plops op de overgang te verminderen" />
+
+                  <label>Fade bij overgang (ms)</label>
+                  <input type="number" id="inp-join-fade-ms" min="0" max="100" value="0" step="1" title="Fade-out aan het einde van een strip en fade-in aan het begin van de volgende strip bij samenvoegen" />
+                  <label>Join de-pop</label>
+                  <select id="inp-join-depop" title="Trekt de uiteinden rond elke koppeling kort naar nul en onderdrukt restkliks op de overgang">
+                    <option value="off" selected>Uit</option>
+                    <option value="light">Licht</option>
+                    <option value="medium">Normaal</option>
+                    <option value="strong">Sterk</option>
+                    <option value="extreme">Extreem</option>
+                  </select>
+                  <label>Preset overgang selectie/alles</label>
+                  <div class="output-folder-row">
+                    <button type="button" id="btn-join-preset-soft" class="small-btn">Zacht</button>
+                    <button type="button" id="btn-join-preset-medium" class="small-btn">Normaal</button>
+                    <button type="button" id="btn-join-preset-strong" class="small-btn">Sterk</button>
+                    <span id="lbl-join-preset-state" class="output-folder-path">Aangepast</span>
+                  </div>
+                  <label>Bewaar overgangspreset</label>
+                  <div class="template-stack">
+                    <div class="template-row">
+                      <input type="text" id="inp-join-preset-name" class="input-template-name" placeholder="Naam overgang…" maxlength="80" />
+                      <button type="button" id="btn-join-preset-save" class="small-btn">Opslaan</button>
+                    </div>
+                    <div class="template-row">
+                      <select id="sel-join-preset" class="sel-template">
+                        <option value="">— Overgangspreset —</option>
+                      </select>
+                      <button type="button" id="btn-join-preset-load" class="small-btn">Laden</button>
+                      <button type="button" id="btn-join-preset-delete" class="small-btn">Wissen</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="settings-cols__col">
+                <div class="field-grid field-grid--settings">
+                  <label>Hoogdoorlaat (Hz)</label>
+                  <input type="number" id="inp-hp" min="0" max="500" value="50" step="1" />
+
+                  <label>Lettergrootte app</label>
+                  <div class="output-folder-row">
+                    <button type="button" id="btn-app-font-down" class="small-btn">A-</button>
+                    <input type="number" id="inp-app-font-size" min="11" max="20" value="14" step="1" title="Globale lettergrootte voor de hele app" />
+                    <button type="button" id="btn-app-font-up" class="small-btn">A+</button>
+                  </div>
+
+                  <label>Export-SR</label>
+                  <select id="inp-export-sr">
+                    <option value="44100">44,1 kHz</option>
+                    <option value="48000" selected>48 kHz</option>
+                    <option value="96000">96 kHz</option>
+                  </select>
+
+                  <label>Kwaliteit</label>
+                  <div class="checks">
+                    <label class="inline"><input type="checkbox" id="inp-smooth" /> Licht glad</label>
+                    <label class="inline"><input type="checkbox" id="inp-normalize" checked /> Normaliseer piek</label>
+                  </div>
+
+                  <label>Versterking <span class="small">(× globaal)</span></label>
+                  <div class="gain-row">
+                    <input type="range" id="rng-output-gain" min="25" max="1000" value="100" step="5" title="Globaal voor alle linten. Schaal ÷100 (max. 10×)." />
+                    <span id="lbl-output-gain" class="gain-val">1,00×</span>
+                  </div>
+
+                  <label>Voorbeluistering <span class="small">(× speakers)</span></label>
+                  <div class="gain-row">
+                    <input type="range" id="rng-preview-gain" min="25" max="800" value="200" step="5" title="Extra versterking alleen bij beluisteren in de app; export ongewijzigd." />
+                    <span id="lbl-preview-gain" class="gain-val">2,00×</span>
+                  </div>
+
+                  <label>Exportformaat</label>
+                  <select id="inp-export-format" title="MP3: ffmpeg vereist">
+                    <option value="wav" selected>WAV (float)</option>
+                    <option value="mp3">MP3</option>
+                  </select>
+
+                  <label class="template-label">Template</label>
+                  <div class="template-stack">
+                    <div class="template-row">
+                      <input type="text" id="inp-template-name" class="input-template-name" placeholder="Naam…" maxlength="80" />
+                      <button type="button" id="btn-template-save" class="small-btn">Opslaan</button>
+                    </div>
+                    <div class="template-row">
+                      <select id="sel-template" class="sel-template">
+                        <option value="">— Template —</option>
+                      </select>
+                      <button type="button" id="btn-template-load" class="small-btn">Laden</button>
+                      <button type="button" id="btn-template-delete" class="small-btn">Wissen</button>
+                    </div>
+                  </div>
+
+                  <label>Uitvoermap</label>
+                  <div class="output-folder-row">
+                    <button type="button" id="btn-pick-output-folder" class="small-btn">Kies map…</button>
+                    <button type="button" id="btn-open-output-folder" class="small-btn">Open uitvoermap</button>
+                    <span id="lbl-output-folder" class="output-folder-path">—</span>
+                  </div>
+
+                  <label>Bestandsnaam audio</label>
+                  <input type="text" id="inp-export-name" placeholder="Bijv. film-audio" maxlength="120" />
+                  <label>Laatst geschreven bestand</label>
+                  <input type="text" id="inp-last-export-path" readonly value="—" />
+                  <label>Audacity</label>
+                  <div class="output-folder-row">
+                    <button type="button" id="btn-pick-audacity" class="small-btn">Kies Audacity…</button>
+                    <button type="button" id="btn-open-in-audacity" class="small-btn">Open in Audacity</button>
+                    <span id="lbl-audacity-path" class="output-folder-path">—</span>
+                  </div>
+                  <label class="inline"><input type="checkbox" id="inp-open-audacity-after-export" /> Open automatisch in Audacity na export</label>
+                  <p id="audacity-warning" class="hint hint--compact audacity-warning" hidden>Kies eerst een geldig Audacity-pad voor automatisch openen na export.</p>
+                  <label>Sneltoetsen</label>
+                  <div class="output-folder-row">
+                    <button type="button" id="btn-shortcuts" class="small-btn">Sneltoetsen instellen…</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <p class="status status--files status--export-duplicate" id="status-export-text">Geen bestand geladen.</p>
+            <p class="hint hint--compact export-hint">`… samenvoegen…` vraagt eerst waar het bestand moet worden opgeslagen. `… → uitvoermap` schrijft meteen naar de gekozen uitvoermap. Grote exports schakelen automatisch over naar PCM16 als WAV float te groot wordt.</p>
+            <div class="btn-row btn-row--actions">
+              <button type="button" id="btn-export-one">Huidige strip…</button>
+              <button type="button" id="btn-export-selection" title="Voegt de geselecteerde linten samen tot één audiobestand (of huidige als niets geselecteerd)">Selectie samenvoegen…</button>
+              <button type="button" id="btn-export-selection-folder" title="Voegt de geselecteerde linten samen tot één audiobestand in de gekozen uitvoermap">Selectie → uitvoermap</button>
+              <button type="button" id="btn-export-all" title="Voegt alle linten samen tot één groot audiobestand">Alle strips samenvoegen…</button>
+              <button type="button" id="btn-export-merge-folder" title="Voegt alle linten samen tot één groot audiobestand in de gekozen uitvoermap">Alle strips → uitvoermap</button>
+              <button type="button" id="btn-export-stop" class="small-btn" disabled>Stop export</button>
+            </div>
+            <p class="hint hint--compact" id="meta-hint"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="shortcuts-modal" class="modal-overlay modal-overlay--hidden" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-card__header">
+        <h3 class="modal-card__title">Sneltoetsen</h3>
+        <button type="button" id="btn-shortcuts-close" class="small-btn">Sluiten</button>
+      </div>
+      <p class="hint hint--compact">Klik op een veld en druk een toetscombinatie in. Gebruik Backspace of Delete om een sneltoets te wissen.</p>
+      <div id="shortcuts-list" class="shortcuts-list"></div>
+      <p id="shortcuts-conflict" class="hint hint--compact shortcuts-conflict" aria-live="polite"></p>
+      <div class="btn-row">
+        <button type="button" id="btn-shortcuts-reset" class="small-btn">Standaard herstellen</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

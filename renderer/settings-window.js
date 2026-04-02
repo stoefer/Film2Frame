@@ -1,0 +1,460 @@
+/**
+ * Zelfstandig instellingen-venster (geen gedeelde renderer-state met hoofdvenster).
+ */
+import { init as initI18n, t, applyToDOM } from './i18n.js';
+import { normalizeOutputResolutionId } from './output-resolution.js';
+import { DEFAULT_STRIP_PREVIEW_MAX_DIM, STRIP_PREVIEW_MAX_DIM_OPTIONS } from './constants.js';
+
+const gel = (id) => document.getElementById(id);
+
+const S = {
+  settingDpi: 'f2f-setting-dpi',
+  settingDefaultFrames: 'f2f-setting-default-frames',
+  settingOutputFormat: 'f2f-setting-output-format',
+  settingOutputRes: 'f2f-setting-output-res',
+  settingCustomResWrap: 'f2f-setting-custom-res-wrap',
+  settingCustomW: 'f2f-setting-custom-w',
+  settingCustomH: 'f2f-setting-custom-h',
+  settingPreviewRes: 'f2f-setting-preview-res',
+  settingDarkMode: 'f2f-setting-dark-mode',
+  settingWindowGrid: 'f2f-setting-window-grid',
+  settingWindowGridMask: 'f2f-setting-window-grid-mask',
+  arrangeMatrix: 'f2f-arrange-matrix',
+  arrangeMatrixReset: 'f2f-arrange-matrix-reset',
+  autoArrangeGridBtn: 'f2f-auto-arrange-grid',
+  applyWindowGridBtn: 'f2f-apply-window-grid',
+  settingArrangeOnStartup: 'f2f-setting-arrange-on-startup',
+  settingArrangeAllDisplays: 'f2f-setting-arrange-all-displays',
+  settingWindowsGeometryLocked: 'f2f-setting-windows-geometry-locked',
+  settingArrowStepPx: 'f2f-setting-arrow-step-px',
+  settingArrowStepShiftPx: 'f2f-setting-arrow-step-shift-px',
+  settingPreserveGridOnScanNav: 'f2f-setting-preserve-grid-scan-nav',
+  stripShortcutsTbody: 'f2f-strip-shortcuts-tbody',
+  stripShortcutsResetAll: 'f2f-strip-shortcuts-reset-all',
+  arrangeWindowsBtn: 'f2f-arrange-windows',
+  settingsSaveBtn: 'f2f-settings-save'
+};
+
+let stripShortcutCaptureCleanup = null;
+
+/** @type {number[]} */
+let matrixPermutation = [1, 2, 3, 4, 5, 6];
+let matrixSelectedCellIndex = null;
+/** @type {boolean[]} paneel 1–6 */
+let matrixPanelMask = [true, true, true, true, true, true];
+
+function parsePanelMaskString(str) {
+  const s = String(str || '').replace(/\s/g, '');
+  if (s.length !== 6 || !/^[01]+$/.test(s)) return [true, true, true, true, true, true];
+  return s.split('').map((c) => c === '1');
+}
+
+function encodePanelMaskString(mask) {
+  return (mask || []).map((b) => (b ? '1' : '0')).join('');
+}
+
+/** Slaat venster-keuzemasker direct op in prefs (zonder volledige Instellingen bewaren). */
+function persistWindowGridAutoOpenMask() {
+  const enc = encodePanelMaskString(matrixPanelMask);
+  const h = gel(S.settingWindowGridMask);
+  if (h) h.value = enc;
+  if (window.api?.setAppSettings) {
+    window.api.setAppSettings({ windowGridAutoOpenMask: enc }).catch(() => {});
+  }
+}
+
+function getMatrixUiMode() {
+  const r = document.querySelector('input[name="f2f-matrix-ui-mode"]:checked');
+  return r && r.value === 'swap' ? 'swap' : 'pick';
+}
+
+function parseWindowGridString(str) {
+  const parts = String(str || '')
+    .split(',')
+    .map((x) => parseInt(String(x).trim(), 10));
+  if (parts.length !== 6) return null;
+  const s = new Set(parts);
+  if (s.size !== 6) return null;
+  for (let i = 1; i <= 6; i++) {
+    if (!s.has(i)) return null;
+  }
+  return parts;
+}
+
+function applyMatrixUI() {
+  const hidden = gel(S.settingWindowGrid);
+  if (hidden) hidden.value = matrixPermutation.join(',');
+  const hiddenMask = gel(S.settingWindowGridMask);
+  if (hiddenMask) hiddenMask.value = encodePanelMaskString(matrixPanelMask);
+  const mode = getMatrixUiMode();
+  const grid = gel(S.arrangeMatrix);
+  if (grid) {
+    grid.querySelectorAll('.f2f-arrange-matrix-cell').forEach((btn) => {
+      const ci = parseInt(btn.getAttribute('data-cell'), 10);
+      const num = btn.querySelector('.f2f-arrange-matrix-num');
+      if (num && !Number.isNaN(ci) && ci >= 0 && ci < 6) {
+        num.textContent = String(matrixPermutation[ci]);
+      }
+      const panelId = matrixPermutation[ci];
+      const inMask =
+        !Number.isNaN(ci) && ci >= 0 && ci < 6 && panelId >= 1 && panelId <= 6
+          ? !!matrixPanelMask[panelId - 1]
+          : false;
+      btn.classList.toggle('f2f-arrange-matrix-cell--auto-open', inMask);
+      const swapPick = mode === 'swap' && matrixSelectedCellIndex === ci;
+      btn.classList.toggle('f2f-arrange-matrix-cell--swap-pick', swapPick);
+    });
+  }
+}
+
+function setMatrixPermutationFromString(str) {
+  const p = parseWindowGridString(str);
+  matrixPermutation = p || [1, 2, 3, 4, 5, 6];
+  matrixSelectedCellIndex = null;
+  applyMatrixUI();
+}
+
+function onMatrixCellClick(cellIndex) {
+  if (getMatrixUiMode() === 'pick') {
+    matrixSelectedCellIndex = null;
+    const pid = matrixPermutation[cellIndex];
+    if (pid >= 1 && pid <= 6) {
+      matrixPanelMask[pid - 1] = !matrixPanelMask[pid - 1];
+    }
+    applyMatrixUI();
+    persistWindowGridAutoOpenMask();
+    return;
+  }
+  if (matrixSelectedCellIndex === null) {
+    matrixSelectedCellIndex = cellIndex;
+    applyMatrixUI();
+    return;
+  }
+  if (matrixSelectedCellIndex === cellIndex) {
+    matrixSelectedCellIndex = null;
+    applyMatrixUI();
+    return;
+  }
+  const a = matrixSelectedCellIndex;
+  const b = cellIndex;
+  const tmp = matrixPermutation[a];
+  matrixPermutation[a] = matrixPermutation[b];
+  matrixPermutation[b] = tmp;
+  matrixSelectedCellIndex = null;
+  applyMatrixUI();
+}
+
+function stripCodeToLabel(code) {
+  if (!code) return '';
+  const map = {
+    ArrowLeft: '←',
+    ArrowRight: '→',
+    ArrowUp: '↑',
+    ArrowDown: '↓',
+    NumpadMultiply: 'Num *',
+    NumpadDivide: 'Num /',
+    PageUp: 'Page ↑',
+    PageDown: 'Page ↓',
+    Home: 'Home',
+    Space: 'Spatie',
+    Enter: 'Enter',
+    Escape: 'Esc',
+    Tab: 'Tab',
+    Backquote: '`',
+    BracketLeft: '[',
+    BracketRight: ']'
+  };
+  if (map[code]) return map[code];
+  if (code.startsWith('Key') && code.length === 4) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  if (code.startsWith('Numpad')) return 'Num ' + code.slice(6);
+  return code;
+}
+
+function formatStripBindingDisplay(b) {
+  if (!b || !b.code) return t('settings.stripShortcutNone');
+  const parts = [];
+  if (b.ctrl) parts.push('Ctrl');
+  if (b.meta) parts.push('Win');
+  if (b.alt) parts.push('Alt');
+  if (b.shift) parts.push('Shift');
+  parts.push(stripCodeToLabel(b.code));
+  return parts.join('+');
+}
+
+function updateStripShortcutRowBinding(tr, binding) {
+  const cell = tr.querySelector('.strip-sc-display');
+  if (!cell) return;
+  tr._stripBinding = binding === null || binding === undefined ? null : { ...binding };
+  cell.textContent =
+    tr._stripBinding && tr._stripBinding.code
+      ? formatStripBindingDisplay(tr._stripBinding)
+      : t('settings.stripShortcutNone');
+}
+
+function startStripShortcutCapture(tr) {
+  if (stripShortcutCaptureCleanup) stripShortcutCaptureCleanup();
+  document.body.classList.add('f2f-strip-sc-capturing');
+  tr.classList.add('strip-sc-row-capturing');
+  function cleanup() {
+    document.body.classList.remove('f2f-strip-sc-capturing');
+    tr.classList.remove('strip-sc-row-capturing');
+    window.removeEventListener('keydown', onKeyDown, true);
+    stripShortcutCaptureCleanup = null;
+  }
+  function onKeyDown(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      cleanup();
+      return;
+    }
+    const ignoreKeys = ['Shift', 'Control', 'Alt', 'Meta'];
+    if (ignoreKeys.includes(e.key)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const b = {
+      code: e.code,
+      ctrl: !!e.ctrlKey,
+      shift: !!e.shiftKey,
+      alt: !!e.altKey,
+      meta: !!e.metaKey
+    };
+    if (!b.code) {
+      cleanup();
+      return;
+    }
+    updateStripShortcutRowBinding(tr, b);
+    cleanup();
+  }
+  stripShortcutCaptureCleanup = cleanup;
+  window.addEventListener('keydown', onKeyDown, true);
+}
+
+async function buildStripShortcutsSettingsTable() {
+  const tbody = gel(S.stripShortcutsTbody);
+  if (!tbody || !window.api?.getStripShortcutConfig) return;
+  let cfg;
+  try {
+    cfg = await window.api.getStripShortcutConfig();
+  } catch (_) {
+    return;
+  }
+  if (!cfg || !Array.isArray(cfg.actions)) return;
+  tbody.innerHTML = '';
+  cfg.actions.forEach((a) => {
+    const tr = document.createElement('tr');
+    tr.dataset.actionId = a.id;
+    const td0 = document.createElement('td');
+    td0.textContent = (a.labelKey && t(a.labelKey)) || a.id;
+    const td1 = document.createElement('td');
+    td1.className = 'strip-sc-display';
+    const td2 = document.createElement('td');
+    td2.className = 'strip-sc-btns';
+    const btnCh = document.createElement('button');
+    btnCh.type = 'button';
+    btnCh.className = 'btn btn-secondary small';
+    btnCh.textContent = t('settings.stripShortcutChangeButton');
+    const btnCl = document.createElement('button');
+    btnCl.type = 'button';
+    btnCl.className = 'btn btn-secondary small';
+    btnCl.textContent = t('settings.stripShortcutClearButton');
+    btnCh.addEventListener('click', () => startStripShortcutCapture(tr));
+    btnCl.addEventListener('click', () => updateStripShortcutRowBinding(tr, null));
+    td2.appendChild(btnCh);
+    td2.appendChild(document.createTextNode(' '));
+    td2.appendChild(btnCl);
+    tr.appendChild(td0);
+    tr.appendChild(td1);
+    tr.appendChild(td2);
+    tbody.appendChild(tr);
+    const b = cfg.bindings && cfg.bindings[a.id];
+    if (b && b.code) {
+      updateStripShortcutRowBinding(tr, { ...b });
+    } else {
+      updateStripShortcutRowBinding(tr, null);
+    }
+  });
+}
+
+function collectStripShortcutsFromSettingsUI() {
+  const out = {};
+  const tbody = gel(S.stripShortcutsTbody);
+  if (!tbody) return out;
+  tbody.querySelectorAll('tr[data-action-id]').forEach((tr) => {
+    const id = tr.dataset.actionId;
+    if (!id) return;
+    out[id] = tr._stripBinding == null || !tr._stripBinding.code ? null : { ...tr._stripBinding };
+  });
+  return out;
+}
+
+async function resetAllStripShortcutsToDefaults() {
+  const tbody = gel(S.stripShortcutsTbody);
+  if (!tbody || !window.api?.getStripShortcutConfig) return;
+  let cfg;
+  try {
+    cfg = await window.api.getStripShortcutConfig();
+  } catch (_) {
+    return;
+  }
+  if (!cfg || !Array.isArray(cfg.actions)) return;
+  tbody.querySelectorAll('tr[data-action-id]').forEach((tr) => {
+    const id = tr.dataset.actionId;
+    const a = cfg.actions.find((x) => x.id === id);
+    const def = a && a.default && a.default.code ? { ...a.default } : null;
+    updateStripShortcutRowBinding(tr, def);
+  });
+}
+
+function applyTheme(darkMode) {
+  if (document.body) {
+    document.body.classList.toggle('theme-light', !darkMode);
+  }
+}
+
+function onOutputResolutionChange(ev) {
+  const v = (ev?.target && ev.target.value) || gel(S.settingOutputRes)?.value || 'original';
+  const norm = normalizeOutputResolutionId(v);
+  const sel = gel(S.settingOutputRes);
+  if (sel) sel.value = norm;
+  const wrap = gel(S.settingCustomResWrap);
+  if (wrap) wrap.classList.toggle('hidden', norm !== 'custom');
+}
+
+async function loadForm() {
+  try {
+    const s = await window.api?.getAppSettings?.();
+    if (!s || typeof s !== 'object') return;
+    const set = (id, value, type = 'value') => {
+      const el_ = gel(id);
+      if (!el_) return;
+      if (type === 'value') el_.value = value;
+      else if (type === 'checked') el_.checked = !!value;
+    };
+    set(S.settingDpi, String(s.scanDpi));
+    set(S.settingDefaultFrames, String(s.defaultFramesPerStrip));
+    set(S.settingOutputFormat, s.outputFormat || 'png');
+    const outNorm = normalizeOutputResolutionId(s.outputResolution);
+    set(S.settingOutputRes, outNorm);
+    set(S.settingCustomW, String(s.customOutputWidth || 1920));
+    set(S.settingCustomH, String(s.customOutputHeight || 1080));
+    const previewRes = Math.max(512, Math.min(8192, Number(s.stripPreviewRes) || DEFAULT_STRIP_PREVIEW_MAX_DIM));
+    set(S.settingPreviewRes, String(previewRes));
+    set(S.settingDarkMode, s.darkMode, 'checked');
+    matrixPanelMask = parsePanelMaskString(s.windowGridAutoOpenMask);
+    setMatrixPermutationFromString(s.windowGridPermutation || '1,2,3,4,5,6');
+    set(S.settingArrangeAllDisplays, !!s.arrangeAcrossAllDisplays, 'checked');
+    set(S.settingArrangeOnStartup, !!s.arrangeWindowsOnStartup, 'checked');
+    set(S.settingWindowsGeometryLocked, !!s.windowsGeometryLocked, 'checked');
+    const arrowPx = (s.arrowStepPx != null && Number(s.arrowStepPx) >= 1) ? Math.min(10, Number(s.arrowStepPx)) : 1;
+    const arrowShiftPx = (s.arrowStepShiftPx != null && Number(s.arrowStepShiftPx) >= 10) ? Math.min(100, Number(s.arrowStepShiftPx)) : 10;
+    set(S.settingArrowStepPx, String(arrowPx));
+    set(S.settingArrowStepShiftPx, String(arrowShiftPx));
+    set(S.settingPreserveGridOnScanNav, s.preserveGridOnScanNav !== false, 'checked');
+    applyTheme(s.darkMode);
+    const wrap = gel(S.settingCustomResWrap);
+    if (wrap) wrap.classList.toggle('hidden', outNorm !== 'custom');
+    await buildStripShortcutsSettingsTable();
+    applyToDOM(document.body);
+  } catch (_) {}
+}
+
+async function saveForm() {
+  const outRes = normalizeOutputResolutionId(gel(S.settingOutputRes)?.value || 'original');
+  const sel = gel(S.settingOutputRes);
+  if (sel) sel.value = outRes;
+  const arrowPx = Math.max(1, Math.min(10, parseInt(gel(S.settingArrowStepPx)?.value, 10) || 1));
+  const arrowShiftPx = Math.max(10, Math.min(100, parseInt(gel(S.settingArrowStepShiftPx)?.value, 10) || 10));
+  const settings = {
+    scanDpi: parseInt(gel(S.settingDpi)?.value, 10) || 4800,
+    defaultFramesPerStrip: parseInt(gel(S.settingDefaultFrames)?.value, 10) || 30,
+    outputFormat: gel(S.settingOutputFormat)?.value || 'png',
+    outputResolution: outRes,
+    customOutputWidth: parseInt(gel(S.settingCustomW)?.value, 10) || 1920,
+    customOutputHeight: parseInt(gel(S.settingCustomH)?.value, 10) || 1080,
+    stripPreviewRes: parseInt(gel(S.settingPreviewRes)?.value, 10) || DEFAULT_STRIP_PREVIEW_MAX_DIM,
+    darkMode: !!gel(S.settingDarkMode)?.checked,
+    windowGridPermutation: gel(S.settingWindowGrid)?.value || '1,2,3,4,5,6',
+    windowGridAutoOpenMask: gel(S.settingWindowGridMask)?.value || '111111',
+    arrangeAcrossAllDisplays: !!gel(S.settingArrangeAllDisplays)?.checked,
+    arrangeWindowsOnStartup: !!gel(S.settingArrangeOnStartup)?.checked,
+    windowsGeometryLocked: !!gel(S.settingWindowsGeometryLocked)?.checked,
+    arrowStepPx: arrowPx,
+    arrowStepShiftPx: arrowShiftPx,
+    preserveGridOnScanNav: !!gel(S.settingPreserveGridOnScanNav)?.checked
+  };
+  const tbodySc = gel(S.stripShortcutsTbody);
+  if (tbodySc && tbodySc.querySelector('tr[data-action-id]')) {
+    settings.stripPreviewShortcuts = collectStripShortcutsFromSettingsUI();
+  }
+  await window.api?.setAppSettings?.(settings);
+  applyTheme(settings.darkMode);
+  window.api?.notifySettingsSaved?.();
+  if (window.api?.arrangeWindows) {
+    try {
+      await window.api.arrangeWindows();
+    } catch (_) {}
+  }
+}
+
+/** Huidige raster + masker + alle-schermen, zoals in het formulier (voor directe toepassing zonder volledige save). */
+function getWindowGridPrefsPayload() {
+  return {
+    windowGridPermutation: gel(S.settingWindowGrid)?.value || '1,2,3,4,5,6',
+    windowGridAutoOpenMask: gel(S.settingWindowGridMask)?.value || encodePanelMaskString(matrixPanelMask),
+    arrangeAcrossAllDisplays: !!gel(S.settingArrangeAllDisplays)?.checked
+  };
+}
+
+async function onArrangeWindows() {
+  if (!window.api?.arrangeWindows) return;
+  const locked = !!gel(S.settingWindowsGeometryLocked)?.checked;
+  await window.api.arrangeWindows({
+    windowsGeometryLocked: locked,
+    ...getWindowGridPrefsPayload()
+  });
+}
+
+async function onAutoArrangeFromGrid() {
+  if (!window.api?.autoArrangeWindowsFromGrid) return;
+  const locked = !!gel(S.settingWindowsGeometryLocked)?.checked;
+  const grid = getWindowGridPrefsPayload();
+  try {
+    await window.api.autoArrangeWindowsFromGrid({
+      panelMask: grid.windowGridAutoOpenMask,
+      windowsGeometryLocked: locked,
+      windowGridPermutation: grid.windowGridPermutation,
+      arrangeAcrossAllDisplays: grid.arrangeAcrossAllDisplays
+    });
+  } catch (_) {}
+}
+
+async function boot() {
+  await initI18n(window.api);
+  await loadForm();
+  gel(S.settingOutputRes)?.addEventListener('change', onOutputResolutionChange);
+  gel(S.arrangeMatrix)?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.f2f-arrange-matrix-cell');
+    if (!btn || btn.dataset.cell == null) return;
+    const ci = parseInt(btn.getAttribute('data-cell'), 10);
+    if (!Number.isNaN(ci) && ci >= 0 && ci < 6) onMatrixCellClick(ci);
+  });
+  gel(S.arrangeMatrixReset)?.addEventListener('click', () => {
+    matrixPermutation = [1, 2, 3, 4, 5, 6];
+    matrixSelectedCellIndex = null;
+    applyMatrixUI();
+  });
+  document.querySelectorAll('input[name="f2f-matrix-ui-mode"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      matrixSelectedCellIndex = null;
+      applyMatrixUI();
+    });
+  });
+  gel(S.applyWindowGridBtn)?.addEventListener('click', () => onArrangeWindows().catch(() => {}));
+  gel(S.autoArrangeGridBtn)?.addEventListener('click', () => onAutoArrangeFromGrid().catch(() => {}));
+  gel(S.arrangeWindowsBtn)?.addEventListener('click', () => onArrangeWindows().catch(() => {}));
+  gel(S.settingsSaveBtn)?.addEventListener('click', () => saveForm().catch(() => {}));
+  gel(S.stripShortcutsResetAll)?.addEventListener('click', () => resetAllStripShortcutsToDefaults().catch(() => {}));
+}
+
+boot().catch(() => {});

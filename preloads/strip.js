@@ -33,7 +33,7 @@ contextBridge.exposeInMainWorld('stripApi', {
   },
   setVerticalAnchor: (mode, customK) => {
     ipcRenderer.send('strip-vertical-anchor', {
-      mode: typeof mode === 'string' ? mode : 'bottomFixed',
+      mode: typeof mode === 'string' ? mode : undefined,
       customK: customK != null ? Number(customK) : undefined
     });
   },
@@ -54,6 +54,9 @@ contextBridge.exposeInMainWorld('stripApi', {
   getStripShortcuts: () => ipcRenderer.invoke('get-strip-shortcuts'),
   onStripShortcutsUpdated: (cb) => {
     ipcRenderer.on('strip-shortcuts-updated', (_, payload) => cb && cb(payload));
+  },
+  onStripLocaleChanged: (cb) => {
+    ipcRenderer.on('strip-locale-changed', () => cb && cb());
   },
   stripSetFlip: (flipHorizontal, flipVertical) => {
     ipcRenderer.send('strip-set-flip', {

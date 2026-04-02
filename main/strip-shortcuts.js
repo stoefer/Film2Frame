@@ -1,34 +1,35 @@
 /**
- * Sneltoetsen voor het Scanlint-previewvenster (raster afstellen).
- * Binding: { code: string (KeyboardEvent.code), ctrl?, shift?, alt?, meta? — true/false indien verplicht }
+ * Scan strip preview window shortcuts (grid adjustment).
+ * Binding: { code: KeyboardEvent.code, ctrl?, shift?, alt?, meta? — true/false when required }
+ * Display names: i18n keys in locales (settings.stripShortcut*).
  */
 
 const ACTIONS = [
-  { id: 'handLeft', label: 'Hand: een stap naar links', default: { code: 'ArrowLeft' } },
-  { id: 'handRight', label: 'Hand: een stap naar rechts', default: { code: 'ArrowRight' } },
-  { id: 'handUp', label: 'Hand: een stap omhoog', default: { code: 'ArrowUp' } },
-  { id: 'handDown', label: 'Hand: een stap omlaag', default: { code: 'ArrowDown' } },
+  { id: 'handLeft', labelKey: 'settings.stripShortcutHandLeft', default: { code: 'ArrowLeft' } },
+  { id: 'handRight', labelKey: 'settings.stripShortcutHandRight', default: { code: 'ArrowRight' } },
+  { id: 'handUp', labelKey: 'settings.stripShortcutHandUp', default: { code: 'ArrowUp' } },
+  { id: 'handDown', labelKey: 'settings.stripShortcutHandDown', default: { code: 'ArrowDown' } },
   {
-    id: 'jumpFrameTop',
-    label: 'Spring naar boven (actief frame)',
+    id: 'verticalAnchorLineUp',
+    labelKey: 'settings.stripShortcutVerticalAnchorLineUp',
     default: { code: 'PageUp' }
   },
   {
-    id: 'jumpFrameBottom',
-    label: 'Spring naar onder (actief frame)',
+    id: 'verticalAnchorLineDown',
+    labelKey: 'settings.stripShortcutVerticalAnchorLineDown',
     default: { code: 'PageDown' }
   },
   {
     id: 'jumpFrameMiddle',
-    label: 'Spring naar midden (actief frame)',
+    labelKey: 'settings.stripShortcutJumpFrameMiddle',
     default: { code: 'Home', ctrl: false, alt: false, meta: false }
   },
-  { id: 'zoomFitWidth', label: 'Zoom: scanlint breedte (venster)', default: { code: 'NumpadMultiply' } },
-  { id: 'zoomFitHeight', label: 'Zoom: scanlint hoogte (venster)', default: { code: 'NumpadDivide' } },
-  { id: 'scanPrev', label: 'Vorige scanlint', default: null },
-  { id: 'scanNext', label: 'Volgende scanlint', default: null },
-  { id: 'resetGrid', label: 'Raster reset (standaard)', default: null },
-  { id: 'rotate90', label: 'Beeld 90° draaien', default: null }
+  { id: 'zoomFitWidth', labelKey: 'settings.stripShortcutZoomFitWidth', default: { code: 'NumpadMultiply' } },
+  { id: 'zoomFitHeight', labelKey: 'settings.stripShortcutZoomFitHeight', default: { code: 'NumpadDivide' } },
+  { id: 'scanPrev', labelKey: 'settings.stripShortcutScanPrev', default: null },
+  { id: 'scanNext', labelKey: 'settings.stripShortcutScanNext', default: null },
+  { id: 'resetGrid', labelKey: 'settings.stripShortcutResetGrid', default: null },
+  { id: 'rotate90', labelKey: 'settings.stripShortcutRotate90', default: null }
 ];
 
 function normalizeBinding(b) {
@@ -47,7 +48,20 @@ function normalizeBinding(b) {
  * @param {Record<string, unknown>} user — opgeslagen map actionId -> binding | null
  */
 function mergeStripShortcuts(user) {
-  const u = user && typeof user === 'object' ? user : {};
+  const u = user && typeof user === 'object' ? { ...user } : {};
+  /* Oude acties (springen actief frame): bindings doorzetten op Lijn # als nieuwe keys nog niet in prefs staan. */
+  if (
+    !Object.prototype.hasOwnProperty.call(u, 'verticalAnchorLineUp') &&
+    Object.prototype.hasOwnProperty.call(u, 'jumpFrameTop')
+  ) {
+    u.verticalAnchorLineUp = u.jumpFrameTop;
+  }
+  if (
+    !Object.prototype.hasOwnProperty.call(u, 'verticalAnchorLineDown') &&
+    Object.prototype.hasOwnProperty.call(u, 'jumpFrameBottom')
+  ) {
+    u.verticalAnchorLineDown = u.jumpFrameBottom;
+  }
   const out = {};
   for (const a of ACTIONS) {
     if (Object.prototype.hasOwnProperty.call(u, a.id)) {
@@ -95,9 +109,9 @@ function getPayloadForStrip(user) {
 
 function getShortcutConfigForSettings(user) {
   return {
-    actions: ACTIONS.map(({ id, label, default: def }) => ({
+    actions: ACTIONS.map(({ id, labelKey, default: def }) => ({
       id,
-      label,
+      labelKey,
       default: def ? { ...def } : null
     })),
     bindings: mergeStripShortcuts(user)

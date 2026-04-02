@@ -19,18 +19,28 @@ const KEYS = {
   customOutputWidth: 'customOutputWidth',
   customOutputHeight: 'customOutputHeight',
   windowArrangement: 'windowArrangement',
+  windowGridPermutation: 'windowGridPermutation',
+  windowGridAutoOpenMask: 'windowGridAutoOpenMask',
   arrangeWindowsOnStartup: 'arrangeWindowsOnStartup',
+  arrangeAcrossAllDisplays: 'arrangeAcrossAllDisplays',
+  windowsGeometryLocked: 'windowsGeometryLocked',
   mainWindowBounds: 'mainWindowBounds',
   stripPreviewBounds: 'stripPreviewBounds',
   outputPreviewBounds: 'outputPreviewBounds',
   alignPreviewBounds: 'alignPreviewBounds',
+  settingsWindowBounds: 'settingsWindowBounds',
+  pixelEditorBounds: 'pixelEditorBounds',
   stripPreviewOpen: 'stripPreviewOpen',
   outputPreviewOpen: 'outputPreviewOpen',
   alignPreviewOpen: 'alignPreviewOpen',
+  pixelEditorOpen: 'pixelEditorOpen',
   arrowStepPx: 'arrowStepPx',
   arrowStepShiftPx: 'arrowStepShiftPx',
   stripPreviewShortcuts: 'stripPreviewShortcuts',
-  locale: 'locale'
+  locale: 'locale',
+  preserveGridOnScanNav: 'preserveGridOnScanNav',
+  /** Video-export: 'pad' = zwarte rand tot gemeenschappelijke max; 'cover' = vullen, randen bijsnijden. */
+  videoExportUniformFit: 'videoExportUniformFit'
 };
 
 const DEFAULTS = {
@@ -44,8 +54,13 @@ const DEFAULTS = {
   customOutputHeight: 1080,
   windowArrangement: 'horiz-osm',
   arrangeWindowsOnStartup: false,
+  arrangeAcrossAllDisplays: false,
+  windowsGeometryLocked: false,
   arrowStepPx: 1,
-  arrowStepShiftPx: 10
+  arrowStepShiftPx: 10,
+  preserveGridOnScanNav: true,
+  videoExportUniformFit: 'pad',
+  windowGridAutoOpenMask: '111111'
 };
 
 function getPrefsPath() {
@@ -114,9 +129,19 @@ function setLastFileLocation(folderPath) {
 
 function getAllSettings() {
   const data = read();
-  const { normalizeLayout } = require('./window-arrange');
+  const { normalizeLayout, parseStoredWindowGrid } = require('./window-arrange');
   const rawArr = data[KEYS.windowArrangement];
-  const windowArrangement = normalizeLayout(typeof rawArr === 'string' ? rawArr : DEFAULTS.windowArrangement);
+  const legacyLayout = normalizeLayout(typeof rawArr === 'string' ? rawArr : DEFAULTS.windowArrangement);
+  const rawGrid = data[KEYS.windowGridPermutation];
+  const windowGridPermutation = parseStoredWindowGrid(
+    typeof rawGrid === 'string' ? rawGrid : '',
+    legacyLayout
+  );
+  const rawMask = data[KEYS.windowGridAutoOpenMask];
+  const windowGridAutoOpenMask =
+    typeof rawMask === 'string' && /^[01]{6}$/.test(rawMask.replace(/\s/g, ''))
+      ? rawMask.replace(/\s/g, '')
+      : DEFAULTS.windowGridAutoOpenMask;
   return {
     darkMode: data[KEYS.darkMode] !== undefined ? !!data[KEYS.darkMode] : DEFAULTS.darkMode,
     stripPreviewRes: typeof data[KEYS.stripPreviewRes] === 'number' ? data[KEYS.stripPreviewRes] : DEFAULTS.stripPreviewRes,
@@ -126,15 +151,22 @@ function getAllSettings() {
     outputResolution: data[KEYS.outputResolution] || DEFAULTS.outputResolution,
     customOutputWidth: typeof data[KEYS.customOutputWidth] === 'number' ? data[KEYS.customOutputWidth] : DEFAULTS.customOutputWidth,
     customOutputHeight: typeof data[KEYS.customOutputHeight] === 'number' ? data[KEYS.customOutputHeight] : DEFAULTS.customOutputHeight,
-    windowArrangement,
+    windowGridPermutation,
+    windowGridAutoOpenMask,
     arrangeWindowsOnStartup: data[KEYS.arrangeWindowsOnStartup] === true,
+    arrangeAcrossAllDisplays: data[KEYS.arrangeAcrossAllDisplays] === true,
+    windowsGeometryLocked: data[KEYS.windowsGeometryLocked] === true,
   arrowStepPx: typeof data[KEYS.arrowStepPx] === 'number' ? Math.max(1, Math.min(10, data[KEYS.arrowStepPx])) : DEFAULTS.arrowStepPx,
   arrowStepShiftPx: typeof data[KEYS.arrowStepShiftPx] === 'number' ? Math.max(10, Math.min(100, data[KEYS.arrowStepShiftPx])) : DEFAULTS.arrowStepShiftPx,
   locale: typeof data[KEYS.locale] === 'string' && ['en', 'nl'].includes(data[KEYS.locale]) ? data[KEYS.locale] : 'nl',
     stripPreviewShortcuts:
       data[KEYS.stripPreviewShortcuts] != null && typeof data[KEYS.stripPreviewShortcuts] === 'object'
         ? data[KEYS.stripPreviewShortcuts]
-        : {}
+        : {},
+    preserveGridOnScanNav:
+      data[KEYS.preserveGridOnScanNav] === false ? false : DEFAULTS.preserveGridOnScanNav,
+    videoExportUniformFit:
+      data[KEYS.videoExportUniformFit] === 'cover' ? 'cover' : DEFAULTS.videoExportUniformFit
   };
 }
 
@@ -149,20 +181,48 @@ function setSettings(settings) {
   if (settings.outputResolution !== undefined) data[KEYS.outputResolution] = String(settings.outputResolution);
   if (settings.customOutputWidth !== undefined) data[KEYS.customOutputWidth] = Math.max(1, Number(settings.customOutputWidth) || 1920);
   if (settings.customOutputHeight !== undefined) data[KEYS.customOutputHeight] = Math.max(1, Number(settings.customOutputHeight) || 1080);
-  if (settings.windowArrangement !== undefined) {
-    const { normalizeLayout, CANONICAL_LAYOUTS } = require('./window-arrange');
+  if (settings.windowGridPermutation !== undefined) {
+    const { parsePermutationString } = require('./window-arrange');
+    const s = String(settings.windowGridPermutation).trim();
+    const parsed = parsePermutationString(s);
+    if (parsed) {
+      data[KEYS.windowGridPermutation] = parsed.join(',');
+    }
+  }
+  if (settings.windowGridAutoOpenMask !== undefined) {
+    const m = String(settings.windowGridAutoOpenMask).replace(/\s/g, '');
+    if (/^[01]{6}$/.test(m)) {
+      data[KEYS.windowGridAutoOpenMask] = m;
+    }
+  }
+  if (settings.windowArrangement !== undefined && settings.windowGridPermutation === undefined) {
+    const { normalizeLayout, CANONICAL_LAYOUTS, legacyLayoutToPermutation } = require('./window-arrange');
     const n = normalizeLayout(String(settings.windowArrangement));
     if (CANONICAL_LAYOUTS.includes(n)) {
       data[KEYS.windowArrangement] = n;
+      data[KEYS.windowGridPermutation] = legacyLayoutToPermutation(n).join(',');
     }
   }
   if (settings.arrangeWindowsOnStartup !== undefined) {
     data[KEYS.arrangeWindowsOnStartup] = !!settings.arrangeWindowsOnStartup;
   }
+  if (settings.arrangeAcrossAllDisplays !== undefined) {
+    data[KEYS.arrangeAcrossAllDisplays] = !!settings.arrangeAcrossAllDisplays;
+  }
+  if (settings.windowsGeometryLocked !== undefined) {
+    data[KEYS.windowsGeometryLocked] = !!settings.windowsGeometryLocked;
+  }
   if (settings.arrowStepPx !== undefined) data[KEYS.arrowStepPx] = Math.max(1, Math.min(10, Number(settings.arrowStepPx) || 1));
   if (settings.arrowStepShiftPx !== undefined) data[KEYS.arrowStepShiftPx] = Math.max(10, Math.min(100, Number(settings.arrowStepShiftPx) || 10));
   if (settings.locale !== undefined && ['en', 'nl'].includes(String(settings.locale))) {
     data[KEYS.locale] = settings.locale;
+  }
+  if (settings.preserveGridOnScanNav !== undefined) {
+    data[KEYS.preserveGridOnScanNav] = !!settings.preserveGridOnScanNav;
+  }
+  if (settings.videoExportUniformFit !== undefined) {
+    const f = String(settings.videoExportUniformFit);
+    data[KEYS.videoExportUniformFit] = f === 'cover' ? 'cover' : 'pad';
   }
   if (settings.stripPreviewShortcuts !== undefined && settings.stripPreviewShortcuts != null) {
     const sc = require('./strip-shortcuts');
@@ -203,9 +263,12 @@ function getWindowState() {
     stripPreviewBounds: parseBounds(data[KEYS.stripPreviewBounds]),
     outputPreviewBounds: parseBounds(data[KEYS.outputPreviewBounds]),
     alignPreviewBounds: parseBounds(data[KEYS.alignPreviewBounds]),
+    settingsWindowBounds: parseBounds(data[KEYS.settingsWindowBounds]),
+    pixelEditorBounds: parseBounds(data[KEYS.pixelEditorBounds]),
     stripPreviewOpen: data[KEYS.stripPreviewOpen] === true,
     outputPreviewOpen: data[KEYS.outputPreviewOpen] === true,
-    alignPreviewOpen: data[KEYS.alignPreviewOpen] === true
+    alignPreviewOpen: data[KEYS.alignPreviewOpen] === true,
+    pixelEditorOpen: data[KEYS.pixelEditorOpen] === true
   };
 }
 
@@ -224,9 +287,16 @@ function setWindowState(state) {
   if (state.alignPreviewBounds && typeof state.alignPreviewBounds === 'object') {
     data[KEYS.alignPreviewBounds] = state.alignPreviewBounds;
   }
+  if (state.settingsWindowBounds && typeof state.settingsWindowBounds === 'object') {
+    data[KEYS.settingsWindowBounds] = state.settingsWindowBounds;
+  }
+  if (state.pixelEditorBounds && typeof state.pixelEditorBounds === 'object') {
+    data[KEYS.pixelEditorBounds] = state.pixelEditorBounds;
+  }
   if (state.stripPreviewOpen !== undefined) data[KEYS.stripPreviewOpen] = !!state.stripPreviewOpen;
   if (state.outputPreviewOpen !== undefined) data[KEYS.outputPreviewOpen] = !!state.outputPreviewOpen;
   if (state.alignPreviewOpen !== undefined) data[KEYS.alignPreviewOpen] = !!state.alignPreviewOpen;
+  if (state.pixelEditorOpen !== undefined) data[KEYS.pixelEditorOpen] = !!state.pixelEditorOpen;
   write(data);
 }
 

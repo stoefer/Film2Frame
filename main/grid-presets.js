@@ -5,6 +5,7 @@
 const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { tr } = require('./main-i18n');
 
 const FILENAME = 'grid-presets.json';
 
@@ -39,9 +40,9 @@ function writeAll(presets) {
 }
 
 function saveGridPreset(name, grid) {
-  if (!name || typeof name !== 'string') return { ok: false, error: 'Geen naam' };
+  if (!name || typeof name !== 'string') return { ok: false, error: tr('gridPresets.errorNoName') };
   const trimmed = name.trim();
-  if (!trimmed) return { ok: false, error: 'Geen naam' };
+  if (!trimmed) return { ok: false, error: tr('gridPresets.errorNoName') };
   const presets = readAll();
   const existing = presets.findIndex((p) => p.name === trimmed);
   const entry = {

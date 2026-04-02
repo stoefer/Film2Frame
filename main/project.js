@@ -4,6 +4,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const { nativeImage } = require('electron');
+const { tr } = require('./main-i18n');
 
 const PROJECT_FILE = 'project.json';
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp']);
@@ -35,7 +36,7 @@ const MAX_FRAMES_PER_LINT = 99;
  * Schrijf project naar map. data = { name, location, framesPerLint, numberOfScans, filmFormat?, outputFolder?, ... }
  */
 async function writeProject(projectFolderPath, data) {
-  if (!projectFolderPath) throw new Error('Geen projectmap');
+  if (!projectFolderPath) throw new Error(tr('ipc.errorNoProjectFolderGiven'));
   await fs.mkdir(projectFolderPath, { recursive: true });
   const now = new Date().toISOString();
   const out = {
@@ -59,7 +60,11 @@ async function writeProject(projectFolderPath, data) {
     stripPresetId:
       data.stripPresetId != null && typeof data.stripPresetId === 'string' && data.stripPresetId.trim() !== ''
         ? data.stripPresetId.trim()
-        : null
+        : null,
+    /** Map voor PNG’s van de frame-pixel-editor (Vorige/Volgende); niet hetzelfde als frame-exportmap. */
+    pixelEditorOutputFolder: data.pixelEditorOutputFolder || null,
+    /** Optionele bronmap voor scan-navigatie (pixel-editor / los van project-scanlijst). */
+    pixelEditorSourceFolder: data.pixelEditorSourceFolder || null
   };
   const filePath = path.join(projectFolderPath, PROJECT_FILE);
   await fs.writeFile(filePath, JSON.stringify(out, null, 2), 'utf8');
@@ -99,12 +104,17 @@ async function listImagesInFolder(folderPath) {
 /**
  * Bepaal per scan de oriëntatie (verticaal/horizontaal) via afmetingen.
  * Langste zijde = hoogte => verticaal; breedte > hoogte => horizontaal (wordt bij laden 90° gedraaid).
- * Retourneert [{ path, width, height, orientation: 'vertical'|'horizontal', name }].
+ * Retourneert { infos, cancelled }.
  * @param {(current: number, total: number) => void} [onProgress] — current=verwerkte bestanden (0…total), total=aantal beelden
+ * @param {() => boolean} [shouldCancel] — true = stoppen en gedeeltelijke infos teruggeven
  */
-async function getScanInfos(folderPath, onProgress) {
+async function getScanInfos(folderPath, onProgress, shouldCancel) {
   const paths = await listImagesInFolder(folderPath);
   const total = paths.length;
+  await new Promise((r) => setImmediate(r));
+  if (typeof shouldCancel === 'function' && shouldCancel()) {
+    return { infos: [], cancelled: true };
+  }
   if (typeof onProgress === 'function') {
     try {
       onProgress(0, total);
@@ -112,6 +122,12 @@ async function getScanInfos(folderPath, onProgress) {
   }
   const infos = [];
   for (let i = 0; i < paths.length; i++) {
+    if (i % 5 === 0) {
+      await new Promise((r) => setImmediate(r));
+    }
+    if (typeof shouldCancel === 'function' && shouldCancel()) {
+      return { infos, cancelled: true };
+    }
     const filePath = paths[i];
     let width = 0;
     let height = 0;
@@ -137,7 +153,7 @@ async function getScanInfos(folderPath, onProgress) {
       } catch (_) {}
     }
   }
-  return infos;
+  return { infos, cancelled: false };
 }
 
 /**

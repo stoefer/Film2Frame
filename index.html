@@ -17,15 +17,19 @@
           <div id="f2f-scan-folder-bar" class="f2f-scan-folder-bar" style="width: 0%"></div>
         </div>
         <p id="f2f-scan-folder-count" class="f2f-scan-folder-count">—</p>
+        <div class="f2f-scan-folder-actions">
+          <button type="button" id="f2f-scan-folder-cancel" class="btn btn-secondary f2f-scan-folder-cancel" disabled data-i18n="scanFolderOverlay.cancelButton">Annuleren</button>
+        </div>
       </div>
     </div>
     <header class="toolbar">
-      <h1 class="toolbar-title">Film2Frame</h1>
+      <h1 class="toolbar-title" data-i18n="toolbar.title">Film2Frame</h1>
       <span id="f2f-build-version" class="toolbar-version" data-i18n-title="toolbar.buildVersionTooltip">—</span>
       <select id="f2f-locale" class="toolbar-locale" data-i18n-aria-label="app.language" data-i18n-title="app.language">
         <option value="nl">Nederlands</option>
         <option value="en">English</option>
       </select>
+      <button type="button" id="f2f-open-settings" class="btn btn-secondary" data-i18n-title="toolbar.settingsTooltip" data-i18n="toolbar.settingsButton">Instellingen</button>
       <button type="button" id="f2f-about-btn" class="btn btn-about" data-i18n-title="toolbar.aboutTooltip" data-i18n="toolbar.aboutButton">Over</button>
       <div class="toolbar-status">
         <span class="toolbar-status-label" data-i18n="toolbar.statusLoadLabel">Belasting</span>
@@ -37,21 +41,14 @@
         <span id="status-operation" class="toolbar-status-operation">—</span>
       </div>
     </header>
-    <main class="content main-two-panels">
+    <main class="content main-body-stack">
+      <div class="main-two-panels">
       <div class="main-panel main-panel-left">
       <section class="panel project-panel">
         <h2 data-i18n="project.sectionTitle">Project</h2>
         <div id="project-bar" class="project-bar">
           <span id="project-info" class="project-info" data-i18n="project.noProjectOpen">Geen project geopend</span>
           <span id="project-dirty" class="project-dirty hidden" data-i18n="project.unsavedSuffix"> (niet opgeslagen)</span>
-          <div class="project-actions">
-            <button type="button" id="f2f-project-starten" class="btn btn-secondary btn-project-open" data-i18n-title="project.startTooltip" data-i18n="project.startButton">Project starten</button>
-            <button type="button" id="f2f-refresh-scan-list" class="btn btn-secondary small hidden btn-scanlist-refresh" data-i18n-title="project.refreshScanListTooltip" data-i18n="project.refreshScanListButton">Scanlijst vernieuwen</button>
-            <button type="button" id="f2f-new-project" class="btn btn-primary" data-i18n="project.newButton">Nieuw project</button>
-            <button type="button" id="f2f-open-project" class="btn btn-secondary btn-project-open" data-i18n="project.openButton">Open</button>
-            <button type="button" id="f2f-save-project" class="btn btn-secondary btn-project-save" data-i18n="project.saveButton">Bewaren</button>
-            <button type="button" id="f2f-delete-project" class="btn btn-secondary btn-project-delete hidden" data-i18n-title="project.deleteTooltip" data-i18n="project.deleteButton">Project wissen</button>
-          </div>
         </div>
         <div id="project-stats" class="project-stats hidden">
           <h3 class="project-stats-title" data-i18n="project.statsTitle">Overzicht</h3>
@@ -78,12 +75,37 @@
             </div>
           </div>
         </div>
+        <div class="sub-panel sub-panel--project-actions" id="project-actions-panel">
+          <div class="sub-panel-header">
+            <h3 class="sub-panel-title project-actions-panel__title" data-i18n="project.actionsPanelTitle">PROJECT</h3>
+            <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
+          </div>
+          <div class="sub-panel-collapsible">
+          <div class="sub-panel-body project-actions-panel__body">
+            <div class="project-actions-row">
+              <button type="button" id="f2f-project-starten" class="btn btn-secondary btn-project-open project-actions-btn" data-i18n-title="project.startTooltip" data-i18n="project.startButton">Project starten</button>
+              <button type="button" id="f2f-new-project" class="btn btn-primary project-actions-btn" data-i18n="project.newButton">Nieuw project</button>
+              <button type="button" id="f2f-open-project" class="btn btn-secondary btn-project-open project-actions-btn" data-i18n-title="project.openFolderTooltip" data-i18n="project.openButton">Open</button>
+              <button type="button" id="f2f-open-project-file" class="btn btn-secondary btn-project-open small project-actions-btn" data-i18n-title="project.openFileTooltip" data-i18n="project.openFileButton">project.json</button>
+            </div>
+            <div class="project-actions-row">
+              <button type="button" id="f2f-refresh-scan-list" class="btn btn-secondary small hidden btn-scanlist-refresh project-actions-btn" data-i18n-title="project.refreshScanListTooltip" data-i18n="project.refreshScanListButton">Scanlijst vernieuwen</button>
+              <button type="button" id="f2f-save-project" class="btn btn-secondary btn-project-save project-actions-btn" data-i18n="project.saveButton">Bewaren</button>
+              <button type="button" id="f2f-delete-project" class="btn btn-secondary btn-project-delete hidden project-actions-btn" data-i18n-title="project.deleteTooltip" data-i18n="project.deleteButton">Project wissen</button>
+            </div>
+            <div class="project-actions-row project-actions-row--close">
+              <button type="button" id="f2f-close-project" class="btn btn-secondary btn-project-close hidden project-actions-btn project-actions-btn--close" data-i18n-title="project.closeProjectTooltip" data-i18n="project.closeProjectButton">Project sluiten</button>
+            </div>
+          </div>
+          </div>
+        </div>
         <div id="project-first-step" class="project-first-step">
           <p class="message" data-i18n="project.firstStepMessage">Eerst een project aanmaken of openen om te werken met scanlinten.</p>
           <div id="new-project-form" class="new-project-form hidden">
             <div class="row">
               <label data-i18n="project.folderLabel">Projectmap</label>
               <button type="button" id="f2f-pick-project-folder" class="btn btn-secondary" data-i18n="project.pickFolderButton">Kies map…</button>
+              <button type="button" id="f2f-suggest-project-folder" class="btn btn-secondary small" data-i18n-title="project.suggestFolderTooltip" data-i18n="project.suggestFolderButton">Standaardmap</button>
               <span id="f2f-project-folder-path" class="filename">—</span>
             </div>
             <div class="row">
@@ -121,7 +143,11 @@
         </div>
         <div id="lint-panel" class="lint-panel">
           <div class="sub-panel sub-panel--strip">
-            <h3 class="sub-panel-title" data-i18n="strip.subPanelTitle">Filmstrook (scanlint)</h3>
+            <div class="sub-panel-header">
+              <h3 class="sub-panel-title" data-i18n="strip.subPanelTitle">Filmstrook (scanlint)</h3>
+              <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
+            </div>
+            <div class="sub-panel-collapsible">
             <div class="controls sub-panel-body">
               <div class="row">
                 <label data-i18n="strip.scanLabel">Scanlint</label>
@@ -145,33 +171,12 @@
                 <label class="checkbox-label"><input type="radio" name="f2f-polarity" id="f2f-polarity-pos" value="positief" checked /><span data-i18n="strip.polarityPositive">Positief</span></label>
                 <label class="checkbox-label"><input type="radio" name="f2f-polarity" id="f2f-polarity-neg" value="negatief" /><span data-i18n="strip.polarityNegative">Negatief</span></label>
               </div>
-              <div class="row row--fine-rotation">
-                <label data-i18n="strip.fineRotationLabel">Fijne draaiing (±1°)</label>
-                <select id="f2f-tilt-pivot" class="input-select small" data-i18n-title="strip.tiltPivotTooltip">
-                  <option value="top-left" data-i18n="strip.tiltPivotTopLeft">Boven links</option>
-                  <option value="top-center" data-i18n="strip.tiltPivotTopCenter">Boven midden</option>
-                  <option value="top-right" data-i18n="strip.tiltPivotTopRight">Boven rechts</option>
-                  <option value="center-left" data-i18n="strip.tiltPivotCenterLeft">Midden links</option>
-                  <option value="center" selected data-i18n="strip.tiltPivotCenter">Midden</option>
-                  <option value="center-right" data-i18n="strip.tiltPivotCenterRight">Midden rechts</option>
-                  <option value="bottom-left" data-i18n="strip.tiltPivotBottomLeft">Onder links</option>
-                  <option value="bottom-center" data-i18n="strip.tiltPivotBottomCenter">Onder midden</option>
-                  <option value="bottom-right" data-i18n="strip.tiltPivotBottomRight">Onder rechts</option>
-                </select>
-                <input type="range" id="f2f-fine-rotation" min="-1000" max="1000" value="0" step="1" data-i18n-title="strip.fineRotationSliderTooltip" />
-                <div class="fine-rotation-nudge" data-i18n-title="strip.fineRotationStepsTooltip">
-                  <button type="button" id="f2f-fine-minus-coarse" class="btn btn-secondary fine-rotation-nudge-btn" data-i18n-title="strip.fineMinusCoarseTooltip" data-i18n="strip.fineMinusCoarseTooltip">−0,01°</button>
-                  <button type="button" id="f2f-fine-minus-fine" class="btn btn-secondary fine-rotation-nudge-btn" data-i18n-title="strip.fineMinusFineTooltip" data-i18n="strip.fineMinusFineTooltip">−0,001°</button>
-                  <input type="number" id="f2f-fine-value" min="-1" max="1" step="0.001" value="0" class="input-num input-num--fine input-num--no-spin" data-i18n-title="strip.fineValueTooltip" inputmode="decimal" />
-                  <span class="fine-rotation-degree" aria-hidden="true">°</span>
-                  <button type="button" id="f2f-fine-plus-fine" class="btn btn-secondary fine-rotation-nudge-btn" data-i18n-title="strip.finePlusFineTooltip" data-i18n="strip.finePlusFineTooltip">+0,001°</button>
-                  <button type="button" id="f2f-fine-plus-coarse" class="btn btn-secondary fine-rotation-nudge-btn" data-i18n-title="strip.finePlusCoarseTooltip" data-i18n="strip.finePlusCoarseTooltip">+0,01°</button>
-                </div>
-              </div>
               <div class="row">
                 <label data-i18n="strip.numFramesLabel">Aantal frames (1–99)</label>
                 <input type="number" id="f2f-num-frames" min="1" max="99" value="30" class="input-num" />
+                <button type="button" id="f2f-workflow-single-frame" class="btn btn-secondary small" data-i18n-title="workflow.singleFrameButtonTooltip" data-i18n="workflow.singleFrameButton">Eén frame per scan</button>
               </div>
+              <p class="overlay-hint strip-workflow-hint" data-i18n="workflow.singleFrameHintShort">Voor één vol beeld met rand/perforatie: daarna raster in Scanlint fijnstellen (Hand, boven/onderrand).</p>
               <div class="row">
                 <label data-i18n="strip.activeFrameLabel">Actief frame</label>
                 <button type="button" id="f2f-prev-frame" class="btn btn-secondary">◀</button>
@@ -185,6 +190,7 @@
                   <button type="button" id="f2f-open-strip" class="btn btn-preview-scanlint" data-i18n-title="strip.previewScanlintTooltip" data-i18n="strip.previewScanlintButton">SCANLINT</button>
                   <button type="button" id="f2f-open-align-preview" class="btn btn-preview-align" data-i18n-title="strip.previewAlignTooltip" data-i18n="strip.previewAlignButton">UITLIJN</button>
                   <button type="button" id="f2f-open-output-preview" class="btn btn-preview-output" data-i18n-title="strip.previewOutputTooltip" data-i18n="strip.previewOutputButton">OUTPUT</button>
+                  <button type="button" id="f2f-open-pixel-editor" class="btn btn-preview-pixel" data-i18n-title="strip.previewPixelEditorTooltip" data-i18n="strip.previewPixelEditorButton">PIXELS</button>
                 </div>
               </div>
               <div class="row">
@@ -198,166 +204,73 @@
                   <option value="4096" data-i18n="strip.previewRes4096">4096 px</option>
                 </select>
               </div>
+              <div class="strip-rotation-block">
+                <h4 class="strip-rotation-block__title" data-i18n="strip.fineRotationLabel">Fijne draaiing (±1°)</h4>
+                <div class="strip-rotation-block__pivot">
+                  <label for="f2f-tilt-pivot" class="strip-rotation-block__field-label" data-i18n="strip.tiltPivotLabel">Kantelpunt</label>
+                  <select id="f2f-tilt-pivot" class="input-select strip-rotation-block__select" data-i18n-title="strip.tiltPivotTooltip">
+                    <option value="top-left" data-i18n="strip.tiltPivotTopLeft">Boven links</option>
+                    <option value="top-center" data-i18n="strip.tiltPivotTopCenter">Boven midden</option>
+                    <option value="top-right" data-i18n="strip.tiltPivotTopRight">Boven rechts</option>
+                    <option value="center-left" data-i18n="strip.tiltPivotCenterLeft">Midden links</option>
+                    <option value="center" selected data-i18n="strip.tiltPivotCenter">Midden</option>
+                    <option value="center-right" data-i18n="strip.tiltPivotCenterRight">Midden rechts</option>
+                    <option value="bottom-left" data-i18n="strip.tiltPivotBottomLeft">Onder links</option>
+                    <option value="bottom-center" data-i18n="strip.tiltPivotBottomCenter">Onder midden</option>
+                    <option value="bottom-right" data-i18n="strip.tiltPivotBottomRight">Onder rechts</option>
+                  </select>
+                </div>
+                <div class="strip-rotation-block__slider" data-i18n-title="strip.fineRotationSliderTooltip">
+                  <label for="f2f-fine-rotation" class="strip-rotation-block__field-label" data-i18n="strip.fineRotationSliderLabel">Hoek (schuif)</label>
+                  <input type="range" id="f2f-fine-rotation" class="strip-rotation-block__range" min="-1000" max="1000" value="0" step="1" data-i18n-title="strip.fineRotationSliderTooltip" />
+                </div>
+                <div class="strip-rotation-block__nudge" data-i18n-title="strip.fineRotationStepsTooltip">
+                  <div class="fine-rotation-nudge">
+                    <span class="fine-rotation-lr" aria-hidden="true">L</span>
+                    <button type="button" id="f2f-fine-minus-coarse" class="btn btn-secondary fine-rotation-nudge-btn" data-i18n-title="strip.fineMinusCoarseTooltip" data-i18n="strip.fineMinusCoarseTooltip">−0,01°</button>
+                    <button type="button" id="f2f-fine-minus-fine" class="btn btn-secondary fine-rotation-nudge-btn" data-i18n-title="strip.fineMinusFineTooltip" data-i18n="strip.fineMinusFineTooltip">−0,001°</button>
+                    <input type="number" id="f2f-fine-value" min="-1" max="1" step="0.001" value="0" class="input-num input-num--fine input-num--no-spin" data-i18n-title="strip.fineValueTooltip" inputmode="decimal" />
+                    <span class="fine-rotation-degree" aria-hidden="true">°</span>
+                    <button type="button" id="f2f-fine-plus-fine" class="btn btn-secondary fine-rotation-nudge-btn" data-i18n-title="strip.finePlusFineTooltip" data-i18n="strip.finePlusFineTooltip">+0,001°</button>
+                    <button type="button" id="f2f-fine-plus-coarse" class="btn btn-secondary fine-rotation-nudge-btn" data-i18n-title="strip.finePlusCoarseTooltip" data-i18n="strip.finePlusCoarseTooltip">+0,01°</button>
+                    <span class="fine-rotation-lr" aria-hidden="true">R</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            </div>
+          </div>
+          <div class="sub-panel sub-panel--filmformat">
+            <div class="sub-panel-header">
+              <h3 class="sub-panel-title filmformat-panel__title" data-i18n="strip.filmformatPanelTitle">FILMFORMAAT</h3>
+              <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
+            </div>
+            <div class="sub-panel-collapsible">
+            <div class="sub-panel-body filmformat-panel__body">
+              <div class="filmformat-btn-row">
+                <button type="button" id="f2f-preset-16mm-double" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.preset16mmDoubleTooltip" data-i18n="overlay.preset16mmDouble">16mm dubbel</button>
+                <button type="button" id="f2f-preset-16mm-single" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.preset16mmSingleTooltip" data-i18n="overlay.preset16mmSingle">16mm enkel</button>
+                <button type="button" id="f2f-preset-super16" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.presetSuper16Tooltip" data-i18n="overlay.presetSuper16">Super 16mm</button>
+                <button type="button" id="f2f-preset-8mm" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.preset8mmTooltip" data-i18n="overlay.preset8mm">8mm</button>
+              </div>
+              <div class="filmformat-btn-row">
+                <button type="button" id="f2f-preset-super8" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.presetSuper8Tooltip" data-i18n="overlay.presetSuper8">Super 8</button>
+                <button type="button" id="f2f-preset-9.5mm" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.preset9_5mmTooltip" data-i18n="overlay.preset9_5mm">9,5mm</button>
+                <button type="button" id="f2f-preset-35mm" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.preset35mmTooltip" data-i18n="overlay.preset35mm">35mm</button>
+              </div>
+            </div>
             </div>
           </div>
         </div>
       </section>
-      <div class="sub-panel sub-panel--settings">
-        <button type="button" id="f2f-settings-toggle" class="settings-accordion-toggle" aria-expanded="false" data-i18n="settings.toggleButton">
-          Instellingen
-        </button>
-        <div id="f2f-settings-content" class="settings-content sub-panel-body hidden">
-          <div class="row">
-            <label for="f2f-setting-dpi" data-i18n="settings.dpiLabel">Scan-DPI</label>
-            <select id="f2f-setting-dpi" class="input-select">
-              <option value="600">600</option>
-              <option value="1200">1200</option>
-              <option value="2400">2400</option>
-              <option value="4800" selected>4800</option>
-              <option value="9600">9600</option>
-            </select>
-          </div>
-          <div class="row">
-            <label for="f2f-setting-default-frames" data-i18n="settings.defaultFramesLabel">Standaard frames per lint</label>
-            <input type="number" id="f2f-setting-default-frames" min="1" max="99" value="30" class="input-num" />
-          </div>
-          <div class="row">
-            <label for="f2f-setting-output-format" data-i18n="settings.outputFormatLabel">Uitvoerformaat</label>
-            <select id="f2f-setting-output-format" class="input-select">
-              <option value="png" selected data-i18n="settings.outputFormatPng">PNG</option>
-              <option value="jpg" data-i18n="settings.outputFormatJpg">JPG</option>
-            </select>
-          </div>
-          <div class="row">
-            <label for="f2f-setting-output-res" data-i18n="settings.outputResLabel">Uitvoerresolutie (Frame generator)</label>
-            <select id="f2f-setting-output-res" class="input-select" data-i18n-title="settings.outputResTooltip">
-              <option value="original" selected data-i18n="settings.outputResOriginal">Raster (native pixels)</option>
-              <option value="r1024x768" data-i18n="settings.outputRes1024x768">1024 × 768</option>
-              <option value="r1280x720" data-i18n="settings.outputRes1280x720">1280 × 720 (SD)</option>
-              <option value="r1280x960" data-i18n="settings.outputRes1280x960">1280 × 960</option>
-              <option value="r1600x1200" data-i18n="settings.outputRes1600x1200">1600 × 1200</option>
-              <option value="r1920x1080" data-i18n="settings.outputRes1920x1080">1920 × 1080 (Full HD)</option>
-              <option value="r2560x1440" data-i18n="settings.outputRes2560x1440">2560 × 1440 (QHD)</option>
-              <option value="r3840x2160" data-i18n="settings.outputRes3840x2160">3840 × 2160 (UHD 4K)</option>
-              <option value="custom" data-i18n="settings.outputResCustom">Aangepast…</option>
-            </select>
-          </div>
-          <div id="f2f-setting-custom-res-wrap" class="row hidden">
-            <label data-i18n="settings.customResLabel">Custom resolutie</label>
-            <input type="number" id="f2f-setting-custom-w" min="1" data-i18n-placeholder="settings.customResWidthPlaceholder" class="input-num" />
-            <span>×</span>
-            <input type="number" id="f2f-setting-custom-h" min="1" data-i18n-placeholder="settings.customResHeightPlaceholder" class="input-num" />
-          </div>
-          <div class="row">
-            <label for="f2f-setting-preview-res" data-i18n="settings.previewResLabel">Preview-resolutie scanlint</label>
-            <select id="f2f-setting-preview-res" class="input-select">
-              <option value="1024">1024 px</option>
-              <option value="1536">1536 px</option>
-              <option value="2048" selected>2048 px</option>
-              <option value="2560">2560 px</option>
-              <option value="3072">3072 px</option>
-              <option value="4096">4096 px</option>
-            </select>
-          </div>
-          <div class="row">
-            <label class="checkbox-label">
-              <input type="checkbox" id="f2f-setting-dark-mode" /><span data-i18n="settings.darkModeLabel">Donkere modus</span>
-            </label>
-          </div>
-          <div class="row row--arrange-grid">
-            <span class="label-block" id="f2f-arrange-grid-label" data-i18n="settings.arrangeGridLabel">Paneelschikking (3×3)</span>
-            <p class="settings-hint" data-i18n="settings.arrangeGridHint">O = Output-preview · S = Scanlint · H = Hoofdvenster. Rij 1–2: drie gelijke kolommen (volle hoogte). Rij 3: gecombineerde indelingen.</p>
-            <input type="hidden" id="f2f-setting-window-arrangement" value="horiz-osm" />
-            <div id="f2f-arrange-grid" class="f2f-arrange-grid" role="group" aria-labelledby="f2f-arrange-grid-label">
-              <button type="button" class="f2f-arrange-cell" data-layout="horiz-osm" data-i18n-title="settings.arrangeLayoutOsM">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--h3"><span>O</span><span>S</span><span>H</span></span>
-              </button>
-              <button type="button" class="f2f-arrange-cell" data-layout="horiz-oms" data-i18n-title="settings.arrangeLayoutOmS">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--h3"><span>O</span><span>H</span><span>S</span></span>
-              </button>
-              <button type="button" class="f2f-arrange-cell" data-layout="horiz-som" data-i18n-title="settings.arrangeLayoutSoM">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--h3"><span>S</span><span>O</span><span>H</span></span>
-              </button>
-              <button type="button" class="f2f-arrange-cell" data-layout="horiz-smo" data-i18n-title="settings.arrangeLayoutSmO">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--h3"><span>S</span><span>H</span><span>O</span></span>
-              </button>
-              <button type="button" class="f2f-arrange-cell" data-layout="horiz-mos" data-i18n-title="settings.arrangeLayoutMoS">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--h3"><span>H</span><span>O</span><span>S</span></span>
-              </button>
-              <button type="button" class="f2f-arrange-cell" data-layout="horiz-mso" data-i18n-title="settings.arrangeLayoutMsO">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--h3"><span>H</span><span>S</span><span>O</span></span>
-              </button>
-              <button type="button" class="f2f-arrange-cell" data-layout="split-out-left" data-i18n-title="settings.arrangeLayoutSplitOutLeft">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--split-l"><span class="f2f-arrange-big">O</span><span class="f2f-arrange-stack"><span>S</span><span>H</span></span></span>
-              </button>
-              <button type="button" class="f2f-arrange-cell" data-layout="vert-osm" data-i18n-title="settings.arrangeLayoutVertOsm">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--v3"><span>O</span><span>S</span><span>H</span></span>
-              </button>
-              <button type="button" class="f2f-arrange-cell" data-layout="horiz-top2-bottom-main" data-i18n-title="settings.arrangeLayoutTop2BottomMain">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--bottom"><span class="f2f-arrange-top2"><span>O</span><span>S</span></span><span class="f2f-arrange-full">H</span></span>
-              </button>
-            </div>
-          </div>
-          <div class="row row--arrange-grid">
-            <span class="label-block" id="f2f-arrange-grid-hsu-label" data-i18n="settings.arrangeGridHsuLabel">Hoofd · Scanlint · UITLIJN (alle 6 volgorden)</span>
-            <p class="settings-hint" data-i18n="settings.arrangeGridHsuHint">Alle volgorden van H, S en U (3×2 raster). Drie gelijke kolommen; <strong>output-preview</strong> wordt niet verplaatst. Open Scanlint en UITLIJN voor een nette indeling.</p>
-            <div id="f2f-arrange-grid-hsu" class="f2f-arrange-grid f2f-arrange-grid--hsu" role="group" aria-labelledby="f2f-arrange-grid-hsu-label">
-              <button type="button" class="f2f-arrange-cell" data-layout="triple-msa" data-i18n-title="settings.arrangeLayoutTripleMsA">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--h3"><span>H</span><span>S</span><span>U</span></span>
-              </button>
-              <button type="button" class="f2f-arrange-cell" data-layout="triple-mus" data-i18n-title="settings.arrangeLayoutTripleMuS">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--h3"><span>H</span><span>U</span><span>S</span></span>
-              </button>
-              <button type="button" class="f2f-arrange-cell" data-layout="triple-sma" data-i18n-title="settings.arrangeLayoutTripleSmA">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--h3"><span>S</span><span>H</span><span>U</span></span>
-              </button>
-              <button type="button" class="f2f-arrange-cell" data-layout="triple-suh" data-i18n-title="settings.arrangeLayoutTripleSuH">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--h3"><span>S</span><span>U</span><span>H</span></span>
-              </button>
-              <button type="button" class="f2f-arrange-cell" data-layout="triple-ums" data-i18n-title="settings.arrangeLayoutTripleUmS">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--h3"><span>U</span><span>H</span><span>S</span></span>
-              </button>
-              <button type="button" class="f2f-arrange-cell" data-layout="triple-ush" data-i18n-title="settings.arrangeLayoutTripleUsH">
-                <span class="f2f-arrange-thumb f2f-arrange-thumb--h3"><span>U</span><span>S</span><span>H</span></span>
-              </button>
-            </div>
-          </div>
-          <div class="row">
-            <label class="checkbox-label">
-              <input type="checkbox" id="f2f-setting-arrange-on-startup" /><span data-i18n="settings.arrangeOnStartupLabel">Vensters automatisch schikken bij opstart (na openen preview-vensters)</span>
-            </label>
-          </div>
-          <div class="row">
-            <label for="f2f-setting-arrow-step-px" data-i18n="settings.arrowStepLabel">Pijltjesstap (px, 1–10)</label>
-            <input type="number" id="f2f-setting-arrow-step-px" min="1" max="10" value="1" class="input-num" data-i18n-title="settings.arrowStepTooltip" />
-          </div>
-          <div class="row">
-            <label for="f2f-setting-arrow-step-shift-px" data-i18n="settings.arrowStepShiftLabel">Pijltjesstap met Shift (px, 10–100)</label>
-            <input type="number" id="f2f-setting-arrow-step-shift-px" min="10" max="100" value="10" class="input-num" data-i18n-title="settings.arrowStepShiftTooltip" />
-          </div>
-          <div class="settings-strip-shortcuts">
-            <h3 class="settings-subheading" data-i18n="settings.stripShortcutsTitle">Scanlint — sneltoetsen</h3>
-            <p class="settings-hint" data-i18n="settings.stripShortcutsHint">Geldt voor het venster <strong>Scanlint – raster afstellen</strong>. Klik <strong>Wijzig…</strong> en druk daarna de gewenste toets (met Ctrl, Shift, Alt of Win indien nodig). <kbd>Esc</kbd> annuleert. <strong>Wissen</strong> schakelt de sneltoets uit. Na <strong>Instellingen bewaren</strong> worden actieve scanlint-vensters direct bijgewerkt.</p>
-            <table class="f2f-strip-shortcuts-table" id="f2f-strip-shortcuts-table" data-i18n-aria-label="settings.stripShortcutsTableLabel" data-i18n-title="settings.stripShortcutsTableLabel">
-              <thead>
-                <tr><th data-i18n="settings.stripShortcutsFunctionColumn">Functie</th><th data-i18n="settings.stripShortcutsKeyColumn">Toets</th><th></th></tr>
-              </thead>
-              <tbody id="f2f-strip-shortcuts-tbody"></tbody>
-            </table>
-            <div class="row">
-              <button type="button" id="f2f-strip-shortcuts-reset-all" class="btn btn-secondary small" data-i18n="settings.stripShortcutsResetButton">Alle sneltoetsen terugzetten (standaard)</button>
-            </div>
-          </div>
-          <div class="row">
-            <button type="button" id="f2f-arrange-windows" class="btn btn-secondary" data-i18n="settings.arrangeWindowsButton">Vensters schikken</button>
-            <button type="button" id="f2f-settings-save" class="btn btn-primary" data-i18n="settings.saveButton">Instellingen bewaren</button>
-          </div>
-        </div>
-      </div>
       </div>
       <div class="main-panel main-panel-right">
         <div id="f2f-info-panel" class="sub-panel sub-panel--scaninfo panel-equivalent">
-          <h3 class="sub-panel-title" data-i18n="scaninfo.panelTitle">Scaninfo</h3>
+          <div class="sub-panel-header">
+            <h3 class="sub-panel-title" data-i18n="scaninfo.panelTitle">Scaninfo</h3>
+            <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
+          </div>
+          <div class="sub-panel-collapsible">
           <div class="info-panel-grid sub-panel-body">
             <span class="info-label" data-i18n="scaninfo.dimensionsLabel">Afmetingen scan</span>
             <span id="f2f-info-dimensions" class="info-value">—</span>
@@ -366,9 +279,14 @@
             <span class="info-label" data-i18n="scaninfo.filmLabel">Filmsoort</span>
             <span id="f2f-info-film" class="info-value">—</span>
           </div>
+          </div>
         </div>
-        <section class="panel overlay-panel">
-          <h2 data-i18n="overlay.sectionTitle">Overlay grid</h2>
+        <section class="panel overlay-panel panel-collapsible">
+          <div class="sub-panel-header">
+            <h2 data-i18n="overlay.sectionTitle">Overlay grid</h2>
+            <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
+          </div>
+          <div class="sub-panel-collapsible">
           <p class="overlay-hint" data-i18n="overlay.hint">Plaatsen en afmeten van het raster (X/Y, Y-onder, pijltjes, breedte/hoogte, samendruk/uitrekken per stap (1/10 px), Shift+Samendruk = max. samendruk, reset, springen BOVEN/MIDDEN/ONDER, zoom, presets met naam) gebeurt in het venster <strong>Scanlint – raster afstellen</strong>. Hieronder: snelle start-offset per filmtype, raster uit millimeters, en <strong>raster-presets</strong> (alleen afmetingen/offsets — bruikbaar in elk project).</p>
           <div class="row overlay-row grid-preset-row">
             <span class="offset-presets-label" data-i18n-title="overlay.gridPresetLabelTooltip" data-i18n="overlay.gridPresetLabel">Raster-preset (alleen afstelling):</span>
@@ -380,16 +298,21 @@
             <button type="button" id="f2f-grid-preset-load" class="btn btn-secondary small" data-i18n-title="overlay.gridPresetLoadTooltip" data-i18n="overlay.gridPresetLoadButton">Laden</button>
             <button type="button" id="f2f-grid-preset-delete" class="btn btn-secondary small" data-i18n-title="overlay.gridPresetDeleteTooltip" data-i18n="overlay.gridPresetDeleteButton">Wissen</button>
           </div>
-          <div class="row overlay-row row-offset-presets">
-            <span class="offset-presets-label" data-i18n="overlay.offsetPresetsLabel">Snelle offset (% van beeld, grove start):</span>
-            <button type="button" id="f2f-preset-16mm-double" class="btn btn-secondary small" data-i18n-title="overlay.preset16mmDoubleTooltip" data-i18n="overlay.preset16mmDouble">16mm dubbel</button>
-            <button type="button" id="f2f-preset-16mm-single" class="btn btn-secondary small" data-i18n-title="overlay.preset16mmSingleTooltip" data-i18n="overlay.preset16mmSingle">16mm enkel</button>
-            <button type="button" id="f2f-preset-super16" class="btn btn-secondary small" data-i18n-title="overlay.presetSuper16Tooltip" data-i18n="overlay.presetSuper16">Super 16mm</button>
-            <button type="button" id="f2f-preset-8mm" class="btn btn-secondary small" data-i18n="overlay.preset8mm">8mm</button>
-            <button type="button" id="f2f-preset-super8" class="btn btn-secondary small" data-i18n="overlay.presetSuper8">Super 8</button>
-            <button type="button" id="f2f-preset-9.5mm" class="btn btn-secondary small" data-i18n="overlay.preset9_5mm">9,5mm</button>
-            <button type="button" id="f2f-preset-35mm" class="btn btn-secondary small" data-i18n="overlay.preset35mm">35mm</button>
+          <div class="row overlay-row workflow-starter-row">
+            <span class="offset-presets-label" data-i18n-title="workflow.starterApplyTooltip" data-i18n="workflow.starterLabel">Startsjabloon (één frame)</span>
+            <select id="f2f-workflow-starter-film" class="input-select small" style="max-width:200px" data-i18n-title="workflow.starterSelectTooltip">
+              <option value="" data-i18n="workflow.starterUseCurrentFilm">— Huidige filmsoort —</option>
+              <option value="16mm-double" data-i18n="strip.filmFormat16mmDouble">16mm dubbel perf</option>
+              <option value="16mm-single" data-i18n="strip.filmFormat16mmSingle">16mm enkel perf</option>
+              <option value="super16" data-i18n="strip.filmFormatSuper16">Super 16mm</option>
+              <option value="8mm" data-i18n="strip.filmFormat8mm">8mm</option>
+              <option value="super8" data-i18n="strip.filmFormatSuper8">Super 8</option>
+              <option value="9.5mm" data-i18n="strip.filmFormat9_5mm">9,5mm</option>
+              <option value="35mm" data-i18n="strip.filmFormat35mm">35mm</option>
+            </select>
+            <button type="button" id="f2f-workflow-apply-starter" class="btn btn-secondary small" data-i18n-title="workflow.starterApplyTooltip" data-i18n="workflow.starterApply">1 frame + start-offset</button>
           </div>
+          <p class="overlay-hint workflow-templates-hint" data-i18n="workflow.templatesHint">Sla een goed passend raster op als raster-preset om het als sjabloon voor volgende scans te hergebruiken.</p>
           <div class="row overlay-row metric-grid-row">
             <span class="offset-presets-label" data-i18n="overlay.metricGridLabel">Raster uit metrische maten:</span>
             <label class="overlay-label" data-i18n-title="overlay.mmWidthTooltip"><span data-i18n="overlay.mmWidthLabel">Breedte (mm)</span> <input type="number" id="f2f-grid-mm-width" min="0" step="0.1" value="10.26" class="input-num small" /></label>
@@ -398,9 +321,22 @@
             <label class="overlay-label" data-i18n-title="overlay.pxPerMmTooltip"><span data-i18n="overlay.pxPerMmLabel">px/mm</span> <input type="number" id="f2f-grid-px-per-mm" min="0.1" step="0.1" value="10" class="input-num small" /></label>
             <button type="button" id="f2f-apply-grid-from-mm" class="btn btn-secondary small" data-i18n-title="overlay.applyGridTooltip" data-i18n="overlay.applyGridButton">Raster toepassen</button>
           </div>
+          <div class="row overlay-row metric-grid-row pixel-grid-row">
+            <span class="offset-presets-label" data-i18n="overlay.pixelGridLabel">Referentieraster (pixels op scanlint):</span>
+            <label class="overlay-label" data-i18n-title="overlay.pxWidthTooltip"><span data-i18n="overlay.pxWidthLabel">Breedte (px)</span> <input type="number" id="f2f-grid-ref-px-width" min="1" step="1" value="103" class="input-num small" /></label>
+            <label class="overlay-label" data-i18n-title="overlay.pxHeightTooltip"><span data-i18n="overlay.pxHeightLabel">Hoogte (px)</span> <input type="number" id="f2f-grid-ref-px-height" min="1" step="1" value="75" class="input-num small" /></label>
+            <label class="overlay-label" data-i18n-title="overlay.pxFramesTooltip"><span data-i18n="overlay.pxFramesLabel">Frames</span> <input type="number" id="f2f-grid-ref-px-frames" min="1" max="99" value="30" class="input-num small" /></label>
+            <button type="button" id="f2f-capture-grid-ref-px" class="btn btn-secondary small" data-i18n-title="overlay.captureRefPxTooltip" data-i18n="overlay.captureRefPxButton">Neem actieve cel over</button>
+            <button type="button" id="f2f-apply-grid-from-px" class="btn btn-secondary small" data-i18n-title="overlay.applyGridPxTooltip" data-i18n="overlay.applyGridPxButton">Raster toepassen (px)</button>
+          </div>
+          </div>
         </section>
-        <section class="panel frame-generator-panel">
-          <h2 data-i18n="frameGenerator.sectionTitle">Frame generator</h2>
+        <section class="panel frame-generator-panel panel-collapsible">
+          <div class="sub-panel-header">
+            <h2 data-i18n="frameGenerator.sectionTitle">Frame generator</h2>
+            <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
+          </div>
+          <div class="sub-panel-collapsible">
           <div class="sub-panel-body frame-generator-body">
           <div class="row">
             <label data-i18n="frameGenerator.targetFolderLabel">Doelmap</label>
@@ -450,10 +386,34 @@
             <button type="button" id="f2f-export-current" class="btn btn-primary" data-i18n="frameGenerator.saveCurrentButton">Huidige scan bewaren</button>
             <button type="button" id="f2f-export-batch" class="btn btn-secondary" data-i18n="frameGenerator.batchButton">Batch: alle scanlints</button>
           </div>
+          <div id="f2f-frame-generator-progress-wrap" class="frame-generator-progress-wrap hidden" role="status" aria-live="polite" aria-atomic="true" data-i18n-aria-label="frameGenerator.progressAriaLabel">
+            <div class="frame-generator-progress-inner">
+              <div
+                id="f2f-frame-generator-progress-barhost"
+                class="frame-generator-progress-bar-host"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+                data-i18n-aria-label="frameGenerator.progressAriaLabel"
+              >
+                <div id="f2f-frame-generator-progress-bar" class="frame-generator-progress-bar" style="width: 0%"></div>
+              </div>
+              <div class="frame-generator-progress-foot">
+                <span id="f2f-frame-generator-progress-pct" class="frame-generator-progress-pct">0%</span>
+                <span id="f2f-frame-generator-progress-label" class="frame-generator-progress-label">—</span>
+              </div>
+            </div>
+          </div>
+          </div>
           </div>
         </section>
-        <section class="panel video-export-panel">
-          <h2 data-i18n="videoExport.sectionTitle">Video-export</h2>
+        <section class="panel video-export-panel panel-collapsible">
+          <div class="sub-panel-header">
+            <h2 data-i18n="videoExport.sectionTitle">Video-export</h2>
+            <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
+          </div>
+          <div class="sub-panel-collapsible">
           <p class="video-export-hint overlay-hint" data-i18n="videoExport.hint">Frames van de geselecteerde scan(s) worden als PNG tijdelijk weggeschreven en daarna met ffmpeg samengevoegd tot MP4. Dezelfde resolutie- en bereikopties als bij Frame generator.</p>
           <div class="sub-panel-body video-export-body">
             <div class="row">
@@ -481,6 +441,27 @@
               <input type="number" id="f2f-video-fps" class="input-num" min="1" max="60" value="24" data-i18n-title="videoExport.fpsTooltip" />
             </div>
             <div class="row">
+              <label for="f2f-video-output-res" data-i18n="videoExport.outputResolutionLabel">Resolutie video</label>
+              <select id="f2f-video-output-res" class="input-select" data-i18n-title="videoExport.outputResolutionTooltip">
+                <option value="original" selected data-i18n="frameGenerator.resolutionOriginal">Raster (native pixels)</option>
+                <option value="r1024x768" data-i18n="frameGenerator.resolution1024x768">1024 × 768</option>
+                <option value="r1280x720" data-i18n="frameGenerator.resolution1280x720">1280 × 720 (SD)</option>
+                <option value="r1280x960" data-i18n="frameGenerator.resolution1280x960">1280 × 960</option>
+                <option value="r1600x1200" data-i18n="frameGenerator.resolution1600x1200">1600 × 1200</option>
+                <option value="r1920x1080" data-i18n="frameGenerator.resolution1920x1080">1920 × 1080 (Full HD)</option>
+                <option value="r2560x1440" data-i18n="frameGenerator.resolution2560x1440">2560 × 1440 (QHD)</option>
+                <option value="r3840x2160" data-i18n="frameGenerator.resolution3840x2160">3840 × 2160 (UHD 4K)</option>
+                <option value="custom" data-i18n="frameGenerator.resolutionCustom">Aangepast…</option>
+              </select>
+            </div>
+            <div class="row">
+              <label for="f2f-video-uniform-fit" data-i18n="videoExport.uniformFitLabel">Gelijk formaat voor video</label>
+              <select id="f2f-video-uniform-fit" class="input-select" data-i18n-title="videoExport.uniformFitTooltip">
+                <option value="pad" selected data-i18n="videoExport.uniformFitPad">Zwarte rand (max. uitsnede, niets verloren)</option>
+                <option value="cover" data-i18n="videoExport.uniformFitCover">Vullen (geen rand, randen worden bijgesneden)</option>
+              </select>
+            </div>
+            <div class="row">
               <label for="f2f-video-scan-from" data-i18n="videoExport.scanFromLabel">Van scan</label>
               <input type="number" id="f2f-video-scan-from" class="input-num" min="1" value="1" data-i18n-title="videoExport.scanFromTooltip" />
               <label for="f2f-video-scan-to" data-i18n="videoExport.scanToLabel">tot scan</label>
@@ -489,11 +470,32 @@
             <div class="row">
               <button type="button" id="f2f-export-video" class="btn btn-primary" data-i18n="videoExport.exportButton">Exporteer naar video</button>
             </div>
-            <div class="row video-export-progress hidden" id="f2f-video-export-progress-wrap">
-              <span id="f2f-video-export-progress" class="value">—</span>
+            <div class="row video-export-progress hidden" id="f2f-video-export-progress-wrap" role="status" aria-live="polite" aria-atomic="true">
+              <div class="video-export-progress-layout">
+                <button type="button" id="f2f-video-export-stop" class="btn btn-secondary small hidden" data-i18n="videoExport.stopButton">Stoppen</button>
+                <div class="video-export-progress-stack">
+                  <div
+                    id="f2f-video-export-progress-barhost"
+                    class="video-export-progress-bar-wrap"
+                    role="progressbar"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="0"
+                    data-i18n-aria-label="videoExport.progressAriaLabel"
+                  >
+                    <div id="f2f-video-export-progress-bar" class="video-export-progress-bar" style="width: 0%"></div>
+                  </div>
+                  <div class="video-export-progress-foot">
+                    <span id="f2f-video-export-progress-pct" class="video-export-progress-pct">0%</span>
+                    <span id="f2f-video-export-progress" class="video-export-progress-label">—</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
+          </div>
         </section>
+      </div>
       </div>
     </main>
   </div>

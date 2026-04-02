@@ -1,11 +1,14 @@
 /**
- * Vensters schikken: Output/Scanlint/Hoofd (9 opties) óf Hoofd/Scanlint/UITLIJN (6 permutaties, volle hoogte).
- * Output-preview wordt bij de UITLIJN-layouts niet verplaatst.
+ * Vensters schikken op primair scherm volgens een 3×2-raster (panelen 1–6).
+ * 1 = hoofd · 2 = RASTER SETUP · 3 = RASTER PREVIEW · 4 = OUTPUT · 5 = instellingen · 6 = pixel-editor.
+ * 1 venster: vol scherm; 2: twee gelijke kolommen; 3: drie gelijke kolommen; 4–6: 3×2 gelijke cellen.
+ * Optioneel: vensters over alle schermen (vaste volgorde 1–6).
  */
 const { screen } = require('electron');
 const windows = require('./windows');
+const prefs = require('./prefs');
 
-/** Legacy projectwaarde → canonieke id. */
+/** Legacy projectwaarde → canonieke id (alleen voor migratie oude prefs). */
 const LAYOUT_ALIASES = {
   'left-center-right': 'horiz-osm',
   'left-rightstack': 'split-out-left',
@@ -23,7 +26,6 @@ const CANONICAL_LAYOUTS = [
   'split-out-left',
   'vert-osm',
   'horiz-top2-bottom-main',
-  /* Hoofd + Scanlint + UITLIJN, drie gelijke kolommen (output ongewijzigd) */
   'triple-msa',
   'triple-mus',
   'triple-sma',
@@ -31,6 +33,31 @@ const CANONICAL_LAYOUTS = [
   'triple-ums',
   'triple-ush'
 ];
+
+const DEFAULT_PERM = [1, 2, 3, 4, 5, 6];
+
+/** Oude layout-id → permutatie [cel0…cel5] rij voor rij (3 kolommen × 2 rijen). */
+function legacyLayoutToPermutation(layout) {
+  const L = normalizeLayout(layout);
+  const m = {
+    'horiz-osm': [4, 2, 1, 3, 5, 6],
+    'horiz-oms': [4, 1, 2, 3, 5, 6],
+    'horiz-som': [2, 4, 1, 3, 5, 6],
+    'horiz-smo': [2, 1, 4, 3, 5, 6],
+    'horiz-mos': [1, 4, 2, 3, 5, 6],
+    'horiz-mso': [1, 2, 4, 3, 5, 6],
+    'triple-msa': [1, 2, 3, 4, 5, 6],
+    'triple-mus': [1, 3, 2, 4, 5, 6],
+    'triple-sma': [2, 1, 3, 4, 5, 6],
+    'triple-suh': [2, 3, 1, 4, 5, 6],
+    'triple-ums': [3, 1, 2, 4, 5, 6],
+    'triple-ush': [3, 2, 1, 4, 5, 6],
+    'split-out-left': [4, 2, 1, 3, 5, 6],
+    'vert-osm': [4, 2, 1, 3, 5, 6],
+    'horiz-top2-bottom-main': [4, 2, 1, 3, 5, 6]
+  };
+  return (m[L] || DEFAULT_PERM).slice();
+}
 
 function normalizeLayout(layout) {
   if (!layout || typeof layout !== 'string') return 'horiz-osm';
@@ -45,6 +72,36 @@ function isValidLayout(layout) {
   return CANONICAL_LAYOUTS.includes(n) || Object.keys(LAYOUT_ALIASES).includes(layout);
 }
 
+function isValidPermutation(p) {
+  if (!Array.isArray(p) || p.length !== 6) return false;
+  const s = new Set();
+  for (const n of p) {
+    const v = Number(n);
+    if (!Number.isInteger(v) || v < 1 || v > 6) return false;
+    s.add(v);
+  }
+  return s.size === 6;
+}
+
+/**
+ * @param {string} [stored]
+ * @param {string} [legacyLayout] genormaliseerde oude layout-id
+ * @returns {string} komma-gescheiden permutatie
+ */
+function parseStoredWindowGrid(stored, legacyLayout) {
+  if (typeof stored === 'string' && stored.trim()) {
+    const parts = stored.split(',').map((x) => parseInt(String(x).trim(), 10));
+    if (isValidPermutation(parts)) return parts.join(',');
+  }
+  return legacyLayoutToPermutation(legacyLayout || 'horiz-osm').join(',');
+}
+
+function parsePermutationString(str) {
+  if (typeof str !== 'string' || !str.trim()) return null;
+  const parts = str.split(',').map((x) => parseInt(String(x).trim(), 10));
+  return isValidPermutation(parts) ? parts : null;
+}
+
 function setBounds(win, x, y, w, h) {
   if (!win || win.isDestroyed()) return;
   win.setBounds({ x, y, width: w, height: h });
@@ -53,7 +110,29 @@ function setBounds(win, x, y, w, h) {
 }
 
 /**
- * Drie gelijke kolommen: welk venster links / midden / rechts.
+ * Rechthoek voor cel (0…5): 3 kolommen, 2 rijen, gelijke verdeling + gap.
+ */
+function cellRect(X, Y, W, H, gap, cellIndex) {
+  const col = cellIndex % 3;
+  const row = Math.floor(cellIndex / 3);
+  const innerW = W - 2 * gap;
+  const innerH = H - gap;
+  const w0 = Math.floor(innerW / 3);
+  const w1 = Math.floor((innerW - w0) / 2);
+  const w2 = innerW - w0 - w1;
+  const widths = [w0, w1, w2];
+  const h0 = Math.floor(innerH / 2);
+  const h1 = innerH - h0;
+  const heights = [h0, h1];
+  let x = X;
+  for (let c = 0; c < col; c++) x += widths[c] + gap;
+  let y = Y;
+  for (let r = 0; r < row; r++) y += heights[r] + gap;
+  return { x, y, w: widths[col], h: heights[row] };
+}
+
+/**
+ * Drie gelijke kolommen.
  */
 function layoutThreeColumns(leftWin, midWin, rightWin, X, Y, W, H, gap) {
   const w = Math.floor((W - 2 * gap) / 3);
@@ -62,17 +141,76 @@ function layoutThreeColumns(leftWin, midWin, rightWin, X, Y, W, H, gap) {
   x += w + gap;
   setBounds(midWin, x, Y, w, H);
   x += w + gap;
-  setBounds(rightWin, x, Y, w, H);
+  const w3 = W - 2 * gap - 2 * w;
+  setBounds(rightWin, x, Y, w3, H);
 }
 
 /**
- * @param {string} layoutKey - Voorkeur uit preferences (mag legacy alias zijn).
+ * Paneelvolgorde 1–6 over schermen (links → rechts); rest gestapeld op laatste scherm.
  */
-function arrangeWindows(layoutKey) {
+function arrangeAcrossAllDisplays() {
+  const gap = 8;
   const mainWin = windows.getMainWindow();
   const stripWin = windows.getStripPreviewWindow();
-  const outputWin = windows.getOutputPreviewWindow();
   const alignWin = windows.getAlignPreviewWindow();
+  const outputWin = windows.getOutputPreviewWindow();
+  const settingsWin = windows.getSettingsWindow();
+  const pixelWin = windows.getPixelEditorWindow();
+  const ordered = [mainWin, stripWin, alignWin, outputWin, settingsWin, pixelWin];
+  const wins = ordered.filter((w) => w && !w.isDestroyed());
+  if (!wins.length) return;
+  const displays = screen
+    .getAllDisplays()
+    .slice()
+    .sort((a, b) => (a.bounds.x !== b.bounds.x ? a.bounds.x - b.bounds.x : a.bounds.y - b.bounds.y));
+  if (!displays.length) return;
+
+  let wi = 0;
+  for (let di = 0; di < displays.length && wi < wins.length; di++) {
+    const wa = displays[di].workArea || displays[di].bounds;
+    setBounds(wins[wi], wa.x, wa.y, wa.width, wa.height);
+    wi++;
+  }
+  if (wi < wins.length) {
+    const last = displays[displays.length - 1];
+    const wa = last.workArea || last.bounds;
+    const rem = wins.length - wi;
+    const totalGap = (rem - 1) * gap;
+    const baseH = Math.floor((wa.height - totalGap) / rem);
+    let y = wa.y;
+    for (let j = 0; j < rem; j++) {
+      const thisH = j === rem - 1 ? wa.y + wa.height - y : baseH;
+      setBounds(wins[wi + j], wa.x, y, wa.width, thisH);
+      y += thisH + gap;
+    }
+  }
+}
+
+function getPanelWindows() {
+  return {
+    1: windows.getMainWindow(),
+    2: windows.getStripPreviewWindow(),
+    3: windows.getAlignPreviewWindow(),
+    4: windows.getOutputPreviewWindow(),
+    5: windows.getSettingsWindow(),
+    6: windows.getPixelEditorWindow()
+  };
+}
+
+/**
+ * Leest voorkeur uit prefs; schikt open vensters.
+ */
+function arrangeWindows() {
+  if (prefs.getAllSettings().arrangeAcrossAllDisplays) {
+    arrangeAcrossAllDisplays();
+    return;
+  }
+
+  const all = prefs.getAllSettings();
+  const perm = parsePermutationString(all.windowGridPermutation);
+  if (!perm) return;
+
+  const map = getPanelWindows();
   const display = screen.getPrimaryDisplay();
   const work = display.workArea;
   const gap = 8;
@@ -81,85 +219,53 @@ function arrangeWindows(layoutKey) {
   const X = work.x;
   const Y = work.y;
 
-  const layout = normalizeLayout(layoutKey);
+  /** Open vensters in volgorde van raster (cel 0→5): welke panelen staan waar. */
+  const orderedOpen = [];
+  for (let cell = 0; cell < 6; cell++) {
+    const pid = perm[cell];
+    const win = map[pid];
+    if (win && !win.isDestroyed()) orderedOpen.push(win);
+  }
+  const n = orderedOpen.length;
+  if (n === 0) return;
 
-  const O = outputWin;
-  const S = stripWin;
-  const M = mainWin;
-  const U = alignWin;
+  if (n === 1) {
+    setBounds(orderedOpen[0], X, Y, W, H);
+    return;
+  }
 
-  switch (layout) {
-    case 'triple-msa':
-      layoutThreeColumns(M, S, U, X, Y, W, H, gap);
-      break;
-    case 'triple-mus':
-      layoutThreeColumns(M, U, S, X, Y, W, H, gap);
-      break;
-    case 'triple-sma':
-      layoutThreeColumns(S, M, U, X, Y, W, H, gap);
-      break;
-    case 'triple-suh':
-      layoutThreeColumns(S, U, M, X, Y, W, H, gap);
-      break;
-    case 'triple-ums':
-      layoutThreeColumns(U, M, S, X, Y, W, H, gap);
-      break;
-    case 'triple-ush':
-      layoutThreeColumns(U, S, M, X, Y, W, H, gap);
-      break;
-    case 'horiz-osm':
-      layoutThreeColumns(O, S, M, X, Y, W, H, gap);
-      break;
-    case 'horiz-oms':
-      layoutThreeColumns(O, M, S, X, Y, W, H, gap);
-      break;
-    case 'horiz-som':
-      layoutThreeColumns(S, O, M, X, Y, W, H, gap);
-      break;
-    case 'horiz-smo':
-      layoutThreeColumns(S, M, O, X, Y, W, H, gap);
-      break;
-    case 'horiz-mos':
-      layoutThreeColumns(M, O, S, X, Y, W, H, gap);
-      break;
-    case 'horiz-mso':
-      layoutThreeColumns(M, S, O, X, Y, W, H, gap);
-      break;
-    case 'split-out-left': {
-      const wLeft = Math.floor((W - gap) / 2);
-      const wRight = W - wLeft - gap;
-      const hHalf = Math.floor((H - gap) / 2);
-      setBounds(O, X, Y, wLeft, H);
-      setBounds(S, X + wLeft + gap, Y, wRight, hHalf);
-      setBounds(M, X + wLeft + gap, Y + hHalf + gap, wRight, H - hHalf - gap);
-      break;
-    }
-    case 'vert-osm': {
-      const h = Math.floor((H - 2 * gap) / 3);
-      setBounds(O, X, Y, W, h);
-      setBounds(S, X, Y + h + gap, W, h);
-      setBounds(M, X, Y + 2 * (h + gap), W, H - 2 * (h + gap));
-      break;
-    }
-    case 'horiz-top2-bottom-main': {
-      const wLeft = Math.floor((W - gap) / 2);
-      const wRight = W - wLeft - gap;
-      const hTop = Math.floor((H - gap) / 2);
-      const hBottom = H - hTop - gap;
-      setBounds(O, X, Y, wLeft, hTop);
-      setBounds(S, X + wLeft + gap, Y, wRight, hTop);
-      setBounds(M, X, Y + hTop + gap, W, hBottom);
-      break;
-    }
-    default:
-      layoutThreeColumns(O, S, M, X, Y, W, H, gap);
+  if (n === 2) {
+    const wcol = Math.floor((W - gap) / 2);
+    setBounds(orderedOpen[0], X, Y, wcol, H);
+    setBounds(orderedOpen[1], X + wcol + gap, Y, W - wcol - gap, H);
+    return;
+  }
+
+  if (n === 3) {
+    layoutThreeColumns(orderedOpen[0], orderedOpen[1], orderedOpen[2], X, Y, W, H, gap);
+    return;
+  }
+
+  /* 4, 5 of 6 vensters: vaste 3×2-cellen; lege cellen blijven leeg. */
+  for (let cell = 0; cell < 6; cell++) {
+    const pid = perm[cell];
+    const win = map[pid];
+    if (!win || win.isDestroyed()) continue;
+    const r = cellRect(X, Y, W, H, gap, cell);
+    setBounds(win, r.x, r.y, r.w, r.h);
   }
 }
 
 module.exports = {
   arrangeWindows,
+  arrangeAcrossAllDisplays,
   normalizeLayout,
   isValidLayout,
   CANONICAL_LAYOUTS,
-  LAYOUT_ALIASES
+  LAYOUT_ALIASES,
+  parseStoredWindowGrid,
+  parsePermutationString,
+  legacyLayoutToPermutation,
+  DEFAULT_WINDOW_GRID_PERMUTATION: DEFAULT_PERM.join(','),
+  isValidPermutation
 };

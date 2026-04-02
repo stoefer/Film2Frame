@@ -28,6 +28,8 @@ const state = {
   /** Kantelpunt voor fijne rotatie: top-left, center, bottom-right, etc. */
   tiltPivot: 'center',
   activeFrameIndex: 0,
+  /** Alleen pixel-editor: welk frame wordt getoond/geschilderd; raster (scanlint) gebruikt activeFrameIndex. */
+  pixelEditorActiveFrameIndex: 0,
   zoomFrames: 1,
   gridOffsetX: 0,
   /** Asymmetrische rasterzijden (scanlint): true = linker/rechter marge los in canvas-px. */
@@ -38,30 +40,22 @@ const state = {
   /** Onderrand offset (pixels). Samen met gridOffsetY bepaalt de verticale positie van het raster op het lint. */
   gridOffsetYBottom: 0,
   /**
-   * Strip-preview: referentielijn (gele lijn). bottomFixed = heel raster schuift tegelijk.
-   * pivotMiddleUpper: k≈ceil(n/2), flexibel boven lijn; pivotMiddleLower: k≈floor(n/2), flexibel onder lijn (bij oneven n wijkt k 1 rij).
+   * Alleen Lijn # (pivotCustom). Waarde altijd 'pivotCustom'; oude projecten met bottomFixed worden bij laden naar k=n gemigreerd.
    */
-  gridVerticalAnchorMode: 'bottomFixed',
-  /** Bij pivotCustom: lijnindex 0=boven raster … n=onder raster */
-  gridVerticalPivotCustomK: 1,
-  /**
-   * Split-pan in canvas-px: bij pivotMiddleUpper e.d. verdeelt d het bovenblok (tot lijn k); bij pivotMiddleLower het onderblok.
-   * Randcel bij de split past in hoogte; de andere helft blijft visueel gelijk per rij (star band).
-   */
+  gridVerticalAnchorMode: 'pivotCustom',
+  /** Lijnindex 0 = boven raster … n = onderkant raster (start = n = default aantal frames). */
+  gridVerticalPivotCustomK: DEFAULT_FRAMES_PER_STRIP,
+  /** Split-pan in canvas-px: verdeling in het bovenblok tot lijn k (0 < k < n). */
   gridSplitLowerPanCanvas: 0,
-  /**
-   * Bij split-referentie (0 < k < n): vaste band — per cel onder lijn k (pivotMiddleUpper e.d.), of per cel boven lijn k (pivotMiddleLower: star bovenblok).
-   * De flexibele helft reageert op split-pan (gridSplitLowerPanCanvas).
-   */
+  /** Bij 0 < k < n: vaste band onder lijn k; flexibel blok erboven reageert op split-pan. */
   gridFrozenLowerCellHeightPx: null,
   /**
-   * pivotActive en pivotCustom: split-pan d per referentielijn-index k (string "1"…"n−1").
-   * Eén globale gridSplitLowerPanCanvas hoort bij het huidige k; zonder map ging die waarde bij wissel actief frame of custom-lijn verloren.
+   * pivotCustom: split-pan d per k (string "1"…"n−1"). Globale gridSplitLowerPanCanvas hoort bij huidige k.
    */
   gridSplitLowerPanByPivotK: null,
   /**
    * Scanlint-preview rechter paneel: als true gebruiken Hand ▲▼, Duw en Shift+Duw de referentielijn/fixatiepunten
-   * (split-pan, vaste onderrand bij Onderkant raster). Uit = eenvoudig rigide gedrag voor die knoppen.
+   * (split-pan; bij lijn k=n + koppel: vaste onderrand bij Duw). Uit = rigide gedrag voor die knoppen.
    */
   gridPanelLinkVerticalAnchor: true,
   orientLabel: '',
@@ -79,6 +73,14 @@ const state = {
   stripPreviewMaxDim: DEFAULT_STRIP_PREVIEW_MAX_DIM,
   /** Doelmap voor frame-export (uitsnijden en bewaren). */
   exportFolderPath: null,
+  /** Doelmap voor PNG’s van de pixel-editor (Vorige/Volgende frame). */
+  pixelEditorOutputFolder: null,
+  /** Optionele bronmap met scanbeelden (alleen pixel-editor; wijzigt niet de project-strip voor RASTER SETUP). */
+  pixelEditorSourceFolder: null,
+  /** Actief extern bestand in de pixel-editor (alleen sessie; niet in project.json). */
+  pixelEditorExternalPath: null,
+  /** @type {HTMLImageElement|null} */
+  pixelEditorExternalImage: null,
   /** Basis bestandsnaam voor geëxporteerde frames (nummering wordt automatisch toegevoegd). */
   exportBaseName: 'frame',
   /** Pauze in seconden na elke scan bij batch-export (0 = geen pauze). */
@@ -91,10 +93,17 @@ const state = {
   arrowStepPx: 1,
   /** Pijltjesstap met Shift (px) voor raster in scanlint-preview (10–100). */
   arrowStepShiftPx: 10,
+  /** Vorige/Volgende scan in project: raster behouden i.p.v. opgeslagen lintState laden (instelling). */
+  preserveGridOnScanNav: true,
   /** Pad naar uitvoerbestand voor MP4-export (bijv. C:\output\video.mp4). */
   videoOutputPath: null,
   /** Map met frames voor video-export (leeg = gebruik projectscans). */
-  videoFramesFolderPath: null
+  videoFramesFolderPath: null,
+  /**
+   * Pixel-editor overlays per frame-index: Map<number, { stripW, stripH, x, y, w, h, canvas }>.
+   * Canvas is w×h, composited op strip op (x,y) in ruwe strip-pixels.
+   */
+  framePaintOverlays: new Map()
 };
 
 function clampNumFrames(n) {
@@ -110,27 +119,24 @@ export function getState() {
 }
 
 /**
- * @param {string} path
- * @param {HTMLImageElement|null} image
- * @param {{ preserveLintGrid?: boolean }} [options] — bij true: fijne rotatie en spiegeling behouden; raster/frames bleven al in state (project-scan wissel).
+ * Zet grove rotatie + label op basis van bronpixels (breed vs hoog) en aantal frames per lint.
+ * Bij 1 frame: geen auto-90° — de langste pixelzijde is de horizontale as van het scanlint.
+ * @param {number} [frameCount] — optioneel; anders state.numFrames
  */
-export function setStrip(path, image, options = {}) {
-  const preserveLintGrid = options.preserveLintGrid === true;
-  state.path = path;
-  state.image = image;
-  state.naturalWidth = image ? (image.naturalWidth || image.width) : 0;
-  state.naturalHeight = image ? (image.naturalHeight || image.height) : 0;
-  if (!preserveLintGrid) {
+export function applyAutoOrientationFromNaturalSize(frameCount) {
+  const w = state.naturalWidth;
+  const h = state.naturalHeight;
+  if (!w || !h) return;
+  const n =
+    frameCount != null && Number.isFinite(Number(frameCount))
+      ? clampNumFrames(Number(frameCount))
+      : Math.max(1, state.numFrames || 1);
+  if (n === 1) {
     state.rotation90 = 0;
-    state.fineRotationDeg = 0;
-    state.activeFrameIndex = 0;
-    state.flipHorizontal = false;
-    state.flipVertical = false;
-  } else {
-    state.activeFrameIndex = 0;
+    state.orientLabel = w > h ? 'Horizontaal (1 frame)' : 'Verticaal (1 frame)';
+    return;
   }
-  // Horizontale scans (breedte > hoogte) altijd verticaal inladen: 90° draaiing toepassen
-  if (state.naturalWidth > state.naturalHeight) {
+  if (w > h) {
     state.orientLabel = 'Horizontaal (auto: draai 90°)';
     state.rotation90 = 90;
   } else {
@@ -139,10 +145,45 @@ export function setStrip(path, image, options = {}) {
   }
 }
 
+export function clearFramePaintOverlays() {
+  state.framePaintOverlays.clear();
+}
+
+/**
+ * @param {string} path
+ * @param {HTMLImageElement|null} image
+ * @param {{ preserveLintGrid?: boolean, autoOrientNumFrames?: number }} [options] — bij true: raster/offsets behouden (project-scan wissel zonder lint-state te herladen). Spiegel H/V blijft altijd staan tot de gebruiker ze wijzigt of applyLintState ze uit een opgeslagen scan zet. autoOrientNumFrames: frame-aantal voor 1-frame vs multi-frame auto-draai (setStrip-moment vóór applySavedLintState).
+ */
+export function setStrip(path, image, options = {}) {
+  const preserveLintGrid = options.preserveLintGrid === true;
+  state.path = path;
+  state.image = image;
+  state.framePaintOverlays.clear();
+  state.naturalWidth = image ? (image.naturalWidth || image.width) : 0;
+  state.naturalHeight = image ? (image.naturalHeight || image.height) : 0;
+  if (!preserveLintGrid) {
+    state.fineRotationDeg = 0;
+    state.activeFrameIndex = 0;
+    state.pixelEditorActiveFrameIndex = 0;
+  } else {
+    state.activeFrameIndex = 0;
+    state.pixelEditorActiveFrameIndex = 0;
+    /* Bij scanwissel met behouden raster: fijne rotatie en oriëntatie niet wissen. */
+  }
+  // Alleen zonder preserve: auto-oriëntatie op nieuwe pixels (anders overschrijft dit rotatie/label per scan).
+  if (!preserveLintGrid) {
+    applyAutoOrientationFromNaturalSize(options.autoOrientNumFrames);
+  }
+}
+
 export function setRotation90(deg) {
+  state.framePaintOverlays.clear();
   state.rotation90 = ((state.rotation90 + deg) % 360 + 360) % 360;
-  if (state.orientLabel === 'Verticaal') state.orientLabel = 'Horizontaal (gedraaid)';
-  else if (state.orientLabel === 'Horizontaal (auto: draai 90°)') state.orientLabel = 'Verticaal (gedraaid)';
+  const baseVert = state.orientLabel === 'Verticaal' || state.orientLabel === 'Verticaal (1 frame)';
+  const baseHorizAuto =
+    state.orientLabel === 'Horizontaal (auto: draai 90°)' || state.orientLabel === 'Horizontaal (1 frame)';
+  if (baseVert) state.orientLabel = 'Horizontaal (gedraaid)';
+  else if (baseHorizAuto) state.orientLabel = 'Verticaal (gedraaid)';
   else state.orientLabel = state.rotation90 === 90 ? 'Horizontaal (gedraaid)' : 'Verticaal (gedraaid)';
 }
 
@@ -154,8 +195,10 @@ export function setFineRotation(deg) {
 }
 
 export function setNumFrames(n) {
+  state.framePaintOverlays.clear();
   state.numFrames = clampNumFrames(n);
   state.activeFrameIndex = clampActiveIndex(state.activeFrameIndex);
+  state.pixelEditorActiveFrameIndex = clampActiveIndex(state.pixelEditorActiveFrameIndex);
   const nf = Math.max(1, state.numFrames);
   state.gridVerticalPivotCustomK = Math.max(0, Math.min(nf, state.gridVerticalPivotCustomK));
   state.gridSplitLowerPanCanvas = 0;
@@ -170,25 +213,16 @@ function ensurePivotSplitMap() {
 }
 
 function resolveSplitPanPivotKFromState() {
-  const mode = state.gridVerticalAnchorMode || 'bottomFixed';
   const n = Math.max(1, state.numFrames || 1);
-  if (mode === 'pivotActive') {
-    return Math.max(0, Math.min(n, (state.activeFrameIndex || 0) + 1));
-  }
-  if (mode === 'pivotCustom') {
-    return Math.max(0, Math.min(n, Math.round(Number(state.gridVerticalPivotCustomK) || 0)));
-  }
-  return -1;
+  return Math.max(0, Math.min(n, Math.round(Number(state.gridVerticalPivotCustomK) || 0)));
 }
 
-/** Na laden snapshot/preset: canvas-split gelijk trekken met map voor huidig k (pivotActive / pivotCustom). */
-export function syncPivotActiveSplitCanvasFromMap() {
-  const mode = state.gridVerticalAnchorMode || 'bottomFixed';
-  if (mode !== 'pivotActive' && mode !== 'pivotCustom') return;
+/** Na laden snapshot/preset: canvas-split gelijk trekken met map voor huidig k. */
+export function syncPivotCustomSplitCanvasFromMap() {
   const n = Math.max(1, state.numFrames || 1);
   const k = resolveSplitPanPivotKFromState();
-  /* k === n: geen split in raster, maar canvas-waarde uit map houden i.p.v. vroeg afbreken. */
-  if (k <= 0 || k > n) return;
+  /* Alleen k met split-pan (zelfde als usesSplitLowerVerticalPan). */
+  if (k < 2 || k >= n) return;
   if (!state.gridSplitLowerPanByPivotK || typeof state.gridSplitLowerPanByPivotK !== 'object') {
     const cur = Math.round(Number(state.gridSplitLowerPanCanvas) || 0);
     if (cur !== 0) {
@@ -204,28 +238,14 @@ export function syncPivotActiveSplitCanvasFromMap() {
 }
 
 export function setActiveFrameIndex(i) {
-  const newIdx = clampActiveIndex(i);
-  const mode = state.gridVerticalAnchorMode || 'bottomFixed';
-  const n = Math.max(1, state.numFrames || 1);
+  const v = clampActiveIndex(i);
+  state.activeFrameIndex = v;
+  state.pixelEditorActiveFrameIndex = v;
+}
 
-  if (mode === 'pivotActive') {
-    const kOld = Math.max(0, Math.min(n, (state.activeFrameIndex ?? 0) + 1));
-    const kNew = Math.max(0, Math.min(n, newIdx + 1));
-    if (kOld > 0 && kOld < n) {
-      ensurePivotSplitMap();
-      state.gridSplitLowerPanByPivotK[String(kOld)] = Math.round(Number(state.gridSplitLowerPanCanvas) || 0);
-    }
-    state.activeFrameIndex = newIdx;
-    if (kNew > 0 && kNew < n) {
-      ensurePivotSplitMap();
-      const raw = state.gridSplitLowerPanByPivotK[String(kNew)];
-      state.gridSplitLowerPanCanvas =
-        raw != null && Number.isFinite(Number(raw)) ? Math.round(Number(raw)) : 0;
-    }
-    return;
-  }
-
-  state.activeFrameIndex = newIdx;
+/** Alleen voor de pixel-editor; wijzigt niet welk frame in RASTER SETUP / scanlint actief is. */
+export function setPixelEditorActiveFrameIndex(i) {
+  state.pixelEditorActiveFrameIndex = clampActiveIndex(i);
 }
 
 export function setZoomFrames(z) {
@@ -244,6 +264,27 @@ export function setStripPreviewMaxDim(maxDim) {
 
 export function setExportFolderPath(p) {
   state.exportFolderPath = p != null ? String(p) : null;
+}
+
+export function setPixelEditorOutputFolder(p) {
+  state.pixelEditorOutputFolder = p != null && String(p).trim() !== '' ? String(p) : null;
+  state.isDirty = true;
+}
+
+export function setPixelEditorSourceFolder(p) {
+  state.pixelEditorSourceFolder = p != null && String(p).trim() !== '' ? String(p) : null;
+  state.isDirty = true;
+}
+
+export function setPixelEditorExternalScan(path, image) {
+  state.pixelEditorExternalPath =
+    path != null && String(path).trim() !== '' ? String(path) : null;
+  state.pixelEditorExternalImage = image && image.naturalWidth ? image : null;
+}
+
+export function clearPixelEditorExternalScan() {
+  state.pixelEditorExternalPath = null;
+  state.pixelEditorExternalImage = null;
 }
 
 export function setExportBaseName(name) {
@@ -272,6 +313,10 @@ export function setArrowStepPx(px) {
 export function setArrowStepShiftPx(px) {
   const v = Number(px);
   if (Number.isFinite(v)) state.arrowStepShiftPx = Math.max(10, Math.min(100, Math.round(v)));
+}
+
+export function setPreserveGridOnScanNav(value) {
+  state.preserveGridOnScanNav = value !== false;
 }
 
 export function setVideoOutputPath(p) {
@@ -310,49 +355,50 @@ export function setGridOffsetYOnly(y) {
   state.gridOffsetY = Number.isFinite(yy) ? Math.round(yy) : 0;
 }
 
-const VERTICAL_ANCHOR_MODES = new Set([
-  'bottomFixed',
+/** Verwijderde referentiemodi / oude onderkant-modus → zelfde als Lijn # met k = n. */
+const LEGACY_VERTICAL_ANCHOR_TO_BOTTOM = new Set([
   'pivotTop',
   'pivotActive',
   'pivotMiddleUpper',
   'pivotMiddleLower',
-  'pivotCustom'
+  'pivotMiddle'
 ]);
 
+/** True als opgeslagen modus “onderkant raster” was (migreren naar k = n, split wissen). */
+export function snapshotVerticalAnchorWasBottomFixed(mode) {
+  if (mode == null) return false;
+  const m = String(mode).trim();
+  return m === 'bottomFixed' || LEGACY_VERTICAL_ANCHOR_TO_BOTTOM.has(m);
+}
+
+/**
+ * Alleen nog pivotCustom in state. bottomFixed (of legacy-onderkant) zet k = n en wist split.
+ */
 export function setGridVerticalAnchorMode(mode) {
-  let m = typeof mode === 'string' ? mode.trim() : 'bottomFixed';
-  if (m === 'pivotMiddle') m = 'pivotMiddleUpper';
-  if (VERTICAL_ANCHOR_MODES.has(m)) {
-    const prev = state.gridVerticalAnchorMode || 'bottomFixed';
-    state.gridVerticalAnchorMode = m;
-    if (m === 'bottomFixed') {
-      state.gridSplitLowerPanCanvas = 0;
-      state.gridFrozenLowerCellHeightPx = null;
-      state.gridSplitLowerPanByPivotK = null;
-    } else if (prev !== m && (m === 'pivotMiddleUpper' || m === 'pivotMiddleLower')) {
-      /* Schone start: oude d (b.v. stap 10) en frozen veroorzaken sprong + verkeerde bandhoogte. */
-      state.gridSplitLowerPanCanvas = 0;
-      state.gridFrozenLowerCellHeightPx = null;
-    } else if (
-      prev !== m &&
-      (prev === 'pivotMiddleUpper' || prev === 'pivotMiddleLower')
-    ) {
-      state.gridFrozenLowerCellHeightPx = null;
-    }
+  let m = typeof mode === 'string' ? mode.trim() : 'pivotCustom';
+  if (LEGACY_VERTICAL_ANCHOR_TO_BOTTOM.has(m)) m = 'bottomFixed';
+  const n = Math.max(1, state.numFrames || 1);
+
+  if (m === 'bottomFixed') {
+    state.gridVerticalAnchorMode = 'pivotCustom';
+    state.gridVerticalPivotCustomK = n;
+    state.gridSplitLowerPanCanvas = 0;
+    state.gridFrozenLowerCellHeightPx = null;
+    state.gridSplitLowerPanByPivotK = null;
+    return;
   }
+
+  state.gridVerticalAnchorMode = 'pivotCustom';
 }
 
 export function setGridSplitLowerPanCanvas(delta) {
   const v = Math.round(Number(delta) || 0);
   state.gridSplitLowerPanCanvas = v;
-  const mode = state.gridVerticalAnchorMode || 'bottomFixed';
-  if (mode === 'pivotActive' || mode === 'pivotCustom') {
-    const n = Math.max(1, state.numFrames || 1);
-    const k = resolveSplitPanPivotKFromState();
-    if (k > 0 && k < n) {
-      ensurePivotSplitMap();
-      state.gridSplitLowerPanByPivotK[String(k)] = v;
-    }
+  const n = Math.max(1, state.numFrames || 1);
+  const k = resolveSplitPanPivotKFromState();
+  if (k > 1 && k < n) {
+    ensurePivotSplitMap();
+    state.gridSplitLowerPanByPivotK[String(k)] = v;
   }
 }
 
@@ -385,17 +431,16 @@ export function setGridVerticalPivotCustomK(k, options = {}) {
   const v = Math.round(Number(k) || 0);
   const n = Math.max(1, state.numFrames || 1);
   const clampedNew = Math.max(0, Math.min(n, v));
-  const mode = state.gridVerticalAnchorMode || 'bottomFixed';
 
-  if (!skipSplitHandoff && mode === 'pivotCustom') {
+  if (!skipSplitHandoff) {
     const kOld = Math.max(0, Math.min(n, Math.round(Number(state.gridVerticalPivotCustomK) || 0)));
-    if (kOld > 0 && kOld < n) {
+    if (kOld > 1 && kOld < n) {
       ensurePivotSplitMap();
       state.gridSplitLowerPanByPivotK[String(kOld)] = Math.round(Number(state.gridSplitLowerPanCanvas) || 0);
     }
     state.gridVerticalPivotCustomK = clampedNew;
     const kNew = state.gridVerticalPivotCustomK;
-    if (kNew > 0 && kNew < n) {
+    if (kNew > 1 && kNew < n) {
       ensurePivotSplitMap();
       const raw = state.gridSplitLowerPanByPivotK[String(kNew)];
       state.gridSplitLowerPanCanvas =
@@ -415,8 +460,11 @@ export function resetGridToDefault() {
   state.gridOffsetXRight = null;
   state.gridOffsetY = 0;
   state.gridOffsetYBottom = 0;
-  state.gridVerticalAnchorMode = 'bottomFixed';
-  state.gridVerticalPivotCustomK = 1;
+  state.gridVerticalAnchorMode = 'pivotCustom';
+  {
+    const n = Math.max(1, state.numFrames || 1);
+    state.gridVerticalPivotCustomK = n;
+  }
   state.gridSplitLowerPanCanvas = 0;
   state.gridFrozenLowerCellHeightPx = null;
   state.gridSplitLowerPanByPivotK = null;
@@ -424,10 +472,12 @@ export function resetGridToDefault() {
 }
 
 export function setFlipHorizontal(value) {
+  state.framePaintOverlays.clear();
   state.flipHorizontal = !!value;
 }
 
 export function setFlipVertical(value) {
+  state.framePaintOverlays.clear();
   state.flipVertical = !!value;
 }
 
@@ -463,25 +513,44 @@ export function setStripPresetId(id) {
   state.isDirty = true;
 }
 
+function stripFramePaintFromLintEntry(e) {
+  if (!e || typeof e !== 'object') return e;
+  const { framePaintOverlays: _fp, ...rest } = e;
+  return rest;
+}
+
 export function setProject(projectPath, meta) {
+  clearPixelEditorExternalScan();
+  const rawLint = meta && Array.isArray(meta.lintStates) ? meta.lintStates : [];
+  const lintSanitized = rawLint.map(stripFramePaintFromLintEntry);
   state.projectPath = projectPath;
-  state.projectMeta = meta ? {
-    ...meta,
-    lintStates: Array.isArray(meta.lintStates) ? [...meta.lintStates] : [],
-    scanInfos: Array.isArray(meta.scanInfos) ? [...meta.scanInfos] : [],
-    stripPresetId:
-      meta.stripPresetId != null && typeof meta.stripPresetId === 'string' && meta.stripPresetId.trim() !== ''
-        ? meta.stripPresetId.trim()
-        : null
-  } : null;
+  state.projectMeta = meta
+    ? {
+        ...meta,
+        lintStates: lintSanitized,
+        scanInfos: Array.isArray(meta.scanInfos) ? [...meta.scanInfos] : [],
+        stripPresetId:
+          meta.stripPresetId != null && typeof meta.stripPresetId === 'string' && meta.stripPresetId.trim() !== ''
+            ? meta.stripPresetId.trim()
+            : null
+      }
+    : null;
   state.isDirty = false;
-  state.lintStates = state.projectMeta?.lintStates ? [...state.projectMeta.lintStates] : [];
+  state.lintStates = lintSanitized.length ? [...lintSanitized] : [];
   if (meta?.framesPerLint != null) state.numFrames = clampNumFrames(meta.framesPerLint);
   if (meta?.filmFormat != null) state.filmFormat = meta.filmFormat;
   if (meta?.filmPolarity != null) state.filmPolarity = meta.filmPolarity;
   if (meta?.outputFolder != null) state.exportFolderPath = meta.outputFolder;
   if (meta?.outputFormat != null) state.outputFormat = meta.outputFormat;
   if (meta?.scanDpi != null) state.scanDpi = meta.scanDpi;
+  state.pixelEditorOutputFolder =
+    meta?.pixelEditorOutputFolder != null && String(meta.pixelEditorOutputFolder).trim() !== ''
+      ? String(meta.pixelEditorOutputFolder)
+      : null;
+  state.pixelEditorSourceFolder =
+    meta?.pixelEditorSourceFolder != null && String(meta.pixelEditorSourceFolder).trim() !== ''
+      ? String(meta.pixelEditorSourceFolder)
+      : null;
 }
 
 export function clearProject() {
@@ -489,11 +558,47 @@ export function clearProject() {
   state.projectMeta = null;
   state.isDirty = false;
   state.lintStates = [];
+  state.pixelEditorOutputFolder = null;
+  state.pixelEditorSourceFolder = null;
+  state.pixelEditorExternalPath = null;
+  state.pixelEditorExternalImage = null;
+  state.framePaintOverlays.clear();
   state.path = null;
   state.image = null;
   state.naturalWidth = 0;
   state.naturalHeight = 0;
   state.orientLabel = '';
+}
+
+/**
+ * Project sluiten zonder map te wissen: project + geladen lint wissen, strip/werkruimte naar koude defaults.
+ * DPI, outputformaat en frames per lint worden daarna in de UI meestal opnieuw uit Instellingen gezet.
+ */
+export function resetWorkspaceAfterCloseProject() {
+  clearProject();
+  state.rotation90 = 0;
+  state.fineRotationDeg = 0;
+  state.numFrames = DEFAULT_FRAMES_PER_STRIP;
+  state.filmFormat = '16mm-double';
+  state.filmPolarity = 'positief';
+  state.tiltPivot = 'center';
+  state.activeFrameIndex = 0;
+  state.pixelEditorActiveFrameIndex = 0;
+  state.zoomFrames = ZOOM_MIN;
+  state.flipHorizontal = false;
+  state.flipVertical = false;
+  state.timecodeFps = 24;
+  state.framePreviewVisibleFrames = 1;
+  state.exportBaseName = 'frame';
+  state.exportPauseSeconds = 0;
+  state.videoOutputPath = null;
+  state.videoFramesFolderPath = null;
+  state.exportFolderPath = null;
+  state.pixelEditorOutputFolder = null;
+  state.pixelEditorSourceFolder = null;
+  state.pixelEditorExternalPath = null;
+  state.pixelEditorExternalImage = null;
+  resetGridToDefault();
 }
 
 export function setDirty() {
@@ -555,9 +660,7 @@ export function getGridGeometrySnapshot() {
     gridVerticalPivotCustomK: s.gridVerticalPivotCustomK,
     gridSplitLowerPanCanvas: s.gridSplitLowerPanCanvas,
     gridSplitLowerPanByPivotK:
-      (s.gridVerticalAnchorMode === 'pivotActive' || s.gridVerticalAnchorMode === 'pivotCustom') &&
-      s.gridSplitLowerPanByPivotK &&
-      typeof s.gridSplitLowerPanByPivotK === 'object'
+      s.gridSplitLowerPanByPivotK && typeof s.gridSplitLowerPanByPivotK === 'object'
         ? { ...s.gridSplitLowerPanByPivotK }
         : null,
     gridFrozenLowerCellHeightPx: s.gridFrozenLowerCellHeightPx,
@@ -587,17 +690,18 @@ export function applyGridGeometrySnapshot(grid) {
     setGridOffsetYBottom(Number.isFinite(vb) ? vb : 0);
   }
 
-  if (grid.gridVerticalAnchorMode != null) {
+  const gridAnchorMode =
+    grid.gridVerticalAnchorMode != null ? String(grid.gridVerticalAnchorMode).trim() : null;
+  if (gridAnchorMode != null) {
     setGridVerticalAnchorMode(grid.gridVerticalAnchorMode);
   }
-  if (grid.gridVerticalPivotCustomK != null) {
+  if (!snapshotVerticalAnchorWasBottomFixed(gridAnchorMode) && grid.gridVerticalPivotCustomK != null) {
     setGridVerticalPivotCustomK(grid.gridVerticalPivotCustomK, { skipSplitHandoff: true });
   }
-  const anchorAfter = state.gridVerticalAnchorMode || 'bottomFixed';
   if (
+    !snapshotVerticalAnchorWasBottomFixed(gridAnchorMode) &&
     grid.gridSplitLowerPanByPivotK != null &&
-    typeof grid.gridSplitLowerPanByPivotK === 'object' &&
-    (anchorAfter === 'pivotActive' || anchorAfter === 'pivotCustom')
+    typeof grid.gridSplitLowerPanByPivotK === 'object'
   ) {
     state.gridSplitLowerPanByPivotK = {};
     for (const [key, val] of Object.entries(grid.gridSplitLowerPanByPivotK)) {
@@ -614,7 +718,7 @@ export function applyGridGeometrySnapshot(grid) {
   if (grid.gridPanelLinkVerticalAnchor != null) {
     setGridPanelLinkVerticalAnchor(!!grid.gridPanelLinkVerticalAnchor);
   }
-  syncPivotActiveSplitCanvasFromMap();
+  syncPivotCustomSplitCanvasFromMap();
 }
 
 export function applyLintState(snapshot) {
@@ -622,7 +726,10 @@ export function applyLintState(snapshot) {
   if (snapshot.rotation90 != null) state.rotation90 = snapshot.rotation90;
   if (snapshot.fineRotationDeg != null) setFineRotation(snapshot.fineRotationDeg);
   if (snapshot.numFrames != null) state.numFrames = clampNumFrames(snapshot.numFrames);
-  if (snapshot.activeFrameIndex != null) state.activeFrameIndex = clampActiveIndex(snapshot.activeFrameIndex);
+  if (snapshot.activeFrameIndex != null) {
+    state.activeFrameIndex = clampActiveIndex(snapshot.activeFrameIndex);
+    state.pixelEditorActiveFrameIndex = state.activeFrameIndex;
+  }
   if (snapshot.zoomFrames != null) state.zoomFrames = snapshot.zoomFrames;
   if (snapshot.gridOffsetX != null) state.gridOffsetX = Number(snapshot.gridOffsetX) || 0;
   if (snapshot.gridOffsetXAsymmetric === true && snapshot.gridOffsetXLeft != null && snapshot.gridOffsetXRight != null) {
@@ -643,21 +750,20 @@ export function applyLintState(snapshot) {
     const vb = Number(snapshot.gridOffsetYBottom);
     state.gridOffsetYBottom = Number.isFinite(vb) ? Math.max(0, Math.round(vb)) : 0;
   } else state.gridOffsetYBottom = 0;
-  if (snapshot.gridVerticalAnchorMode != null) {
-    const raw = String(snapshot.gridVerticalAnchorMode).trim();
-    const gm = raw === 'pivotMiddle' ? 'pivotMiddleUpper' : raw;
-    if (VERTICAL_ANCHOR_MODES.has(gm)) state.gridVerticalAnchorMode = gm;
+  const snapAnchorMode =
+    snapshot.gridVerticalAnchorMode != null ? String(snapshot.gridVerticalAnchorMode).trim() : null;
+  if (snapAnchorMode != null) {
+    setGridVerticalAnchorMode(snapAnchorMode);
   }
-  if (snapshot.gridVerticalPivotCustomK != null) {
+  if (!snapshotVerticalAnchorWasBottomFixed(snapAnchorMode) && snapshot.gridVerticalPivotCustomK != null) {
     const pk = Math.round(Number(snapshot.gridVerticalPivotCustomK) || 0);
     const n = Math.max(1, state.numFrames || 1);
     state.gridVerticalPivotCustomK = Math.max(0, Math.min(n, pk));
   }
-  const lintAnchor = state.gridVerticalAnchorMode || 'bottomFixed';
   if (
+    !snapshotVerticalAnchorWasBottomFixed(snapAnchorMode) &&
     snapshot.gridSplitLowerPanByPivotK != null &&
-    typeof snapshot.gridSplitLowerPanByPivotK === 'object' &&
-    (lintAnchor === 'pivotActive' || lintAnchor === 'pivotCustom')
+    typeof snapshot.gridSplitLowerPanByPivotK === 'object'
   ) {
     state.gridSplitLowerPanByPivotK = {};
     for (const [key, val] of Object.entries(snapshot.gridSplitLowerPanByPivotK)) {
@@ -684,7 +790,7 @@ export function applyLintState(snapshot) {
   if (snapshot.filmFormat != null) state.filmFormat = snapshot.filmFormat;
   if (snapshot.filmPolarity != null) state.filmPolarity = snapshot.filmPolarity;
   if (snapshot.tiltPivot != null) state.tiltPivot = snapshot.tiltPivot;
-  syncPivotActiveSplitCanvasFromMap();
+  syncPivotCustomSplitCanvasFromMap();
 }
 
 function findLintState(lintPath) {
@@ -749,7 +855,7 @@ function lintStateEntriesSemanticEqual(stored, incoming) {
 
 export function setLintStateForPath(lintPath, snapshot) {
   const idx = state.lintStates.findIndex(s => s.path === lintPath);
-  const entry = { ...snapshot, path: lintPath };
+  const entry = stripFramePaintFromLintEntry({ ...snapshot, path: lintPath });
   const prev = idx >= 0 ? state.lintStates[idx] : null;
   if (prev && lintStateEntriesSemanticEqual(prev, entry)) {
     return;

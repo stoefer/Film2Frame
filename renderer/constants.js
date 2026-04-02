@@ -86,9 +86,10 @@ const STRIP_CANVAS_MAX_DIM = 2048;
 
 /**
  * Max. zijde van strip bij frame-export (hoger dan preview: volledige scanresolutie zoveel mogelijk).
- * Blijft onder typische browser-/GPU-canvaslimieten; extreem grote scans worden proportioneel begrensd.
+ * Chromium/Electron clampen canvasafmetingen vaak rond 32k; hieronder wordt in strip-loader proactief
+ * geschaald zodat de rasterstrip niet stil wordt afgekapt (wat preview-resolutie export gaf).
  */
-const EXPORT_STRIP_MAX_DIM = 16384;
+const EXPORT_STRIP_MAX_DIM = 32767;
 
 /** Standaard max. zijde scanlint-preview (px); gelijk aan strip-cap = één schaalstap naar preview. */
 const DEFAULT_STRIP_PREVIEW_MAX_DIM = STRIP_CANVAS_MAX_DIM;

@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- script-src moet 'unsafe-inline' bevatten: anders draait het grote inline <script>-blok niet (geen IPC → geen beeld/frames). -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file: data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'" />
-  <title>Film2Frame – UITLIJN</title>
+  <title>Film2Frame</title>
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1a1a1a; color: #e0e0e0; font-family: system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column; }
@@ -110,20 +110,22 @@
 <body>
   <div class="toolbar">
     <div class="toolbar-head">
-      <h1>UITLIJN</h1>
+      <h1 id="align-header-title"></h1>
       <div class="toolbar-head-right">
-        <button type="button" id="btn-align-refresh" class="btn-align-refresh" title="Laatste strip opnieuw uit het hoofdvenster (zelfde als Scanlint).">Beeld vernieuwen</button>
+        <button type="button" id="btn-align-refresh" class="btn-align-refresh"></button>
         <span id="align-header-filename" class="header-filename" title="">—</span>
       </div>
     </div>
     <div class="toolbar-controls">
       <span>
-        <label for="align-sel-frame">Frame</label>
-        <select id="align-sel-frame" class="zoom-select" aria-label="Frame"></select>
+        <label for="align-sel-frame"></label>
+        <select id="align-sel-frame" class="zoom-select"></select>
       </span>
       <span>
-        <label for="align-sel-zoom">Zoom</label>
-        <select id="align-sel-zoom" class="zoom-select" aria-label="Zoom (vergroting van het geselecteerde frame)">
+        <label for="align-sel-zoom"></label>
+        <select id="align-sel-zoom" class="zoom-select">
+          <option value="fit-width"></option>
+          <option value="fit-height"></option>
           <option value="1">100%</option>
           <option value="1.25">125%</option>
           <option value="1.5">150%</option>
@@ -137,16 +139,15 @@
           <option value="12">1200%</option>
         </select>
       </span>
-      <span class="align-lock-row" title="Aan: bij rasterwijziging blijft het zicht op dezelfde plek (scroll). Uit: actief frame wordt gecentreerd.">
+      <span class="align-lock-row">
         <label for="align-chk-lock-scroll">
           <input type="checkbox" id="align-chk-lock-scroll" checked />
-          Beeldpositie vasthouden
         </label>
       </span>
     </div>
   </div>
   <div class="viewport" id="align-viewport">
-    <p class="placeholder" id="align-placeholder">Geen scanlint geladen. Open een project en laad een scanlint in het hoofdvenster; het UITLIJN-venster vult zich daarna automatisch. Tip: Zoom vergroot het hele lint; scroll verticaal (en horizontaal) om alle frames te zien. Framenumers staan in elke cel.</p>
+    <p class="placeholder" id="align-placeholder"></p>
     <canvas id="align-canvas" width="1" height="1" style="display:none"></canvas>
   </div>
   <script>
@@ -157,6 +158,80 @@
         if (!api || !api.onAlignPreviewUpdate) return false;
         if (alignPreviewBootstrapped) return true;
         alignPreviewBootstrapped = true;
+
+      var alignLocaleDict = {};
+      function alignTr(key) {
+        var v = alignLocaleDict[key];
+        return typeof v === 'string' && v.length ? v : key;
+      }
+      function applyAlignPreviewLocaleStrings() {
+        document.title = alignTr('alignPreview.documentTitle');
+        var ht = document.getElementById('align-header-title');
+        if (ht) ht.textContent = alignTr('alignPreview.headerTitle');
+        var br = document.getElementById('btn-align-refresh');
+        if (br) {
+          br.textContent = alignTr('alignPreview.btnRefresh');
+          br.title = alignTr('alignPreview.btnRefreshTitle');
+        }
+        var lf = document.querySelector('label[for="align-sel-frame"]');
+        if (lf) lf.textContent = alignTr('alignPreview.labelFrame');
+        var lz = document.querySelector('label[for="align-sel-zoom"]');
+        if (lz) lz.textContent = alignTr('alignPreview.labelZoom');
+        var sz = document.getElementById('align-sel-zoom');
+        if (sz) {
+          sz.setAttribute('aria-label', alignTr('alignPreview.selZoomAria'));
+          var optFW = sz.querySelector('option[value="fit-width"]');
+          var optFH = sz.querySelector('option[value="fit-height"]');
+          if (optFW) {
+            optFW.textContent = alignTr('alignPreview.zoomFitWidth');
+            optFW.title = alignTr('alignPreview.zoomFitWidthTitle');
+          }
+          if (optFH) {
+            optFH.textContent = alignTr('alignPreview.zoomFitHeight');
+            optFH.title = alignTr('alignPreview.zoomFitHeightTitle');
+          }
+        }
+        var sf = document.getElementById('align-sel-frame');
+        if (sf) sf.setAttribute('aria-label', alignTr('alignPreview.labelFrame'));
+        var lr = document.querySelector('.align-lock-row');
+        if (lr) lr.title = alignTr('alignPreview.lockScrollRowTitle');
+        var chk = document.getElementById('align-chk-lock-scroll');
+        if (chk && chk.parentElement) {
+          var lab = chk.parentElement;
+          if (lab.tagName === 'LABEL') {
+            var lockText = ' ' + alignTr('alignPreview.lockScrollLabel').trim();
+            var ch = lab.childNodes;
+            var i;
+            var foundText = false;
+            for (i = 0; i < ch.length; i++) {
+              if (ch[i].nodeType === 3) {
+                ch[i].textContent = lockText;
+                foundText = true;
+                break;
+              }
+            }
+            if (!foundText) lab.appendChild(document.createTextNode(lockText));
+          }
+        }
+        var ph = document.getElementById('align-placeholder');
+        if (ph) ph.textContent = alignTr('alignPreview.placeholder');
+      }
+      function loadAlignPreviewLocale() {
+        if (!api.getTranslations) {
+          alignLocaleDict = {};
+          applyAlignPreviewLocaleStrings();
+          return Promise.resolve();
+        }
+        return api.getTranslations().then(function (d) {
+          alignLocaleDict = d && typeof d === 'object' ? d : {};
+          applyAlignPreviewLocaleStrings();
+        }).catch(function () {
+          alignLocaleDict = {};
+          applyAlignPreviewLocaleStrings();
+        });
+      }
+      loadAlignPreviewLocale();
+      if (api.onStripLocaleChanged) api.onStripLocaleChanged(function () { loadAlignPreviewLocale(); });
 
       var LS_FRAME = 'alignPreviewDetailFrame';
       var LS_ZOOM = 'alignPreviewDetailZoom';
@@ -204,8 +279,12 @@
           var zz = localStorage.getItem(LS_ZOOM);
           if (zz == null) zz = localStorage.getItem('stripDetailZoom');
           if (zz != null && selZoom) {
-            var z = parseFloat(zz);
-            if (Number.isFinite(z) && z > 0) selZoom.value = String(z);
+            if (zz === 'fit-width' || zz === 'fit-height') {
+              if (selZoom.querySelector('option[value="' + zz + '"]')) selZoom.value = zz;
+            } else {
+              var z = parseFloat(zz);
+              if (Number.isFinite(z) && z > 0) selZoom.value = String(z);
+            }
           }
           var lk = localStorage.getItem(LS_LOCK_SCROLL);
           if (chkLockScroll) chkLockScroll.checked = lk === null ? true : lk === '1';
@@ -265,22 +344,9 @@
         var gr = p.gridRects;
         if (!gr || gr.length === 0) return null;
         var n = gr.length;
-        var mode = p.verticalAnchorMode || 'bottomFixed';
-        var k;
-        if (mode === 'pivotTop') k = 0;
-        else if (mode === 'pivotActive') {
-          var an = p.activeFrameNumber != null ? p.activeFrameNumber : (p.activeFrameIndex != null ? p.activeFrameIndex + 1 : 1);
-          k = Math.max(0, Math.min(n, Math.floor(Number(an)) || 1));
-        } else if (mode === 'pivotMiddleUpper' || mode === 'pivotMiddle') {
-          k = Math.min(n, Math.max(1, Math.ceil(n / 2)));
-        } else if (mode === 'pivotMiddleLower') {
-          k = Math.min(n, Math.max(1, Math.floor(n / 2)));
-        }
-        else if (mode === 'pivotCustom') {
-          k = Math.floor(Number(p.verticalAnchorCustomK));
-          if (!Number.isFinite(k)) k = 1;
-          k = Math.max(0, Math.min(n, k));
-        } else k = n;
+        var k = p.verticalAnchorCustomK != null ? Math.round(Number(p.verticalAnchorCustomK)) : n;
+        if (!Number.isFinite(k)) k = n;
+        k = Math.max(0, Math.min(n, k));
         var r0 = gr[0];
         var x0 = Number(r0.x) || 0;
         var w0 = Math.max(0, Number(r0.width) || 0);
@@ -333,6 +399,27 @@
       }
 
       var alignViewportResizeHooked = false;
+      var ALIGN_VIEWPORT_PADDING = 16;
+      var ALIGN_ZOOM_FIT_MIN = 0.05;
+      var ALIGN_ZOOM_FIT_MAX = 20;
+
+      /** Numerieke zoom voor tekenen; fit-width/height = strip past in viewport (zelfde idee als RASTER SETUP). */
+      function computeAlignDetailZoom(wPx, sliceHPx, zoomMode) {
+        var mode = zoomMode != null ? String(zoomMode) : '2';
+        if (mode === 'fit-width' || mode === 'fit-height') {
+          var vw = viewport ? Math.max(1, viewport.clientWidth) : 800;
+          var vh = viewport ? Math.max(1, viewport.clientHeight) : 600;
+          var innerW = Math.max(1, vw - ALIGN_VIEWPORT_PADDING * 2);
+          var innerH = Math.max(1, vh - ALIGN_VIEWPORT_PADDING * 2);
+          var ww = Math.max(1, wPx);
+          var sh = Math.max(1, sliceHPx);
+          var z = mode === 'fit-width' ? innerW / ww : innerH / sh;
+          return Math.max(ALIGN_ZOOM_FIT_MIN, Math.min(ALIGN_ZOOM_FIT_MAX, z));
+        }
+        var num = parseFloat(mode);
+        return Number.isFinite(num) && num > 0 ? num : 2;
+      }
+
       function ensureAlignViewportResizeHook() {
         if (alignViewportResizeHooked || !viewport) return;
         alignViewportResizeHooked = true;
@@ -363,8 +450,6 @@
         var fn = parseInt(selFrame.value, 10);
         if (!Number.isFinite(fn) || fn < 1) fn = 1;
         if (fn > p.gridRects.length) fn = p.gridRects.length;
-        var detailZ = parseFloat(selZoom.value);
-        if (!Number.isFinite(detailZ) || detailZ <= 0) detailZ = 2;
 
         var gr = p.gridRects.find(function (r) { return r.frameNumber === fn; }) || p.gridRects[fn - 1];
         var w = Math.max(1, p.displayWidth || 1);
@@ -382,6 +467,8 @@
         var extHForAlign = Math.max(dh, Number(p.extendedDisplayHeight) || dh);
         var y0 = 0;
         var y1 = extHForAlign;
+        var sliceH = y1 - y0;
+        var detailZ = computeAlignDetailZoom(w, sliceH, selZoom && selZoom.value);
 
         function finishScroll(cx, cy) {
           if (scrollAnchor) restoreScrollAnchor(scrollAnchor);
@@ -408,11 +495,10 @@
         var nx = stripBitmap.naturalWidth;
         var ny = stripBitmap.naturalHeight;
         if (Math.abs(nx - w) > 2 || Math.abs(ny - dh) > 2) {
-          console.warn('[UITLIJN] Bitmap', nx, '×', ny, 'verwacht', w, '×', dh, '(payload)');
+          console.warn('[RASTER PREVIEW] Bitmap', nx, '×', ny, 'verwacht', w, '×', dh, '(payload)');
         }
         var sx = 0;
         var sw = nx;
-        var sliceH = y1 - y0;
         /* Chromium: canvasafmeting per zijde oplopen (~16k); anders zwart/lege tekening. */
         var MAX_CANVAS_SIDE = 16300;
         var zEff = detailZ;
@@ -452,8 +538,8 @@
             ctx.drawImage(stripBitmap, sx, sy, sw, sh, 0, destY, cw, destH);
           }
         } catch (e) {
-          console.warn('[UITLIJN] drawImage:', e);
-          drawDetailError('Tekenen mislukt.\nControleer of de scanlint geladen is.');
+          console.warn('[RASTER PREVIEW] drawImage:', e);
+          drawDetailError(alignTr('alignPreview.errorDraw'));
           finishScroll(cw / 2, ch / 2);
           return;
         }
@@ -556,9 +642,16 @@
         finishScroll(cx, cy);
       }
 
+      function alignPayloadHasContent(payload) {
+        if (payload == null) return false;
+        if (payload.stripDataUrl && String(payload.stripDataUrl).length > 0) return true;
+        if (payload.gridRects && payload.gridRects.length > 0) return true;
+        return false;
+      }
+
       function applyPayload(payload) {
-        lastPayload = payload;
-        if (!payload) {
+        if (!alignPayloadHasContent(payload)) {
+          lastPayload = null;
           lastAlignStripDataUrl = '';
           try { stripBitmap.src = ''; } catch (e) {}
           updateHeaderFilename(null);
@@ -567,6 +660,7 @@
           if (selFrame) selFrame.innerHTML = '';
           return;
         }
+        lastPayload = payload;
         updateHeaderFilename(payload);
         if (payload.gridRects && payload.gridRects.length > 0) {
           syncFrameOptions(payload);
@@ -584,7 +678,7 @@
             stripBitmap.onerror = function () {
               stripBitmap.onerror = null;
               stripBitmap.onload = null;
-              drawDetailError('Afbeelding laden mislukt.\nSluit UITLIJN en open opnieuw, of wissel even van scanlint.');
+              drawDetailError(alignTr('alignPreview.errorLoadImage'));
             };
             stripBitmap.onload = function () {
               stripBitmap.onload = null;
@@ -610,10 +704,6 @@
           requestAnimationFrame(function () {
             if (stripBitmap.complete && stripBitmap.naturalWidth > 0) drawDetailFrame();
           });
-        }
-        if (!payload.stripDataUrl && (!payload.gridRects || payload.gridRects.length === 0)) {
-          placeholder.style.display = 'block';
-          canvas.style.display = 'none';
         }
       }
 
@@ -672,7 +762,7 @@
             var ph = document.getElementById('align-placeholder');
             if (ph) {
               ph.textContent =
-                'Kan UITLIJN niet starten (geen verbinding met de app). Sluit dit venster en open opnieuw via Scanlint → Uitlijning…';
+                'Cannot start RASTER PREVIEW (no app connection). Close this window and reopen via RASTER SETUP → Raster preview…';
               ph.style.color = '#e07070';
             }
           }

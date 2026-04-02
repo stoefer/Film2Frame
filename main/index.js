@@ -8,6 +8,7 @@ const windows = require('./windows');
 const { registerIPC } = require('./ipc');
 const prefs = require('./prefs');
 const windowArrange = require('./window-arrange');
+const { applyAppMenu } = require('./app-menu');
 
 app.whenReady().then(() => {
   try {
@@ -17,39 +18,33 @@ app.whenReady().then(() => {
   const preload = path.join(__dirname, '..', 'preload.js');
   windows.createMainWindow(preload);
   registerIPC();
+  applyAppMenu(windows);
   const mainWin = windows.getMainWindow();
-  const base = path.join(__dirname, '..');
-  const stripHtml = path.join(base, 'windows', 'strip-preview.html');
-  const outputHtml = path.join(base, 'windows', 'output-preview.html');
-  const alignHtml = path.join(base, 'windows', 'align-preview.html');
-  function restorePreviews() {
-    if (fs.existsSync(stripHtml) && fs.existsSync(outputHtml)) {
-      windows.restorePreviewWindowsIfNeeded(
-        path.join(base, 'preloads', 'strip.js'),
-        stripHtml,
-        path.join(base, 'preloads', 'output.js'),
-        outputHtml,
-        fs.existsSync(alignHtml) ? path.join(base, 'preloads', 'align-preview.js') : null,
-        fs.existsSync(alignHtml) ? alignHtml : null
-      );
-    }
+  function openAuxWindowsFromSavedMask() {
+    windows.openAuxiliaryWindowsFromPanelMask(prefs.getAllSettings().windowGridAutoOpenMask);
   }
   function maybeAutoArrange() {
     try {
       if (prefs.getAllSettings().arrangeWindowsOnStartup) {
-        windowArrange.arrangeWindows(prefs.getAllSettings().windowArrangement);
+        windowArrange.arrangeWindows();
       }
     } catch (_) {}
   }
   if (mainWin && mainWin.webContents) {
     mainWin.webContents.once('did-finish-load', () => {
-      restorePreviews();
-      /* Preview-vensters moeten bestaan; korte vertraging na restore. */
-      setTimeout(maybeAutoArrange, 450);
+      openAuxWindowsFromSavedMask();
+      /* Hulpvensters moeten bestaan; korte vertraging na openen. */
+      setTimeout(() => {
+        maybeAutoArrange();
+        windows.applyWindowGeometryLockFromPrefs();
+      }, 450);
     });
   } else {
-    restorePreviews();
-    setTimeout(maybeAutoArrange, 450);
+    openAuxWindowsFromSavedMask();
+    setTimeout(() => {
+      maybeAutoArrange();
+      windows.applyWindowGeometryLockFromPrefs();
+    }, 450);
   }
 });
 
