@@ -1,5 +1,5 @@
 /**
- * Applicatiemenu — o.a. pixel-editor focussen/sluiten (alle platforms; macOS incl. standaard app- en bewerkmenu).
+ * Applicatiemenu voor de vereenvoudigde workflow.
  */
 const { Menu } = require('electron');
 const locales = require('./locales');
@@ -9,9 +9,7 @@ function menuLabels() {
   const d = locales.loadLocale(prefs.getLocale()) || locales.loadLocale('en') || {};
   return {
     file: d['menu.fileMenu'] || 'File',
-    window: d['menu.windowMenu'] || 'Window',
-    focusPixelEditor: d['menu.focusPixelEditor'] || 'Focus pixel editor',
-    closePixelEditor: d['menu.closePixelEditor'] || 'Close pixel editor'
+    window: d['menu.windowMenu'] || 'Window'
   };
 }
 
@@ -48,23 +46,7 @@ function applyAppMenu(windows) {
     });
   }
 
-  const windowSubmenu = [
-    ...(isMac
-      ? [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }]
-      : []),
-    {
-      label: L.focusPixelEditor,
-      click: () => {
-        windows.focusPixelEditorWindow();
-      }
-    },
-    {
-      label: L.closePixelEditor,
-      click: () => {
-        windows.closePixelEditorWindow();
-      }
-    }
-  ];
+  const windowSubmenu = isMac ? [{ role: 'minimize' }, { role: 'zoom' }] : [];
 
   template.push({
     label: L.window,

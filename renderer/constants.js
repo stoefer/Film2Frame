@@ -79,20 +79,22 @@ const DEFAULT_FRAMES_PER_STRIP = 30;
 const STRIP_PREVIEW_MAX_DIM_OPTIONS = [1024, 1536, 2048, 2560, 3072, 4096];
 
 /**
- * Max. zijde van strip-canvas na rotatie (strip-loader). Standaard preview-max hierop gelijk houden
- * voorkomt een tweede downsampling (bv. 2048→1536) die onderaan blur/“uitgesmeerd” kan geven.
+ * Max. zijde van strip-canvas na rotatie (strip-loader).
+ * 4096 laat 4K-monitorweergave toe in scanlint-preview.
+ * Preview bouwt NOOIT groter dan dit (voorkomt multi‑100MB allocaties per muisbeweging).
  */
-const STRIP_CANVAS_MAX_DIM = 2048;
+const STRIP_CANVAS_MAX_DIM = 4096;
 
 /**
  * Max. zijde van strip bij frame-export (hoger dan preview: volledige scanresolutie zoveel mogelijk).
- * Chromium/Electron clampen canvasafmetingen vaak rond 32k; hieronder wordt in strip-loader proactief
- * geschaald zodat de rasterstrip niet stil wordt afgekapt (wat preview-resolutie export gaf).
+ * Was 32767 (~0,5+ GB per canvas) — dat vulde RAM tot het hele OS vastliep bij herhaalde
+ * Volgende/Auto/Detecteer. 16384 houdt export bruikbaar terwijl piekgeheugen roughly halveert.
+ * Chromium clampen vaak rond 16k–32k; hier proactief begrenzen.
  */
-const EXPORT_STRIP_MAX_DIM = 32767;
+const EXPORT_STRIP_MAX_DIM = 16384;
 
-/** Standaard max. zijde scanlint-preview (px); gelijk aan strip-cap = één schaalstap naar preview. */
-const DEFAULT_STRIP_PREVIEW_MAX_DIM = STRIP_CANVAS_MAX_DIM;
+/** Standaard max. zijde scanlint-preview (px); Full HD-vriendelijk. */
+const DEFAULT_STRIP_PREVIEW_MAX_DIM = 1536;
 
 /** Scanlint-preview: 5% boven + 5% onder het scanlint voor uitlijnen raster. */
 const STRIP_EXTENDED_RATIO = 1.1;
@@ -116,6 +118,9 @@ const OUTPUT_RESOLUTIONS = [
 
 /** Frame-nummering: 6 cijfers 000001–999999. */
 const FRAME_NUMBER_PAD = 6;
+
+/** Max. wachttijd op <img> load/error; voorkomt oneindig hangen bij ontbrekend/vergrendeld bestand (file://). */
+const STRIP_IMAGE_LOAD_TIMEOUT_MS = 120000;
 
 export {
   MAX_FRAMES,
@@ -143,5 +148,6 @@ export {
   GRID_TOP_SLACK_RATIO,
   OUTPUT_FORMATS,
   OUTPUT_RESOLUTIONS,
-  FRAME_NUMBER_PAD
+  FRAME_NUMBER_PAD,
+  STRIP_IMAGE_LOAD_TIMEOUT_MS
 };

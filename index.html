@@ -29,7 +29,8 @@
         <option value="nl">Nederlands</option>
         <option value="en">English</option>
       </select>
-      <button type="button" id="f2f-open-settings" class="btn btn-secondary" data-i18n-title="toolbar.settingsTooltip" data-i18n="toolbar.settingsButton">Instellingen</button>
+      <button type="button" id="f2f-open-settings" class="btn btn-about" data-i18n-title="toolbar.settingsTooltip" data-i18n="toolbar.settingsButton">Instellingen</button>
+      <button type="button" id="f2f-open-docs" class="btn btn-about" data-i18n-title="toolbar.docsTooltip" data-i18n="toolbar.docsButton">Documenten</button>
       <button type="button" id="f2f-about-btn" class="btn btn-about" data-i18n-title="toolbar.aboutTooltip" data-i18n="toolbar.aboutButton">Over</button>
       <div class="toolbar-status">
         <span class="toolbar-status-label" data-i18n="toolbar.statusLoadLabel">Belasting</span>
@@ -52,49 +53,80 @@
         </div>
         <div id="project-stats" class="project-stats hidden">
           <h3 class="project-stats-title" data-i18n="project.statsTitle">Overzicht</h3>
-          <div class="project-stats-grid">
-            <div class="project-stat">
-              <span class="project-stat-label" data-i18n="project.statsScanCount">Scanlints</span>
-              <span id="f2f-stat-scan-count" class="project-stat-value">—</span>
-            </div>
-            <div class="project-stat">
-              <span class="project-stat-label" data-i18n="project.statsFramesPerScan">Frames per scan</span>
-              <span id="f2f-stat-frames-per-scan" class="project-stat-value">—</span>
-            </div>
-            <div class="project-stat">
-              <span class="project-stat-label" data-i18n="project.statsTotalFrames">Totaal frames</span>
-              <span id="f2f-stat-total-frames" class="project-stat-value">—</span>
-            </div>
-            <div class="project-stat project-stat-timecode">
-              <span class="project-stat-label" data-i18n="project.statsTimecode">Tijdcode</span>
-              <span id="f2f-stat-timecode" class="project-stat-value project-stat-timecode-value">00:00:00:00</span>
-            </div>
-            <div class="project-stat project-stat-fps">
-              <label class="project-stat-label" for="f2f-timecode-fps" data-i18n="project.statsFpsLabel">Frames/sec (tijdcode)</label>
-              <input type="number" id="f2f-timecode-fps" min="12" max="60" value="24" class="input-num project-stat-fps-input" data-i18n-title="project.statsFpsTooltip" />
-            </div>
+          <div class="project-stats-line">
+            <span class="project-stats-line-item">
+              <span class="project-stat-label-inline" data-i18n="project.statsScanShort">Scans</span>
+              <span id="f2f-stat-scan-count" class="project-stat-value-inline">—</span>
+            </span>
+            <span class="project-stats-line-item">
+              <span class="project-stat-label-inline" data-i18n="project.statsFramesShort">Frames</span>
+              <span id="f2f-stat-frames-per-scan" class="project-stat-value-inline">—</span>
+            </span>
+            <span class="project-stats-line-item">
+              <span class="project-stat-label-inline" data-i18n="project.statsTotalShort">Totaal</span>
+              <span id="f2f-stat-total-frames" class="project-stat-value-inline">—</span>
+            </span>
           </div>
         </div>
-        <div class="sub-panel sub-panel--project-actions" id="project-actions-panel">
+        <section id="f2f-overview-raster-quick" class="overview-raster-quick hidden">
+          <h3 class="overview-raster-quick__title" data-i18n="scaninfo.panelTitle">Scaninfo</h3>
+          <div class="overview-raster-quick__grid">
+            <span class="overview-raster-quick__label" data-i18n="scaninfo.scanIndexLabel">Scan nr.</span>
+            <span id="f2f-overview-scan-index" class="overview-raster-quick__value">—</span>
+            <span class="overview-raster-quick__label" data-i18n="scaninfo.dimensionsLabel">Afmetingen scan</span>
+            <span id="f2f-overview-scan-dimensions" class="overview-raster-quick__value">—</span>
+            <span class="overview-raster-quick__label" data-i18n="scaninfo.dpiLabel">Resolutie (DPI)</span>
+            <span id="f2f-overview-scan-dpi" class="overview-raster-quick__value">—</span>
+            <span class="overview-raster-quick__label" data-i18n="scaninfo.filmLabel">Filmsoort</span>
+            <span id="f2f-overview-film-format" class="overview-raster-quick__value">—</span>
+            <span class="overview-raster-quick__label" data-i18n="scaninfo.alignAreaLabel">Frame-export (px, volle strip)</span>
+            <span id="f2f-overview-frame-export" class="overview-raster-quick__value">—</span>
+          </div>
+          <div class="overview-raster-quick__controls">
+            <button type="button" id="f2f-overview-reset-grid" class="btn btn-secondary small" data-i18n="stripWindow.btnResetGrid">Reset raster</button>
+            <label class="overview-raster-quick__field">
+              <span data-i18n="stripWindow.labelX">X (px):</span>
+              <input type="number" id="f2f-overview-offset-x" class="input-num small" />
+            </label>
+            <label class="overview-raster-quick__field">
+              <span data-i18n="stripWindow.labelY">Y (px):</span>
+              <input type="number" id="f2f-overview-offset-y" class="input-num small" />
+            </label>
+          </div>
+          <div class="overview-raster-quick__controls">
+            <span class="overview-raster-quick__label" data-i18n="stripWindow.orientLabel">Horizontaal (1 frame)</span>
+            <button type="button" id="f2f-overview-rotate90" class="btn btn-secondary small" data-i18n="stripWindow.btnRotate90">Draai 90°</button>
+            <label class="overview-raster-quick__check"><input type="checkbox" id="f2f-overview-flip-h" /> <span data-i18n="stripWindow.flipH">Spiegel H</span></label>
+            <label class="overview-raster-quick__check"><input type="checkbox" id="f2f-overview-flip-v" /> <span data-i18n="stripWindow.flipV">Spiegel V</span></label>
+            <label class="overview-raster-quick__field">
+              <span data-i18n="stripWindow.labelZoom">Zoom:</span>
+              <select id="f2f-overview-zoom-mode" class="input-select">
+                <option value="fit-height" data-i18n="stripWindow.zoomFitHeight">Scanlint hoogte</option>
+                <option value="fit-width" data-i18n="stripWindow.zoomFitWidth">Scanlint breedte</option>
+                <option value="fit-frame" data-i18n="stripWindow.zoomFitFrame">Volledig frame</option>
+              </select>
+            </label>
+          </div>
+        </section>
+        <div class="sub-panel sub-panel--project-actions sub-panel--collapsed" id="project-actions-panel">
           <div class="sub-panel-header">
             <h3 class="sub-panel-title project-actions-panel__title" data-i18n="project.actionsPanelTitle">PROJECT</h3>
-            <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
+            <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="false" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▶</span></button>
           </div>
+          <div id="project-actions-summary" class="panel-summary-line">—</div>
           <div class="sub-panel-collapsible">
           <div class="sub-panel-body project-actions-panel__body">
             <div class="project-actions-row">
-              <button type="button" id="f2f-project-starten" class="btn btn-secondary btn-project-open project-actions-btn" data-i18n-title="project.startTooltip" data-i18n="project.startButton">Project starten</button>
-              <button type="button" id="f2f-new-project" class="btn btn-primary project-actions-btn" data-i18n="project.newButton">Nieuw project</button>
+              <button type="button" id="f2f-project-starten" class="btn btn-secondary btn-project-open project-actions-btn" data-i18n-title="project.startTooltip" data-i18n="project.startButtonShort">Start</button>
+              <button type="button" id="f2f-new-project" class="btn btn-primary project-actions-btn" data-i18n="project.newButtonShort">Nieuw</button>
               <button type="button" id="f2f-open-project" class="btn btn-secondary btn-project-open project-actions-btn" data-i18n-title="project.openFolderTooltip" data-i18n="project.openButton">Open</button>
-              <button type="button" id="f2f-open-project-file" class="btn btn-secondary btn-project-open small project-actions-btn" data-i18n-title="project.openFileTooltip" data-i18n="project.openFileButton">project.json</button>
+              <button type="button" id="f2f-open-project-file" class="btn btn-secondary btn-project-open small project-actions-btn" data-i18n-title="project.openFileTooltip" data-i18n="project.openFileButtonShort">JSON</button>
             </div>
             <div class="project-actions-row">
-              <button type="button" id="f2f-refresh-scan-list" class="btn btn-secondary small hidden btn-scanlist-refresh project-actions-btn" data-i18n-title="project.refreshScanListTooltip" data-i18n="project.refreshScanListButton">Scanlijst vernieuwen</button>
-              <button type="button" id="f2f-save-project" class="btn btn-secondary btn-project-save project-actions-btn" data-i18n="project.saveButton">Bewaren</button>
-              <button type="button" id="f2f-delete-project" class="btn btn-secondary btn-project-delete hidden project-actions-btn" data-i18n-title="project.deleteTooltip" data-i18n="project.deleteButton">Project wissen</button>
-            </div>
-            <div class="project-actions-row project-actions-row--close">
-              <button type="button" id="f2f-close-project" class="btn btn-secondary btn-project-close hidden project-actions-btn project-actions-btn--close" data-i18n-title="project.closeProjectTooltip" data-i18n="project.closeProjectButton">Project sluiten</button>
+              <button type="button" id="f2f-refresh-scan-list" class="btn btn-secondary small hidden btn-scanlist-refresh project-actions-btn" data-i18n-title="project.refreshScanListTooltip" data-i18n="project.refreshScanListButtonShort">Scanlijst</button>
+              <button type="button" id="f2f-save-project" class="btn btn-secondary btn-project-save project-actions-btn" data-i18n="project.saveButtonShort">Save</button>
+              <button type="button" id="f2f-delete-project" class="btn btn-secondary btn-project-delete hidden project-actions-btn" data-i18n-title="project.deleteTooltip" data-i18n="project.deleteButtonShort">Wis</button>
+              <button type="button" id="f2f-close-project" class="btn btn-secondary btn-project-close hidden project-actions-btn" data-i18n-title="project.closeProjectTooltip" data-i18n="project.closeProjectButtonShort">Sluit</button>
             </div>
           </div>
           </div>
@@ -125,6 +157,11 @@
               <label data-i18n="project.scanCountLabel">Aantal scans in map</label>
               <input type="number" id="f2f-scan-count" readonly min="0" value="" data-i18n-placeholder="project.scanCountPlaceholder" class="input-num input-readonly" data-i18n-title="project.scanCountTooltip" />
               <button type="button" id="f2f-refresh-scan-count" class="btn btn-secondary small" data-i18n-title="project.refreshScanCountTooltip" data-i18n="project.refreshScanCountButton">Nieuwe telling</button>
+              <button type="button" id="f2f-scan-count-use-current" class="btn btn-secondary small" data-i18n-title="project.scanCountUseCurrentTooltip" data-i18n="project.scanCountUseCurrentButton">Gebruik telling</button>
+              <label class="overview-raster-quick__check">
+                <input type="checkbox" id="f2f-scan-count-manual" />
+                <span data-i18n="project.scanCountManualLabel">Handmatig</span>
+              </label>
             </div>
             <div id="f2f-scan-orient-wrap" class="scan-orient-wrap hidden">
               <div class="row">
@@ -142,11 +179,12 @@
           <button type="button" id="f2f-show-new-project-form" class="btn btn-primary" data-i18n="project.showNewProjectButton">Nieuw project aanmaken</button>
         </div>
         <div id="lint-panel" class="lint-panel">
-          <div class="sub-panel sub-panel--strip">
+          <div class="sub-panel sub-panel--strip sub-panel--collapsed">
             <div class="sub-panel-header">
               <h3 class="sub-panel-title" data-i18n="strip.subPanelTitle">Filmstrook (scanlint)</h3>
-              <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
+              <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="false" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▶</span></button>
             </div>
+            <div id="strip-summary-line" class="panel-summary-line">—</div>
             <div class="sub-panel-collapsible">
             <div class="controls sub-panel-body">
               <div class="row">
@@ -156,20 +194,6 @@
                 <button type="button" id="f2f-next-scan" class="btn btn-secondary" data-i18n-title="strip.nextScanTooltip" data-i18n="strip.nextScanButton">Volgende ▶</button>
                 <button type="button" id="f2f-go-to-scan" class="btn btn-secondary" data-i18n-title="strip.goToTooltip" data-i18n="strip.goToButton">Ga naar…</button>
                 <span id="f2f-filename" class="filename">—</span>
-              </div>
-              <div class="row">
-                <label data-i18n="strip.filmFormatLabel">Filmsoort</label>
-                <select id="f2f-film-format" class="input-select" data-i18n-title="strip.filmFormatTooltip">
-                  <option value="16mm-double" data-i18n="strip.filmFormat16mmDouble">16mm dubbel perf</option>
-                  <option value="16mm-single" data-i18n="strip.filmFormat16mmSingle">16mm enkel perf</option>
-                  <option value="super16" data-i18n="strip.filmFormatSuper16">Super 16mm</option>
-                  <option value="8mm" data-i18n="strip.filmFormat8mm">8mm</option>
-                  <option value="super8" data-i18n="strip.filmFormatSuper8">Super 8</option>
-                  <option value="9.5mm" data-i18n="strip.filmFormat9_5mm">9,5mm</option>
-                  <option value="35mm" data-i18n="strip.filmFormat35mm">35mm</option>
-                </select>
-                <label class="checkbox-label"><input type="radio" name="f2f-polarity" id="f2f-polarity-pos" value="positief" checked /><span data-i18n="strip.polarityPositive">Positief</span></label>
-                <label class="checkbox-label"><input type="radio" name="f2f-polarity" id="f2f-polarity-neg" value="negatief" /><span data-i18n="strip.polarityNegative">Negatief</span></label>
               </div>
               <div class="row">
                 <label data-i18n="strip.numFramesLabel">Aantal frames (1–99)</label>
@@ -185,23 +209,14 @@
                 <button type="button" id="f2f-next-frame" class="btn btn-secondary">▶</button>
               </div>
               <div class="row">
-                <label data-i18n="strip.previewWindowsLabel">Preview-vensters</label>
-                <div class="preview-btn-group">
-                  <button type="button" id="f2f-open-strip" class="btn btn-preview-scanlint" data-i18n-title="strip.previewScanlintTooltip" data-i18n="strip.previewScanlintButton">SCANLINT</button>
-                  <button type="button" id="f2f-open-align-preview" class="btn btn-preview-align" data-i18n-title="strip.previewAlignTooltip" data-i18n="strip.previewAlignButton">UITLIJN</button>
-                  <button type="button" id="f2f-open-output-preview" class="btn btn-preview-output" data-i18n-title="strip.previewOutputTooltip" data-i18n="strip.previewOutputButton">OUTPUT</button>
-                  <button type="button" id="f2f-open-pixel-editor" class="btn btn-preview-pixel" data-i18n-title="strip.previewPixelEditorTooltip" data-i18n="strip.previewPixelEditorButton">PIXELS</button>
-                </div>
-              </div>
-              <div class="row">
                 <label for="f2f-strip-preview-res" data-i18n="strip.previewResLabel">Preview-resolutie scanlint</label>
                 <select id="f2f-strip-preview-res" class="input-num" data-i18n-title="strip.previewResTooltip">
                   <option value="1024" data-i18n="strip.previewRes1024">1024 px</option>
-                  <option value="1536" data-i18n="strip.previewRes1536">1536 px</option>
-                  <option value="2048" selected data-i18n="strip.previewRes2048">2048 px</option>
+                  <option value="1536" selected data-i18n="strip.previewRes1536">1536 px (Full HD)</option>
+                  <option value="2048" data-i18n="strip.previewRes2048">2048 px</option>
                   <option value="2560" data-i18n="strip.previewRes2560">2560 px</option>
                   <option value="3072" data-i18n="strip.previewRes3072">3072 px</option>
-                  <option value="4096" data-i18n="strip.previewRes4096">4096 px</option>
+                  <option value="4096" data-i18n="strip.previewRes4096">4096 px (4K)</option>
                 </select>
               </div>
               <div class="strip-rotation-block">
@@ -240,259 +255,95 @@
             </div>
             </div>
           </div>
-          <div class="sub-panel sub-panel--filmformat">
-            <div class="sub-panel-header">
-              <h3 class="sub-panel-title filmformat-panel__title" data-i18n="strip.filmformatPanelTitle">FILMFORMAAT</h3>
-              <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
+        </div>
+      </section>
+      <section class="panel overlay-panel panel-collapsible">
+        <div class="sub-panel-header">
+          <h2 data-i18n="overlay.sectionTitle">Overlay grid</h2>
+          <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
+        </div>
+        <div class="sub-panel-collapsible">
+        <p class="overlay-hint">Bepaal hier 1 uitsnijzone met vaste pixelgrootte. Deze zone wordt daarna voor alle scans gebruikt tijdens batch-verwerking.</p>
+        <div class="row overlay-row metric-grid-row pixel-grid-row">
+          <span class="offset-presets-label" data-i18n="overlay.pixelGridLabel">Referentieraster (pixels op scanlint):</span>
+          <label class="overlay-label" data-i18n-title="overlay.pxWidthTooltip"><span data-i18n="overlay.pxWidthLabel">Breedte (px)</span> <input type="number" id="f2f-grid-ref-px-width" min="1" step="1" value="103" class="input-num small" /></label>
+          <label class="overlay-label" data-i18n-title="overlay.pxHeightTooltip"><span data-i18n="overlay.pxHeightLabel">Hoogte (px)</span> <input type="number" id="f2f-grid-ref-px-height" min="1" step="1" value="75" class="input-num small" /></label>
+          <label class="overlay-label" data-i18n-title="overlay.pxFramesTooltip"><span data-i18n="overlay.pxFramesLabel">Frames</span> <input type="number" id="f2f-grid-ref-px-frames" min="1" max="99" value="30" class="input-num small" /></label>
+          <button type="button" id="f2f-capture-grid-ref-px" class="btn btn-secondary small" data-i18n-title="overlay.captureRefPxTooltip" data-i18n="overlay.captureRefPxButton">Neem actieve cel over</button>
+          <button type="button" id="f2f-apply-grid-from-px" class="btn btn-secondary small" data-i18n-title="overlay.applyGridPxTooltip" data-i18n="overlay.applyGridPxButton">Raster toepassen (px)</button>
+        </div>
+        </div>
+      </section>
+      <section class="panel frame-generator-panel panel-collapsible">
+        <div class="sub-panel-header">
+          <h2 data-i18n="frameGenerator.sectionTitle">Frame generator</h2>
+          <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
+        </div>
+        <div class="sub-panel-collapsible">
+        <div class="sub-panel-body frame-generator-body">
+        <div class="row">
+          <label data-i18n="frameGenerator.targetFolderLabel">Doelmap</label>
+          <button type="button" id="f2f-pick-export-folder" class="btn btn-secondary" data-i18n="frameGenerator.pickFolderButton">Doelmap kiezen…</button>
+          <span id="f2f-export-folder-path" class="filename">—</span>
+        </div>
+        <div class="row">
+          <label for="f2f-export-base-name" data-i18n="frameGenerator.fileNameLabel">Bestandsnaam (legacy; export gebruikt scanstam)</label>
+          <input type="text" id="f2f-export-base-name" class="input-text" value="frame" data-i18n-placeholder="frameGenerator.fileNamePlaceholder" data-i18n-title="frameGenerator.fileNameTooltip" />
+        </div>
+        <div class="row">
+          <span id="f2f-export-scan-count" class="value">—</span>
+        </div>
+        <div class="row">
+          <button type="button" id="f2f-export-current" class="btn btn-primary" data-i18n="frameGenerator.saveCurrentButton">Huidige scan bewaren</button>
+          <button type="button" id="f2f-export-batch" class="btn btn-secondary" data-i18n="frameGenerator.batchButton">Batch: alle scanlints</button>
+        </div>
+        <div id="f2f-frame-generator-progress-wrap" class="frame-generator-progress-wrap hidden" role="status" aria-live="polite" aria-atomic="true" data-i18n-aria-label="frameGenerator.progressAriaLabel">
+          <div class="frame-generator-progress-inner">
+            <div
+              id="f2f-frame-generator-progress-barhost"
+              class="frame-generator-progress-bar-host"
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+              data-i18n-aria-label="frameGenerator.progressAriaLabel"
+            >
+              <div id="f2f-frame-generator-progress-bar" class="frame-generator-progress-bar" style="width: 0%"></div>
             </div>
-            <div class="sub-panel-collapsible">
-            <div class="sub-panel-body filmformat-panel__body">
-              <div class="filmformat-btn-row">
-                <button type="button" id="f2f-preset-16mm-double" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.preset16mmDoubleTooltip" data-i18n="overlay.preset16mmDouble">16mm dubbel</button>
-                <button type="button" id="f2f-preset-16mm-single" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.preset16mmSingleTooltip" data-i18n="overlay.preset16mmSingle">16mm enkel</button>
-                <button type="button" id="f2f-preset-super16" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.presetSuper16Tooltip" data-i18n="overlay.presetSuper16">Super 16mm</button>
-                <button type="button" id="f2f-preset-8mm" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.preset8mmTooltip" data-i18n="overlay.preset8mm">8mm</button>
-              </div>
-              <div class="filmformat-btn-row">
-                <button type="button" id="f2f-preset-super8" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.presetSuper8Tooltip" data-i18n="overlay.presetSuper8">Super 8</button>
-                <button type="button" id="f2f-preset-9.5mm" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.preset9_5mmTooltip" data-i18n="overlay.preset9_5mm">9,5mm</button>
-                <button type="button" id="f2f-preset-35mm" class="btn btn-secondary small filmformat-btn" data-i18n-title="overlay.preset35mmTooltip" data-i18n="overlay.preset35mm">35mm</button>
-              </div>
-            </div>
+            <div class="frame-generator-progress-foot">
+              <span id="f2f-frame-generator-progress-pct" class="frame-generator-progress-pct">0%</span>
+              <span id="f2f-frame-generator-progress-label" class="frame-generator-progress-label">—</span>
             </div>
           </div>
+        </div>
+        </div>
         </div>
       </section>
       </div>
       <div class="main-panel main-panel-right">
-        <div id="f2f-info-panel" class="sub-panel sub-panel--scaninfo panel-equivalent">
-          <div class="sub-panel-header">
-            <h3 class="sub-panel-title" data-i18n="scaninfo.panelTitle">Scaninfo</h3>
+        <section id="f2f-inline-strip-panel" class="panel panel-collapsible">
+          <div class="sub-panel-header inline-strip-panel-header">
+            <div class="inline-strip-panel-header__title-row">
+              <h2 data-i18n="strip.inlineRasterSetupTitle">Zwevende preview</h2>
+              <button
+                type="button"
+                id="f2f-open-strip"
+                class="btn btn-floating-preview-toggle"
+                aria-pressed="false"
+                title="Zwevende preview openen"
+              >Uit</button>
+            </div>
             <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
           </div>
           <div class="sub-panel-collapsible">
-          <div class="info-panel-grid sub-panel-body">
-            <span class="info-label" data-i18n="scaninfo.dimensionsLabel">Afmetingen scan</span>
-            <span id="f2f-info-dimensions" class="info-value">—</span>
-            <span class="info-label" data-i18n="scaninfo.dpiLabel">Resolutie (DPI)</span>
-            <span id="f2f-info-dpi" class="info-value">—</span>
-            <span class="info-label" data-i18n="scaninfo.filmLabel">Filmsoort</span>
-            <span id="f2f-info-film" class="info-value">—</span>
-          </div>
-          </div>
-        </div>
-        <section class="panel overlay-panel panel-collapsible">
-          <div class="sub-panel-header">
-            <h2 data-i18n="overlay.sectionTitle">Overlay grid</h2>
-            <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
-          </div>
-          <div class="sub-panel-collapsible">
-          <p class="overlay-hint" data-i18n="overlay.hint">Plaatsen en afmeten van het raster (X/Y, Y-onder, pijltjes, breedte/hoogte, samendruk/uitrekken per stap (1/10 px), Shift+Samendruk = max. samendruk, reset, springen BOVEN/MIDDEN/ONDER, zoom, presets met naam) gebeurt in het venster <strong>Scanlint – raster afstellen</strong>. Hieronder: snelle start-offset per filmtype, raster uit millimeters, en <strong>raster-presets</strong> (alleen afmetingen/offsets — bruikbaar in elk project).</p>
-          <div class="row overlay-row grid-preset-row">
-            <span class="offset-presets-label" data-i18n-title="overlay.gridPresetLabelTooltip" data-i18n="overlay.gridPresetLabel">Raster-preset (alleen afstelling):</span>
-            <input type="text" id="f2f-grid-preset-name" class="input-text small" maxlength="80" data-i18n-placeholder="overlay.gridPresetNamePlaceholder" data-i18n-title="overlay.gridPresetNameTooltip" style="max-width:140px" />
-            <button type="button" id="f2f-grid-preset-save" class="btn btn-secondary small" data-i18n-title="overlay.gridPresetSaveTooltip" data-i18n="overlay.gridPresetSaveButton">Opslaan</button>
-            <select id="f2f-grid-preset-list" class="input-select small" style="max-width:200px" data-i18n-title="overlay.gridPresetListTooltip">
-              <option value="" data-i18n="overlay.gridPresetListPlaceholder">— Preset —</option>
-            </select>
-            <button type="button" id="f2f-grid-preset-load" class="btn btn-secondary small" data-i18n-title="overlay.gridPresetLoadTooltip" data-i18n="overlay.gridPresetLoadButton">Laden</button>
-            <button type="button" id="f2f-grid-preset-delete" class="btn btn-secondary small" data-i18n-title="overlay.gridPresetDeleteTooltip" data-i18n="overlay.gridPresetDeleteButton">Wissen</button>
-          </div>
-          <div class="row overlay-row workflow-starter-row">
-            <span class="offset-presets-label" data-i18n-title="workflow.starterApplyTooltip" data-i18n="workflow.starterLabel">Startsjabloon (één frame)</span>
-            <select id="f2f-workflow-starter-film" class="input-select small" style="max-width:200px" data-i18n-title="workflow.starterSelectTooltip">
-              <option value="" data-i18n="workflow.starterUseCurrentFilm">— Huidige filmsoort —</option>
-              <option value="16mm-double" data-i18n="strip.filmFormat16mmDouble">16mm dubbel perf</option>
-              <option value="16mm-single" data-i18n="strip.filmFormat16mmSingle">16mm enkel perf</option>
-              <option value="super16" data-i18n="strip.filmFormatSuper16">Super 16mm</option>
-              <option value="8mm" data-i18n="strip.filmFormat8mm">8mm</option>
-              <option value="super8" data-i18n="strip.filmFormatSuper8">Super 8</option>
-              <option value="9.5mm" data-i18n="strip.filmFormat9_5mm">9,5mm</option>
-              <option value="35mm" data-i18n="strip.filmFormat35mm">35mm</option>
-            </select>
-            <button type="button" id="f2f-workflow-apply-starter" class="btn btn-secondary small" data-i18n-title="workflow.starterApplyTooltip" data-i18n="workflow.starterApply">1 frame + start-offset</button>
-          </div>
-          <p class="overlay-hint workflow-templates-hint" data-i18n="workflow.templatesHint">Sla een goed passend raster op als raster-preset om het als sjabloon voor volgende scans te hergebruiken.</p>
-          <div class="row overlay-row metric-grid-row">
-            <span class="offset-presets-label" data-i18n="overlay.metricGridLabel">Raster uit metrische maten:</span>
-            <label class="overlay-label" data-i18n-title="overlay.mmWidthTooltip"><span data-i18n="overlay.mmWidthLabel">Breedte (mm)</span> <input type="number" id="f2f-grid-mm-width" min="0" step="0.1" value="10.26" class="input-num small" /></label>
-            <label class="overlay-label" data-i18n-title="overlay.mmHeightTooltip"><span data-i18n="overlay.mmHeightLabel">Hoogte (mm)</span> <input type="number" id="f2f-grid-mm-height" min="0" step="0.1" value="7.49" class="input-num small" /></label>
-            <label class="overlay-label" data-i18n-title="overlay.mmFramesTooltip"><span data-i18n="overlay.mmFramesLabel">Frames</span> <input type="number" id="f2f-grid-mm-frames" min="1" max="99" value="30" class="input-num small" /></label>
-            <label class="overlay-label" data-i18n-title="overlay.pxPerMmTooltip"><span data-i18n="overlay.pxPerMmLabel">px/mm</span> <input type="number" id="f2f-grid-px-per-mm" min="0.1" step="0.1" value="10" class="input-num small" /></label>
-            <button type="button" id="f2f-apply-grid-from-mm" class="btn btn-secondary small" data-i18n-title="overlay.applyGridTooltip" data-i18n="overlay.applyGridButton">Raster toepassen</button>
-          </div>
-          <div class="row overlay-row metric-grid-row pixel-grid-row">
-            <span class="offset-presets-label" data-i18n="overlay.pixelGridLabel">Referentieraster (pixels op scanlint):</span>
-            <label class="overlay-label" data-i18n-title="overlay.pxWidthTooltip"><span data-i18n="overlay.pxWidthLabel">Breedte (px)</span> <input type="number" id="f2f-grid-ref-px-width" min="1" step="1" value="103" class="input-num small" /></label>
-            <label class="overlay-label" data-i18n-title="overlay.pxHeightTooltip"><span data-i18n="overlay.pxHeightLabel">Hoogte (px)</span> <input type="number" id="f2f-grid-ref-px-height" min="1" step="1" value="75" class="input-num small" /></label>
-            <label class="overlay-label" data-i18n-title="overlay.pxFramesTooltip"><span data-i18n="overlay.pxFramesLabel">Frames</span> <input type="number" id="f2f-grid-ref-px-frames" min="1" max="99" value="30" class="input-num small" /></label>
-            <button type="button" id="f2f-capture-grid-ref-px" class="btn btn-secondary small" data-i18n-title="overlay.captureRefPxTooltip" data-i18n="overlay.captureRefPxButton">Neem actieve cel over</button>
-            <button type="button" id="f2f-apply-grid-from-px" class="btn btn-secondary small" data-i18n-title="overlay.applyGridPxTooltip" data-i18n="overlay.applyGridPxButton">Raster toepassen (px)</button>
-          </div>
-          </div>
-        </section>
-        <section class="panel frame-generator-panel panel-collapsible">
-          <div class="sub-panel-header">
-            <h2 data-i18n="frameGenerator.sectionTitle">Frame generator</h2>
-            <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
-          </div>
-          <div class="sub-panel-collapsible">
-          <div class="sub-panel-body frame-generator-body">
-          <div class="row">
-            <label data-i18n="frameGenerator.targetFolderLabel">Doelmap</label>
-            <button type="button" id="f2f-pick-export-folder" class="btn btn-secondary" data-i18n="frameGenerator.pickFolderButton">Doelmap kiezen…</button>
-            <span id="f2f-export-folder-path" class="filename">—</span>
-          </div>
-          <div class="row">
-            <label for="f2f-export-base-name" data-i18n="frameGenerator.fileNameLabel">Bestandsnaam (nummering 000001–999999)</label>
-            <input type="text" id="f2f-export-base-name" class="input-text" value="frame" data-i18n-placeholder="frameGenerator.fileNamePlaceholder" data-i18n-title="frameGenerator.fileNameTooltip" />
-          </div>
-          <div class="row">
-            <label for="f2f-export-output-res" data-i18n="frameGenerator.resolutionLabel">Resolutie frames</label>
-            <select id="f2f-export-output-res" class="input-select" data-i18n-title="frameGenerator.resolutionTooltip">
-              <option value="original" selected data-i18n="frameGenerator.resolutionOriginal">Raster (native pixels)</option>
-              <option value="r1024x768" data-i18n="frameGenerator.resolution1024x768">1024 × 768</option>
-              <option value="r1280x720" data-i18n="frameGenerator.resolution1280x720">1280 × 720 (SD)</option>
-              <option value="r1280x960" data-i18n="frameGenerator.resolution1280x960">1280 × 960</option>
-              <option value="r1600x1200" data-i18n="frameGenerator.resolution1600x1200">1600 × 1200</option>
-              <option value="r1920x1080" data-i18n="frameGenerator.resolution1920x1080">1920 × 1080 (Full HD)</option>
-              <option value="r2560x1440" data-i18n="frameGenerator.resolution2560x1440">2560 × 1440 (QHD)</option>
-              <option value="r3840x2160" data-i18n="frameGenerator.resolution3840x2160">3840 × 2160 (UHD 4K)</option>
-              <option value="custom" data-i18n="frameGenerator.resolutionCustom">Aangepast…</option>
-            </select>
-          </div>
-          <div class="row">
-            <label for="f2f-output-format" data-i18n="frameGenerator.outputFormatLabel">Uitvoerformaat</label>
-            <select id="f2f-output-format" class="input-select">
-              <option value="png" selected data-i18n="settings.outputFormatPng">PNG</option>
-              <option value="jpg" data-i18n="settings.outputFormatJpg">JPG</option>
-            </select>
-          </div>
-          <div class="row">
-            <label for="f2f-export-pause" data-i18n="frameGenerator.pauseLabel">Pauze na elke scan (seconden, batch)</label>
-            <input type="number" id="f2f-export-pause" class="input-num" min="0" max="300" value="0" data-i18n-title="frameGenerator.pauseTooltip" />
-          </div>
-          <div class="row">
-            <span id="f2f-export-scan-count" class="value">—</span>
-          </div>
-          <div class="row">
-            <label for="f2f-export-scan-from" data-i18n="frameGenerator.scanFromLabel">Van scan</label>
-            <input type="number" id="f2f-export-scan-from" class="input-num" min="1" value="1" data-i18n-title="frameGenerator.scanFromTooltip" />
-            <label for="f2f-export-scan-to" data-i18n="frameGenerator.scanToLabel">tot scan</label>
-            <input type="number" id="f2f-export-scan-to" class="input-num" min="1" value="1" data-i18n-title="frameGenerator.scanToTooltip" />
-            <button type="button" id="f2f-export-batch-range" class="btn btn-secondary" data-i18n="frameGenerator.saveRangeButton">Bewaren: scans in bereik</button>
-          </div>
-          <div class="row">
-            <button type="button" id="f2f-export-current" class="btn btn-primary" data-i18n="frameGenerator.saveCurrentButton">Huidige scan bewaren</button>
-            <button type="button" id="f2f-export-batch" class="btn btn-secondary" data-i18n="frameGenerator.batchButton">Batch: alle scanlints</button>
-          </div>
-          <div id="f2f-frame-generator-progress-wrap" class="frame-generator-progress-wrap hidden" role="status" aria-live="polite" aria-atomic="true" data-i18n-aria-label="frameGenerator.progressAriaLabel">
-            <div class="frame-generator-progress-inner">
-              <div
-                id="f2f-frame-generator-progress-barhost"
-                class="frame-generator-progress-bar-host"
-                role="progressbar"
-                aria-valuemin="0"
-                aria-valuemax="100"
-                aria-valuenow="0"
-                data-i18n-aria-label="frameGenerator.progressAriaLabel"
-              >
-                <div id="f2f-frame-generator-progress-bar" class="frame-generator-progress-bar" style="width: 0%"></div>
-              </div>
-              <div class="frame-generator-progress-foot">
-                <span id="f2f-frame-generator-progress-pct" class="frame-generator-progress-pct">0%</span>
-                <span id="f2f-frame-generator-progress-label" class="frame-generator-progress-label">—</span>
-              </div>
+            <div class="sub-panel-body inline-strip-body">
+              <iframe
+                id="f2f-inline-strip-frame"
+                title="RASTER SETUP"
+                style="border:0; width:100%; height:100%; background:#111;"
+                loading="lazy"
+              ></iframe>
             </div>
-          </div>
-          </div>
-          </div>
-        </section>
-        <section class="panel video-export-panel panel-collapsible">
-          <div class="sub-panel-header">
-            <h2 data-i18n="videoExport.sectionTitle">Video-export</h2>
-            <button type="button" class="btn btn-secondary small sub-panel-collapse-btn" aria-expanded="true" data-i18n-title="subPanel.toggleCollapse" data-i18n-aria-label="subPanel.toggleCollapse"><span class="sub-panel-collapse-icon" aria-hidden="true">▼</span></button>
-          </div>
-          <div class="sub-panel-collapsible">
-          <p class="video-export-hint overlay-hint" data-i18n="videoExport.hint">Frames van de geselecteerde scan(s) worden als PNG tijdelijk weggeschreven en daarna met ffmpeg samengevoegd tot MP4. Dezelfde resolutie- en bereikopties als bij Frame generator.</p>
-          <div class="sub-panel-body video-export-body">
-            <div class="row">
-              <label data-i18n="videoExport.framesFolderLabel">Map met frames</label>
-              <button type="button" id="f2f-pick-frames-folder" class="btn btn-secondary" data-i18n="videoExport.pickFramesFolderButton">Map kiezen…</button>
-              <span id="f2f-video-frames-folder-path" class="filename">—</span>
-            </div>
-            <div class="row">
-              <label for="f2f-video-format" data-i18n="videoExport.formatLabel">Videformaat</label>
-              <select id="f2f-video-format" class="input-select" data-i18n-title="videoExport.formatTooltip">
-                <option value="prores4444" data-i18n="videoExport.formatProres4444">ProRes 4444 (MOV, hoogste kwaliteit)</option>
-                <option value="prores422" data-i18n="videoExport.formatProres422">ProRes 422 (MOV, zeer hoog)</option>
-                <option value="ffv1" data-i18n="videoExport.formatFfv1">FFV1 (MKV, verliesvrij)</option>
-                <option value="hevc" data-i18n="videoExport.formatHevc">H.265/HEVC (MP4, hoog)</option>
-                <option value="h264" selected data-i18n="videoExport.formatH264">H.264 (MP4, breed compatibel)</option>
-              </select>
-            </div>
-            <div class="row">
-              <label data-i18n="videoExport.outputFileLabel">Uitvoerbestand</label>
-              <button type="button" id="f2f-pick-video-output" class="btn btn-secondary" data-i18n="videoExport.pickFileButton">Bestand kiezen…</button>
-              <span id="f2f-video-output-path" class="filename">—</span>
-            </div>
-            <div class="row">
-              <label for="f2f-video-fps" data-i18n="videoExport.fpsLabel">Framerate (fps)</label>
-              <input type="number" id="f2f-video-fps" class="input-num" min="1" max="60" value="24" data-i18n-title="videoExport.fpsTooltip" />
-            </div>
-            <div class="row">
-              <label for="f2f-video-output-res" data-i18n="videoExport.outputResolutionLabel">Resolutie video</label>
-              <select id="f2f-video-output-res" class="input-select" data-i18n-title="videoExport.outputResolutionTooltip">
-                <option value="original" selected data-i18n="frameGenerator.resolutionOriginal">Raster (native pixels)</option>
-                <option value="r1024x768" data-i18n="frameGenerator.resolution1024x768">1024 × 768</option>
-                <option value="r1280x720" data-i18n="frameGenerator.resolution1280x720">1280 × 720 (SD)</option>
-                <option value="r1280x960" data-i18n="frameGenerator.resolution1280x960">1280 × 960</option>
-                <option value="r1600x1200" data-i18n="frameGenerator.resolution1600x1200">1600 × 1200</option>
-                <option value="r1920x1080" data-i18n="frameGenerator.resolution1920x1080">1920 × 1080 (Full HD)</option>
-                <option value="r2560x1440" data-i18n="frameGenerator.resolution2560x1440">2560 × 1440 (QHD)</option>
-                <option value="r3840x2160" data-i18n="frameGenerator.resolution3840x2160">3840 × 2160 (UHD 4K)</option>
-                <option value="custom" data-i18n="frameGenerator.resolutionCustom">Aangepast…</option>
-              </select>
-            </div>
-            <div class="row">
-              <label for="f2f-video-uniform-fit" data-i18n="videoExport.uniformFitLabel">Gelijk formaat voor video</label>
-              <select id="f2f-video-uniform-fit" class="input-select" data-i18n-title="videoExport.uniformFitTooltip">
-                <option value="pad" selected data-i18n="videoExport.uniformFitPad">Zwarte rand (max. uitsnede, niets verloren)</option>
-                <option value="cover" data-i18n="videoExport.uniformFitCover">Vullen (geen rand, randen worden bijgesneden)</option>
-              </select>
-            </div>
-            <div class="row">
-              <label for="f2f-video-scan-from" data-i18n="videoExport.scanFromLabel">Van scan</label>
-              <input type="number" id="f2f-video-scan-from" class="input-num" min="1" value="1" data-i18n-title="videoExport.scanFromTooltip" />
-              <label for="f2f-video-scan-to" data-i18n="videoExport.scanToLabel">tot scan</label>
-              <input type="number" id="f2f-video-scan-to" class="input-num" min="1" value="1" data-i18n-title="videoExport.scanToTooltip" />
-            </div>
-            <div class="row">
-              <button type="button" id="f2f-export-video" class="btn btn-primary" data-i18n="videoExport.exportButton">Exporteer naar video</button>
-            </div>
-            <div class="row video-export-progress hidden" id="f2f-video-export-progress-wrap" role="status" aria-live="polite" aria-atomic="true">
-              <div class="video-export-progress-layout">
-                <button type="button" id="f2f-video-export-stop" class="btn btn-secondary small hidden" data-i18n="videoExport.stopButton">Stoppen</button>
-                <div class="video-export-progress-stack">
-                  <div
-                    id="f2f-video-export-progress-barhost"
-                    class="video-export-progress-bar-wrap"
-                    role="progressbar"
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    aria-valuenow="0"
-                    data-i18n-aria-label="videoExport.progressAriaLabel"
-                  >
-                    <div id="f2f-video-export-progress-bar" class="video-export-progress-bar" style="width: 0%"></div>
-                  </div>
-                  <div class="video-export-progress-foot">
-                    <span id="f2f-video-export-progress-pct" class="video-export-progress-pct">0%</span>
-                    <span id="f2f-video-export-progress" class="video-export-progress-label">—</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
           </div>
         </section>
       </div>
@@ -501,19 +352,44 @@
   </div>
   <div id="f2f-about-overlay" class="about-overlay hidden" aria-hidden="true">
     <div class="about-dialog">
-      <h2 class="about-title">Film2Frame</h2>
+      <h2 class="about-title" data-i18n="about.title">Film2Frame</h2>
+      <p class="about-tagline" data-i18n="about.tagline">Freeware — niet-commercieel gebruik</p>
       <p class="about-version"><strong data-i18n="about.versionLabel">Build</strong> <span id="f2f-about-version">—</span></p>
       <p class="about-desc" data-i18n="about.description">Scanlinten (filmstroken) uitsnijden naar losse frames.</p>
-      <div class="about-verify">
-        <strong data-i18n="about.verifyTitle">Controleren of het juiste bestand geladen wordt (Electron)</strong>
-        <ul>
-          <li data-i18n="about.verifyStep1">Open het venster dat u wilt controleren (bijv. Scanlint-preview).</li>
-          <li data-i18n="about.verifyStep2">Rechtsklik in het venster → <strong>Inspecteren</strong> (of F12).</li>
-          <li data-i18n="about.verifyStep3">Tab <strong>Elements</strong> → bovenaan de HTML bekijken; de buildversie staat in een comment of in de About-dialog.</li>
-          <li data-i18n="about.verifyStep4">Vergelijk de getoonde buildversie met die hierboven; die hoort gelijk te zijn.</li>
-        </ul>
+      <p class="about-copyright" data-i18n="about.copyright">Copyright © 2026 Jan De Nef (Film2Frame)</p>
+      <p class="about-contact" data-i18n="about.contact">Contact: Jan De Nef — softwarejdn@gmail.com</p>
+      <div class="about-license">
+        <strong data-i18n="about.licenseTitle">Licentie</strong>
+        <p data-i18n="about.licenseSummary">Gratis voor persoonlijk, educatief en archiefgebruik. Commercieel gebruik vereist toestemming. Geen garantie — software „zoals ze is”.</p>
+        <p class="about-license-agree" data-i18n="about.licenseAgree">Door deze software te gebruiken gaat u akkoord met de Gebruikersovereenkomst.</p>
       </div>
+      <p class="about-docs-hint" data-i18n="about.docsHint">Volledige tekst: Documenten → Freeware / licentie, of END_USER_AGREEMENT.md bij de installatie.</p>
       <button type="button" id="f2f-about-close" class="btn btn-primary" data-i18n="about.closeButton">Sluiten</button>
+    </div>
+  </div>
+  <div id="f2f-eula-overlay" class="eula-overlay hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="f2f-eula-title">
+    <div class="eula-dialog">
+      <div class="eula-dialog__header">
+        <h2 id="f2f-eula-title" class="eula-title" data-i18n="eulaGate.title">Gebruikersovereenkomst</h2>
+        <label class="eula-lang">
+          <span data-i18n="eulaGate.languageLabel">Taal</span>
+          <select id="f2f-eula-locale" aria-label="Language">
+            <option value="nl">Nederlands</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+      </div>
+      <p class="eula-intro" data-i18n="eulaGate.intro">Film2Frame is freeware voor niet-commercieel gebruik. Lees de overeenkomst en ga akkoord om verder te gaan.</p>
+      <p class="eula-contact" data-i18n="eulaGate.contact">Auteur / contact: Jan De Nef — softwarejdn@gmail.com</p>
+      <pre id="f2f-eula-text" class="eula-text" tabindex="0" data-i18n="eulaGate.loading">Overeenkomst laden…</pre>
+      <label class="eula-check">
+        <input type="checkbox" id="f2f-eula-checkbox" />
+        <span data-i18n="eulaGate.checkbox">Ik heb de Gebruikersovereenkomst gelezen en ga ermee akkoord.</span>
+      </label>
+      <div class="eula-actions">
+        <button type="button" id="f2f-eula-decline" class="btn" data-i18n="eulaGate.decline">Afsluiten</button>
+        <button type="button" id="f2f-eula-accept" class="btn btn-primary" disabled data-i18n="eulaGate.accept">Ik ga akkoord</button>
+      </div>
     </div>
   </div>
   <script type="module" src="renderer/ui.js"></script>

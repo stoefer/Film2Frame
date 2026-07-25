@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="nl" data-i18n-lang>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file: data:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>Film2Frame – Documenten</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      font-family: system-ui, sans-serif;
+      font-size: 14px;
+    }
+    .docs-layout {
+      display: grid;
+      grid-template-columns: minmax(180px, 220px) 1fr;
+      height: 100%;
+      min-height: 0;
+    }
+    .docs-sidebar {
+      border-right: 1px solid #3a3a3a;
+      background: #222;
+      padding: 12px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+      overflow: auto;
+    }
+    .docs-sidebar h1 {
+      margin: 0 0 4px;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #aeb9c8;
+    }
+    .docs-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .docs-nav button {
+      text-align: left;
+      padding: 8px 10px;
+      border: 1px solid #444;
+      border-radius: 6px;
+      background: #2a2a2a;
+      color: #e8e8e8;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .docs-nav button:hover { background: #333; border-color: #666; }
+    .docs-nav button.is-active {
+      background: #2a3a4a;
+      border-color: #6ea9ff;
+      color: #fff;
+    }
+    .docs-main {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+    }
+    .docs-toolbar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-bottom: 1px solid #333;
+      background: #252525;
+    }
+    .docs-toolbar h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .docs-body {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 18px 22px 32px;
+      line-height: 1.55;
+    }
+    .docs-body h1 { font-size: 1.55rem; margin: 0 0 0.8em; color: #f0f0f0; }
+    .docs-body h2 { font-size: 1.25rem; margin: 1.4em 0 0.55em; color: #e8e8e8; border-bottom: 1px solid #3a3a3a; padding-bottom: 0.25em; }
+    .docs-body h3 { font-size: 1.05rem; margin: 1.15em 0 0.4em; color: #d8d8d8; }
+    .docs-body p, .docs-body li { color: #d0d0d0; }
+    .docs-body a { color: #8ec7ff; }
+    .docs-body code {
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 0.92em;
+      background: #2a2a2a;
+      padding: 0.1em 0.35em;
+      border-radius: 3px;
+    }
+    .docs-body pre {
+      background: #121212;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 12px 14px;
+      overflow: auto;
+    }
+    .docs-body pre code { background: none; padding: 0; }
+    .docs-body table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.8em 0 1.2em;
+      font-size: 13px;
+    }
+    .docs-body th, .docs-body td {
+      border: 1px solid #444;
+      padding: 6px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .docs-body th { background: #2a2a2a; color: #eee; }
+    .docs-body hr { border: none; border-top: 1px solid #3a3a3a; margin: 1.4em 0; }
+    .docs-body ul, .docs-body ol { padding-left: 1.4em; }
+    .docs-error { color: #f0a0a0; }
+    .docs-hint { font-size: 12px; color: #999; margin-top: auto; padding-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <h1 id="docs-window-title">Documenten</h1>
+      <nav id="docs-nav" class="docs-nav" aria-label="Documents"></nav>
+      <p id="docs-hint" class="docs-hint"></p>
+    </aside>
+    <section class="docs-main">
+      <div class="docs-toolbar">
+        <h2 id="docs-current-title">—</h2>
+      </div>
+      <article id="docs-body" class="docs-body"></article>
+    </section>
+  </div>
+  <script src="docs-viewer.js"></script>
+</body>
+</html>

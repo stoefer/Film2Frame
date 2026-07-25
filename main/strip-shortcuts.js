@@ -25,9 +25,14 @@ const ACTIONS = [
     default: { code: 'Home', ctrl: false, alt: false, meta: false }
   },
   { id: 'zoomFitWidth', labelKey: 'settings.stripShortcutZoomFitWidth', default: { code: 'NumpadMultiply' } },
-  { id: 'zoomFitHeight', labelKey: 'settings.stripShortcutZoomFitHeight', default: { code: 'NumpadDivide' } },
+  { id: 'zoomFitHeight', labelKey: 'settings.stripShortcutZoomFitHeight', default: { code: 'KeyH' } },
   { id: 'scanPrev', labelKey: 'settings.stripShortcutScanPrev', default: null },
   { id: 'scanNext', labelKey: 'settings.stripShortcutScanNext', default: null },
+  {
+    id: 'centerGridManual',
+    labelKey: 'settings.stripShortcutCenterGrid',
+    default: { code: 'KeyC', ctrl: false, shift: false, alt: false, meta: false }
+  },
   { id: 'resetGrid', labelKey: 'settings.stripShortcutResetGrid', default: null },
   { id: 'rotate90', labelKey: 'settings.stripShortcutRotate90', default: null }
 ];

@@ -58,6 +58,8 @@ const state = {
    * (split-pan; bij lijn k=n + koppel: vaste onderrand bij Duw). Uit = rigide gedrag voor die knoppen.
    */
   gridPanelLinkVerticalAnchor: true,
+  /** Fix-knop in RASTER SETUP: true = afmeting/beeldverhouding blokkeren, alleen pan. */
+  fixResolutionLocked: false,
   orientLabel: '',
   flipHorizontal: false,
   flipVertical: false,
@@ -95,10 +97,56 @@ const state = {
   arrowStepShiftPx: 10,
   /** Vorige/Volgende scan in project: raster behouden i.p.v. opgeslagen lintState laden (instelling). */
   preserveGridOnScanNav: true,
-  /** Pad naar uitvoerbestand voor MP4-export (bijv. C:\output\video.mp4). */
-  videoOutputPath: null,
-  /** Map met frames voor video-export (leeg = gebruik projectscans). */
-  videoFramesFolderPath: null,
+  /**
+   * Na laden + auto-uitlijning (perforatie): automatisch Volgende (export + volgende scan).
+   * Runtime-UI; stopt op laatste scan.
+   */
+  autoAdvanceAfterAlign: false,
+  /** Automatische assist bij raster-herpositioneren: off | soft | strong. */
+  autoRasterAssistMode: 'off',
+  /** Referentie voor horizontale assist-snap: right | left. */
+  autoRasterAssistXRef: 'right',
+  /** Referentie voor verticale assist-snap: both | top | bottom. */
+  autoRasterAssistYRef: 'both',
+  /** Tuning-profiel voor assist-detectie (maakt toekomstige finetuning veilig wisselbaar). */
+  autoRasterAssistPreset: 'bottom-v1',
+  /** Extra X-correctie naar rechts na assist-detectie (px), nuttig om linker zwarte rand weg te trimmen. */
+  autoRasterAssistExtraLeftPx: 0,
+  /** Extra X-correctie naar links na assist-detectie (px), nuttig om rechter zwarte rand weg te trimmen. */
+  autoRasterAssistExtraRightPx: 0,
+  /** Extra Y-correctie omlaag na assist-detectie (px), nuttig om bovenrand weg te trimmen. */
+  autoRasterAssistExtraTopPx: 0,
+  /** Extra Y-correctie omhoog na assist-detectie (px), nuttig om onderrand weg te trimmen. */
+  autoRasterAssistExtraBottomPx: 0,
+  /** Detecteer grenzen: start eerst vanuit middenpositie (X/Y). */
+  autoRasterCenterBeforeDetect: false,
+  /** Na Vorige/Volgende/Ga naar: automatisch Detecteer grenzen (naast perforatie-presets). */
+  autoRasterDetectOnScanNav: false,
+  /** Minimum breedte (px) van linker witte rand voor preset "left-white". */
+  autoRasterLeftWhiteMinMarginPx: 3,
+  /** Micro-bias naar links (px) voor preset "black-line" in zachte modus. */
+  autoRasterDarkLineLeftBiasPx: 1,
+  /** Schaalfactor voor links-bias in preset "black-line" wanneer Assist op "strong" staat. */
+  autoRasterDarkLineStrongScale: 3,
+  /** Bij strong: schaalfactor automatisch per scan bepalen i.p.v. vaste waarde. */
+  autoRasterDarkLineStrongScaleAuto: false,
+  /** Verticale bias (px) voor "onder zwart" fine-tune bij preset "black-line". */
+  autoRasterDarkBottomBiasPx: 0,
+  /**
+   * Dikte van horizontale zwarte-lijn detectie (1–10).
+   * 1 = dunne aperture-lijn; 10 = dikke framestrook; 5 = midden.
+   */
+  autoRasterDarkLineThickness: 5,
+  /**
+   * Zoekbereik (canvas-px, ± rond huidige randen) voor zwarte-lijn (Y) én verticale framelanden (X).
+   * Kleiner = stabieler dichtbij; groter = verder zoeken bij grote shifts.
+   */
+  autoRasterDarkLineSearchRangePx: 160,
+  /**
+   * Gevoeligheid driehoek-ankerpunten (0–100).
+   * Lager = meer grijstinten meenemen; hoger = alleen helder wit (beter op lichte frames).
+   */
+  autoRasterTriangleSensitivity: 50,
   /**
    * Pixel-editor overlays per frame-index: Map<number, { stripW, stripH, x, y, w, h, canvas }>.
    * Canvas is w×h, composited op strip op (x,y) in ruwe strip-pixels.
@@ -319,12 +367,125 @@ export function setPreserveGridOnScanNav(value) {
   state.preserveGridOnScanNav = value !== false;
 }
 
-export function setVideoOutputPath(p) {
-  state.videoOutputPath = p != null ? String(p) : null;
+export function setAutoAdvanceAfterAlign(enabled) {
+  state.autoAdvanceAfterAlign = !!enabled;
 }
 
-export function setVideoFramesFolderPath(p) {
-  state.videoFramesFolderPath = p != null ? String(p) : null;
+function clampAssistExtraLeftPx(px) {
+  const v = Math.round(Number(px) || 0);
+  return Math.max(0, Math.min(400, v));
+}
+
+function clampLeftWhiteMinMarginPx(px) {
+  const v = Math.round(Number(px) || 0);
+  return Math.max(0, Math.min(24, v));
+}
+
+function clampDarkLineLeftBiasPx(px) {
+  const v = Math.round(Number(px) || 0);
+  return Math.max(0, Math.min(6, v));
+}
+
+function clampDarkLineStrongScale(v) {
+  const n = Math.round(Number(v) || 0);
+  return Math.max(1, Math.min(48, n));
+}
+
+function clampDarkBottomBiasPx(px) {
+  const v = Math.round(Number(px) || 0);
+  return Math.max(-24, Math.min(24, v));
+}
+
+function clampDarkLineThickness(v) {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.max(1, Math.min(10, n)) : 5;
+}
+
+function clampDarkLineSearchRangePx(px) {
+  const n = Math.round(Number(px));
+  return Number.isFinite(n) ? Math.max(20, Math.min(300, n)) : 160;
+}
+
+export function setAutoRasterAssistMode(mode) {
+  const v = typeof mode === 'string' ? mode.trim().toLowerCase() : '';
+  state.autoRasterAssistMode = v === 'soft' || v === 'strong' ? v : 'off';
+}
+
+export function setAutoRasterAssistXRef(ref) {
+  const v = typeof ref === 'string' ? ref.trim().toLowerCase() : '';
+  state.autoRasterAssistXRef = v === 'left' ? 'left' : 'right';
+}
+
+export function setAutoRasterAssistYRef(ref) {
+  const v = typeof ref === 'string' ? ref.trim().toLowerCase() : '';
+  state.autoRasterAssistYRef = v === 'top' || v === 'bottom' ? v : 'both';
+}
+
+export function setAutoRasterAssistPreset(preset) {
+  const v = typeof preset === 'string' ? preset.trim().toLowerCase() : '';
+  state.autoRasterAssistPreset =
+    v === 'standard' || v === 'bottom-soft' || v === 'difficult-edge' || v === 'bottom-v2' || v === 'black-line' || v === 'black-line-left' || v === 'sprocket-left' || v === 'sprocket-right' || v === 'left-white' || v === 'right-white'
+      ? v
+      : 'bottom-v1';
+}
+
+export function setAutoRasterAssistExtraLeftPx(px) {
+  state.autoRasterAssistExtraLeftPx = clampAssistExtraLeftPx(px);
+}
+
+export function setAutoRasterAssistExtraRightPx(px) {
+  state.autoRasterAssistExtraRightPx = clampAssistExtraLeftPx(px);
+}
+
+export function setAutoRasterAssistExtraTopPx(px) {
+  state.autoRasterAssistExtraTopPx = clampAssistExtraLeftPx(px);
+}
+
+export function setAutoRasterAssistExtraBottomPx(px) {
+  state.autoRasterAssistExtraBottomPx = clampAssistExtraLeftPx(px);
+}
+
+export function setAutoRasterCenterBeforeDetect(enabled) {
+  state.autoRasterCenterBeforeDetect = !!enabled;
+}
+
+export function setAutoRasterDetectOnScanNav(enabled) {
+  state.autoRasterDetectOnScanNav = !!enabled;
+}
+
+export function setAutoRasterLeftWhiteMinMarginPx(px) {
+  state.autoRasterLeftWhiteMinMarginPx = clampLeftWhiteMinMarginPx(px);
+}
+
+export function setAutoRasterDarkLineLeftBiasPx(px) {
+  state.autoRasterDarkLineLeftBiasPx = clampDarkLineLeftBiasPx(px);
+}
+
+export function setAutoRasterDarkLineStrongScale(v) {
+  state.autoRasterDarkLineStrongScale = clampDarkLineStrongScale(v);
+}
+
+export function setAutoRasterDarkLineStrongScaleAuto(enabled) {
+  state.autoRasterDarkLineStrongScaleAuto = !!enabled;
+}
+
+export function setAutoRasterDarkBottomBiasPx(px) {
+  state.autoRasterDarkBottomBiasPx = clampDarkBottomBiasPx(px);
+}
+
+export function setAutoRasterDarkLineThickness(v) {
+  state.autoRasterDarkLineThickness = clampDarkLineThickness(v);
+}
+
+export function setAutoRasterDarkLineSearchRangePx(px) {
+  state.autoRasterDarkLineSearchRangePx = clampDarkLineSearchRangePx(px);
+}
+
+export function setAutoRasterTriangleSensitivity(v) {
+  const n = Math.round(Number(v));
+  state.autoRasterTriangleSensitivity = Number.isFinite(n)
+    ? Math.max(0, Math.min(100, n))
+    : 50;
 }
 
 export function setGridOffset(x, y) {
@@ -422,6 +583,10 @@ export function setGridPanelLinkVerticalAnchor(value) {
   state.gridPanelLinkVerticalAnchor = value !== false;
 }
 
+export function setFixResolutionLocked(value) {
+  state.fixResolutionLocked = value === true;
+}
+
 /**
  * @param {number} k
  * @param {{ skipSplitHandoff?: boolean }} [options] skipSplitHandoff: preset/snapshot laden — geen bewaren/ophalen uit map
@@ -505,6 +670,15 @@ export function updateProjectScanInfos(scanInfos) {
   state.projectMeta.numberOfScans = state.projectMeta.scanInfos.length;
 }
 
+/** Map met scanlinten (bestandslocatie) + bijbehorende scanInfos; markeert project als gewijzigd. */
+export function updateProjectScanFolder(location, scanInfos) {
+  if (!state.projectMeta) return;
+  state.projectMeta.location = location != null ? String(location) : '';
+  state.projectMeta.scanInfos = Array.isArray(scanInfos) ? [...scanInfos] : [];
+  state.projectMeta.numberOfScans = state.projectMeta.scanInfos.length;
+  state.isDirty = true;
+}
+
 /** Welke scanlint-preset (id) hoort bij dit project; null = geen keuze. */
 export function setStripPresetId(id) {
   if (!state.projectMeta) return;
@@ -567,7 +741,25 @@ export function clearProject() {
   state.image = null;
   state.naturalWidth = 0;
   state.naturalHeight = 0;
+  state.fixResolutionLocked = false;
   state.orientLabel = '';
+  state.autoRasterAssistMode = 'off';
+  state.autoRasterAssistXRef = 'right';
+  state.autoRasterAssistYRef = 'both';
+  state.autoRasterAssistPreset = 'bottom-v1';
+  state.autoRasterAssistExtraLeftPx = 0;
+  state.autoRasterAssistExtraRightPx = 0;
+  state.autoRasterAssistExtraTopPx = 0;
+  state.autoRasterAssistExtraBottomPx = 0;
+  state.autoRasterCenterBeforeDetect = false;
+  state.autoRasterDetectOnScanNav = false;
+  state.autoRasterLeftWhiteMinMarginPx = 3;
+  state.autoRasterDarkLineLeftBiasPx = 1;
+  state.autoRasterDarkLineStrongScale = 3;
+  state.autoRasterDarkLineStrongScaleAuto = false;
+  state.autoRasterDarkBottomBiasPx = 0;
+  state.autoRasterDarkLineThickness = 5;
+  state.autoRasterDarkLineSearchRangePx = 160;
 }
 
 /**
@@ -591,13 +783,29 @@ export function resetWorkspaceAfterCloseProject() {
   state.framePreviewVisibleFrames = 1;
   state.exportBaseName = 'frame';
   state.exportPauseSeconds = 0;
-  state.videoOutputPath = null;
-  state.videoFramesFolderPath = null;
   state.exportFolderPath = null;
   state.pixelEditorOutputFolder = null;
   state.pixelEditorSourceFolder = null;
   state.pixelEditorExternalPath = null;
   state.pixelEditorExternalImage = null;
+  state.fixResolutionLocked = false;
+  state.autoRasterAssistMode = 'off';
+  state.autoRasterAssistXRef = 'right';
+  state.autoRasterAssistYRef = 'both';
+  state.autoRasterAssistPreset = 'bottom-v1';
+  state.autoRasterAssistExtraLeftPx = 0;
+  state.autoRasterAssistExtraRightPx = 0;
+  state.autoRasterAssistExtraTopPx = 0;
+  state.autoRasterAssistExtraBottomPx = 0;
+  state.autoRasterCenterBeforeDetect = false;
+  state.autoRasterDetectOnScanNav = false;
+  state.autoRasterLeftWhiteMinMarginPx = 3;
+  state.autoRasterDarkLineLeftBiasPx = 1;
+  state.autoRasterDarkLineStrongScale = 3;
+  state.autoRasterDarkLineStrongScaleAuto = false;
+  state.autoRasterDarkBottomBiasPx = 0;
+  state.autoRasterDarkLineThickness = 5;
+  state.autoRasterDarkLineSearchRangePx = 160;
   resetGridToDefault();
 }
 
@@ -636,12 +844,61 @@ export function getLintStateSnapshot() {
         : null,
     gridFrozenLowerCellHeightPx: state.gridFrozenLowerCellHeightPx,
     gridPanelLinkVerticalAnchor: state.gridPanelLinkVerticalAnchor !== false,
+    fixResolutionLocked: state.fixResolutionLocked === true,
     orientLabel: state.orientLabel,
     flipHorizontal: state.flipHorizontal,
     flipVertical: state.flipVertical,
     filmFormat: state.filmFormat,
     filmPolarity: state.filmPolarity,
-    tiltPivot: state.tiltPivot
+    tiltPivot: state.tiltPivot,
+    autoRasterAssistMode: state.autoRasterAssistMode === 'strong' ? 'strong' : (state.autoRasterAssistMode === 'soft' ? 'soft' : 'off'),
+    autoRasterAssistXRef: state.autoRasterAssistXRef === 'left' ? 'left' : 'right',
+    autoRasterAssistYRef: state.autoRasterAssistYRef === 'top' || state.autoRasterAssistYRef === 'bottom' ? state.autoRasterAssistYRef : 'both',
+    autoRasterAssistPreset:
+      state.autoRasterAssistPreset === 'standard' ||
+      state.autoRasterAssistPreset === 'bottom-soft' ||
+      state.autoRasterAssistPreset === 'difficult-edge' ||
+      state.autoRasterAssistPreset === 'bottom-v2' ||
+      state.autoRasterAssistPreset === 'black-line' ||
+      state.autoRasterAssistPreset === 'black-line-left' ||
+      state.autoRasterAssistPreset === 'sprocket-left' ||
+      state.autoRasterAssistPreset === 'sprocket-right' ||
+      state.autoRasterAssistPreset === 'left-white' ||
+      state.autoRasterAssistPreset === 'right-white'
+        ? state.autoRasterAssistPreset
+        : 'bottom-v1',
+    autoRasterAssistExtraLeftPx: clampAssistExtraLeftPx(state.autoRasterAssistExtraLeftPx),
+    autoRasterAssistExtraRightPx: clampAssistExtraLeftPx(state.autoRasterAssistExtraRightPx),
+    autoRasterAssistExtraTopPx: clampAssistExtraLeftPx(state.autoRasterAssistExtraTopPx),
+    autoRasterAssistExtraBottomPx: clampAssistExtraLeftPx(state.autoRasterAssistExtraBottomPx),
+    autoRasterCenterBeforeDetect: state.autoRasterCenterBeforeDetect === true,
+    autoRasterDetectOnScanNav: state.autoRasterDetectOnScanNav === true,
+    autoRasterLeftWhiteMinMarginPx: clampLeftWhiteMinMarginPx(state.autoRasterLeftWhiteMinMarginPx),
+    autoRasterDarkLineLeftBiasPx: clampDarkLineLeftBiasPx(state.autoRasterDarkLineLeftBiasPx),
+    autoRasterDarkLineStrongScale: clampDarkLineStrongScale(state.autoRasterDarkLineStrongScale),
+    autoRasterDarkLineStrongScaleAuto: state.autoRasterDarkLineStrongScaleAuto === true,
+    autoRasterDarkBottomBiasPx: clampDarkBottomBiasPx(state.autoRasterDarkBottomBiasPx),
+    autoRasterDarkLineThickness: clampDarkLineThickness(state.autoRasterDarkLineThickness),
+    autoRasterDarkLineSearchRangePx: clampDarkLineSearchRangePx(state.autoRasterDarkLineSearchRangePx),
+    // Bewaar eerdere export-range zodat her-export kan overschrijven
+    exportStartIndex: (() => {
+      const prev = state.path ? findLintState(state.path) : null;
+      const n = Math.round(Number(prev && prev.exportStartIndex));
+      return Number.isFinite(n) && n >= 1 ? n : null;
+    })(),
+    exportFrameCount: (() => {
+      const prev = state.path ? findLintState(state.path) : null;
+      const n = Math.round(Number(prev && prev.exportFrameCount));
+      return Number.isFinite(n) && n >= 1 ? n : null;
+    })(),
+    exportFolder: (() => {
+      const prev = state.path ? findLintState(state.path) : null;
+      return prev && typeof prev.exportFolder === 'string' && prev.exportFolder ? prev.exportFolder : null;
+    })(),
+    exportBaseName: (() => {
+      const prev = state.path ? findLintState(state.path) : null;
+      return prev && typeof prev.exportBaseName === 'string' && prev.exportBaseName ? prev.exportBaseName : null;
+    })()
   };
 }
 
@@ -784,12 +1041,109 @@ export function applyLintState(snapshot) {
   if (snapshot.gridPanelLinkVerticalAnchor != null) {
     state.gridPanelLinkVerticalAnchor = !!snapshot.gridPanelLinkVerticalAnchor;
   }
+  if (snapshot.fixResolutionLocked != null) {
+    state.fixResolutionLocked = !!snapshot.fixResolutionLocked;
+  } else {
+    state.fixResolutionLocked = false;
+  }
   if (snapshot.orientLabel != null) state.orientLabel = snapshot.orientLabel;
   if (snapshot.flipHorizontal != null) state.flipHorizontal = !!snapshot.flipHorizontal;
   if (snapshot.flipVertical != null) state.flipVertical = !!snapshot.flipVertical;
   if (snapshot.filmFormat != null) state.filmFormat = snapshot.filmFormat;
   if (snapshot.filmPolarity != null) state.filmPolarity = snapshot.filmPolarity;
   if (snapshot.tiltPivot != null) state.tiltPivot = snapshot.tiltPivot;
+  if (snapshot.autoRasterAssistMode != null) {
+    const m = String(snapshot.autoRasterAssistMode).trim().toLowerCase();
+    state.autoRasterAssistMode = m === 'soft' || m === 'strong' ? m : 'off';
+  } else {
+    state.autoRasterAssistMode = 'off';
+  }
+  if (snapshot.autoRasterAssistXRef != null) {
+    const xr = String(snapshot.autoRasterAssistXRef).trim().toLowerCase();
+    state.autoRasterAssistXRef = xr === 'left' ? 'left' : 'right';
+  } else {
+    state.autoRasterAssistXRef = 'right';
+  }
+  if (snapshot.autoRasterAssistYRef != null) {
+    const yr = String(snapshot.autoRasterAssistYRef).trim().toLowerCase();
+    state.autoRasterAssistYRef = yr === 'top' || yr === 'bottom' ? yr : 'both';
+  } else {
+    state.autoRasterAssistYRef = 'both';
+  }
+  if (snapshot.autoRasterAssistPreset != null) {
+    const ap = String(snapshot.autoRasterAssistPreset).trim().toLowerCase();
+    state.autoRasterAssistPreset =
+      ap === 'standard' || ap === 'bottom-soft' || ap === 'difficult-edge' || ap === 'bottom-v2' || ap === 'black-line' || ap === 'black-line-left' || ap === 'sprocket-left' || ap === 'sprocket-right' || ap === 'left-white' || ap === 'right-white'
+        ? ap
+        : 'bottom-v1';
+  } else {
+    state.autoRasterAssistPreset = 'bottom-v1';
+  }
+  if (snapshot.autoRasterAssistExtraLeftPx != null) {
+    state.autoRasterAssistExtraLeftPx = clampAssistExtraLeftPx(snapshot.autoRasterAssistExtraLeftPx);
+  } else {
+    state.autoRasterAssistExtraLeftPx = 0;
+  }
+  if (snapshot.autoRasterAssistExtraRightPx != null) {
+    state.autoRasterAssistExtraRightPx = clampAssistExtraLeftPx(snapshot.autoRasterAssistExtraRightPx);
+  } else {
+    state.autoRasterAssistExtraRightPx = 0;
+  }
+  if (snapshot.autoRasterAssistExtraTopPx != null) {
+    state.autoRasterAssistExtraTopPx = clampAssistExtraLeftPx(snapshot.autoRasterAssistExtraTopPx);
+  } else {
+    state.autoRasterAssistExtraTopPx = 0;
+  }
+  if (snapshot.autoRasterAssistExtraBottomPx != null) {
+    state.autoRasterAssistExtraBottomPx = clampAssistExtraLeftPx(snapshot.autoRasterAssistExtraBottomPx);
+  } else {
+    state.autoRasterAssistExtraBottomPx = 0;
+  }
+  if (snapshot.autoRasterCenterBeforeDetect != null) {
+    state.autoRasterCenterBeforeDetect = !!snapshot.autoRasterCenterBeforeDetect;
+  } else {
+    state.autoRasterCenterBeforeDetect = false;
+  }
+  if (snapshot.autoRasterDetectOnScanNav != null) {
+    state.autoRasterDetectOnScanNav = !!snapshot.autoRasterDetectOnScanNav;
+  } else {
+    state.autoRasterDetectOnScanNav = false;
+  }
+  if (snapshot.autoRasterLeftWhiteMinMarginPx != null) {
+    state.autoRasterLeftWhiteMinMarginPx = clampLeftWhiteMinMarginPx(snapshot.autoRasterLeftWhiteMinMarginPx);
+  } else {
+    state.autoRasterLeftWhiteMinMarginPx = 3;
+  }
+  if (snapshot.autoRasterDarkLineLeftBiasPx != null) {
+    state.autoRasterDarkLineLeftBiasPx = clampDarkLineLeftBiasPx(snapshot.autoRasterDarkLineLeftBiasPx);
+  } else {
+    state.autoRasterDarkLineLeftBiasPx = 1;
+  }
+  if (snapshot.autoRasterDarkLineStrongScale != null) {
+    state.autoRasterDarkLineStrongScale = clampDarkLineStrongScale(snapshot.autoRasterDarkLineStrongScale);
+  } else {
+    state.autoRasterDarkLineStrongScale = 3;
+  }
+  if (snapshot.autoRasterDarkLineStrongScaleAuto != null) {
+    state.autoRasterDarkLineStrongScaleAuto = !!snapshot.autoRasterDarkLineStrongScaleAuto;
+  } else {
+    state.autoRasterDarkLineStrongScaleAuto = false;
+  }
+  if (snapshot.autoRasterDarkBottomBiasPx != null) {
+    state.autoRasterDarkBottomBiasPx = clampDarkBottomBiasPx(snapshot.autoRasterDarkBottomBiasPx);
+  } else {
+    state.autoRasterDarkBottomBiasPx = 0;
+  }
+  if (snapshot.autoRasterDarkLineThickness != null) {
+    state.autoRasterDarkLineThickness = clampDarkLineThickness(snapshot.autoRasterDarkLineThickness);
+  } else {
+    state.autoRasterDarkLineThickness = 5;
+  }
+  if (snapshot.autoRasterDarkLineSearchRangePx != null) {
+    state.autoRasterDarkLineSearchRangePx = clampDarkLineSearchRangePx(snapshot.autoRasterDarkLineSearchRangePx);
+  } else {
+    state.autoRasterDarkLineSearchRangePx = 160;
+  }
   syncPivotCustomSplitCanvasFromMap();
 }
 
@@ -820,12 +1174,34 @@ const LINT_STATE_COMPARE_KEYS = [
   'gridSplitLowerPanByPivotK',
   'gridFrozenLowerCellHeightPx',
   'gridPanelLinkVerticalAnchor',
+  'fixResolutionLocked',
   'orientLabel',
   'flipHorizontal',
   'flipVertical',
   'filmFormat',
   'filmPolarity',
-  'tiltPivot'
+  'tiltPivot',
+  'autoRasterAssistMode',
+  'autoRasterAssistXRef',
+  'autoRasterAssistYRef',
+  'autoRasterAssistPreset',
+  'autoRasterAssistExtraLeftPx',
+  'autoRasterAssistExtraRightPx',
+  'autoRasterAssistExtraTopPx',
+  'autoRasterAssistExtraBottomPx',
+  'autoRasterCenterBeforeDetect',
+  'autoRasterDetectOnScanNav',
+  'autoRasterLeftWhiteMinMarginPx',
+  'autoRasterDarkLineLeftBiasPx',
+  'autoRasterDarkLineStrongScale',
+  'autoRasterDarkLineStrongScaleAuto',
+  'autoRasterDarkBottomBiasPx',
+  'autoRasterDarkLineThickness',
+  'autoRasterDarkLineSearchRangePx',
+  'exportStartIndex',
+  'exportFrameCount',
+  'exportFolder',
+  'exportBaseName'
 ];
 
 function lintStateFieldEqual(a, b) {

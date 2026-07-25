@@ -6,9 +6,9 @@ const path = require('path');
 const fs = require('fs');
 const windows = require('./windows');
 const { registerIPC } = require('./ipc');
-const prefs = require('./prefs');
 const windowArrange = require('./window-arrange');
 const { applyAppMenu } = require('./app-menu');
+const prefs = require('./prefs');
 
 app.whenReady().then(() => {
   try {
@@ -20,8 +20,8 @@ app.whenReady().then(() => {
   registerIPC();
   applyAppMenu(windows);
   const mainWin = windows.getMainWindow();
-  function openAuxWindowsFromSavedMask() {
-    windows.openAuxiliaryWindowsFromPanelMask(prefs.getAllSettings().windowGridAutoOpenMask);
+  function openAuxWindowsDefault() {
+    windows.openAuxiliaryWindowsFromPanelMask('010000');
   }
   function maybeAutoArrange() {
     try {
@@ -30,21 +30,20 @@ app.whenReady().then(() => {
       }
     } catch (_) {}
   }
-  if (mainWin && mainWin.webContents) {
-    mainWin.webContents.once('did-finish-load', () => {
-      openAuxWindowsFromSavedMask();
-      /* Hulpvensters moeten bestaan; korte vertraging na openen. */
-      setTimeout(() => {
-        maybeAutoArrange();
-        windows.applyWindowGeometryLockFromPrefs();
-      }, 450);
-    });
-  } else {
-    openAuxWindowsFromSavedMask();
+  function openAuxAfterEulaIfNeeded() {
+    if (!prefs.isEulaAccepted()) return;
+    openAuxWindowsDefault();
     setTimeout(() => {
       maybeAutoArrange();
       windows.applyWindowGeometryLockFromPrefs();
     }, 450);
+  }
+  if (mainWin && mainWin.webContents) {
+    mainWin.webContents.once('did-finish-load', () => {
+      openAuxAfterEulaIfNeeded();
+    });
+  } else {
+    openAuxAfterEulaIfNeeded();
   }
 });
 

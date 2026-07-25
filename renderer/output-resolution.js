@@ -1,5 +1,5 @@
 /**
- * Gedeelde logica voor uitvoerresolutie-ID’s (Frame generator, video-export, instellingen).
+ * Gedeelde logica voor uitvoerresolutie-ID’s (Frame generator, instellingen).
  */
 
 export const RESOLUTION_ID_TO_DIMS = {

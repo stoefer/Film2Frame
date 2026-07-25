@@ -2,7 +2,6 @@
  * Zelfstandig instellingen-venster (geen gedeelde renderer-state met hoofdvenster).
  */
 import { init as initI18n, t, applyToDOM } from './i18n.js';
-import { normalizeOutputResolutionId } from './output-resolution.js';
 import { DEFAULT_STRIP_PREVIEW_MAX_DIM, STRIP_PREVIEW_MAX_DIM_OPTIONS } from './constants.js';
 
 const gel = (id) => document.getElementById(id);
@@ -10,13 +9,15 @@ const gel = (id) => document.getElementById(id);
 const S = {
   settingDpi: 'f2f-setting-dpi',
   settingDefaultFrames: 'f2f-setting-default-frames',
-  settingOutputFormat: 'f2f-setting-output-format',
-  settingOutputRes: 'f2f-setting-output-res',
-  settingCustomResWrap: 'f2f-setting-custom-res-wrap',
-  settingCustomW: 'f2f-setting-custom-w',
-  settingCustomH: 'f2f-setting-custom-h',
   settingPreviewRes: 'f2f-setting-preview-res',
+  displayProfileFullHdBtn: 'f2f-display-profile-fullhd',
+  displayProfileFullHdActive: 'f2f-display-profile-fullhd-active',
+  displayProfile4kBtn: 'f2f-display-profile-4k',
+  displayProfile4kActive: 'f2f-display-profile-4k-active',
+  quickFullHdPresetBtn: 'f2f-quick-fullhd-preset',
+  quickResetWorkspaceBtn: 'f2f-quick-reset-workspace',
   settingDarkMode: 'f2f-setting-dark-mode',
+  settingCompactUi: 'f2f-setting-compact-ui',
   settingWindowGrid: 'f2f-setting-window-grid',
   settingWindowGridMask: 'f2f-setting-window-grid-mask',
   arrangeMatrix: 'f2f-arrange-matrix',
@@ -36,21 +37,38 @@ const S = {
 };
 
 let stripShortcutCaptureCleanup = null;
+const ACTIVE_LAYOUT_PANELS = new Set([1, 2]);
 
 /** @type {number[]} */
 let matrixPermutation = [1, 2, 3, 4, 5, 6];
 let matrixSelectedCellIndex = null;
 /** @type {boolean[]} paneel 1–6 */
-let matrixPanelMask = [true, true, true, true, true, true];
+let matrixPanelMask = [true, true, false, false, false, false];
 
 function parsePanelMaskString(str) {
   const s = String(str || '').replace(/\s/g, '');
-  if (s.length !== 6 || !/^[01]+$/.test(s)) return [true, true, true, true, true, true];
-  return s.split('').map((c) => c === '1');
+  if (s.length !== 6 || !/^[01]+$/.test(s)) return [true, true, false, false, false, false];
+  const raw = s.split('').map((c) => c === '1');
+  return [
+    !!raw[0],
+    !!raw[1],
+    false,
+    false,
+    false,
+    false
+  ];
 }
 
 function encodePanelMaskString(mask) {
-  return (mask || []).map((b) => (b ? '1' : '0')).join('');
+  const m = Array.isArray(mask) ? mask : [];
+  return [
+    m[0] ? '1' : '0',
+    m[1] ? '1' : '0',
+    '0',
+    '0',
+    '0',
+    '0'
+  ].join('');
 }
 
 /** Slaat venster-keuzemasker direct op in prefs (zonder volledige Instellingen bewaren). */
@@ -100,6 +118,13 @@ function applyMatrixUI() {
         !Number.isNaN(ci) && ci >= 0 && ci < 6 && panelId >= 1 && panelId <= 6
           ? !!matrixPanelMask[panelId - 1]
           : false;
+      const isLayoutPanelActive = ACTIVE_LAYOUT_PANELS.has(panelId);
+      btn.classList.toggle('f2f-arrange-matrix-cell--not-used', !isLayoutPanelActive);
+      if (!isLayoutPanelActive && mode === 'pick') {
+        btn.setAttribute('aria-disabled', 'true');
+      } else {
+        btn.removeAttribute('aria-disabled');
+      }
       btn.classList.toggle('f2f-arrange-matrix-cell--auto-open', inMask);
       const swapPick = mode === 'swap' && matrixSelectedCellIndex === ci;
       btn.classList.toggle('f2f-arrange-matrix-cell--swap-pick', swapPick);
@@ -118,7 +143,7 @@ function onMatrixCellClick(cellIndex) {
   if (getMatrixUiMode() === 'pick') {
     matrixSelectedCellIndex = null;
     const pid = matrixPermutation[cellIndex];
-    if (pid >= 1 && pid <= 6) {
+    if (ACTIVE_LAYOUT_PANELS.has(pid)) {
       matrixPanelMask[pid - 1] = !matrixPanelMask[pid - 1];
     }
     applyMatrixUI();
@@ -312,13 +337,59 @@ function applyTheme(darkMode) {
   }
 }
 
-function onOutputResolutionChange(ev) {
-  const v = (ev?.target && ev.target.value) || gel(S.settingOutputRes)?.value || 'original';
-  const norm = normalizeOutputResolutionId(v);
-  const sel = gel(S.settingOutputRes);
-  if (sel) sel.value = norm;
-  const wrap = gel(S.settingCustomResWrap);
-  if (wrap) wrap.classList.toggle('hidden', norm !== 'custom');
+function updateDisplayProfileButtons() {
+  const v = parseInt(gel(S.settingPreviewRes)?.value, 10);
+  const fullHdBtn = gel(S.displayProfileFullHdBtn);
+  const k4Btn = gel(S.displayProfile4kBtn);
+  const fullHdActive = gel(S.displayProfileFullHdActive);
+  const k4Active = gel(S.displayProfile4kActive);
+  if (fullHdBtn) fullHdBtn.classList.toggle('btn-display-profile-active', v === 1536);
+  if (k4Btn) k4Btn.classList.toggle('btn-display-profile-active', v === 4096);
+  if (fullHdActive) fullHdActive.classList.toggle('hidden', v !== 1536);
+  if (k4Active) k4Active.classList.toggle('hidden', v !== 4096);
+}
+
+async function applyDisplayProfile(profileId) {
+  const profile = profileId === '4k' ? { stripPreviewRes: 4096 } : { stripPreviewRes: 1536 };
+  const previewEl = gel(S.settingPreviewRes);
+  if (previewEl) previewEl.value = String(profile.stripPreviewRes);
+  updateDisplayProfileButtons();
+  if (window.api?.setAppSettings) {
+    await window.api.setAppSettings(profile);
+  }
+  window.api?.notifySettingsSaved?.();
+}
+
+async function applyQuickFullHdPreset() {
+  const settings = {
+    stripPreviewRes: 1536,
+    compactUi: true
+  };
+  const previewEl = gel(S.settingPreviewRes);
+  if (previewEl) previewEl.value = String(settings.stripPreviewRes);
+  const compactEl = gel(S.settingCompactUi);
+  if (compactEl) compactEl.checked = true;
+  updateDisplayProfileButtons();
+  if (window.api?.setAppSettings) {
+    await window.api.setAppSettings(settings);
+  }
+  window.api?.notifySettingsSaved?.();
+}
+
+async function applyQuickResetWorkspace() {
+  const settings = {
+    compactUi: false,
+    stripPreviewRes: 1536
+  };
+  const compactEl = gel(S.settingCompactUi);
+  if (compactEl) compactEl.checked = false;
+  const previewEl = gel(S.settingPreviewRes);
+  if (previewEl) previewEl.value = '1536';
+  updateDisplayProfileButtons();
+  if (window.api?.setAppSettings) {
+    await window.api.setAppSettings(settings);
+  }
+  window.api?.notifySettingsSaved?.();
 }
 
 async function loadForm() {
@@ -333,14 +404,11 @@ async function loadForm() {
     };
     set(S.settingDpi, String(s.scanDpi));
     set(S.settingDefaultFrames, String(s.defaultFramesPerStrip));
-    set(S.settingOutputFormat, s.outputFormat || 'png');
-    const outNorm = normalizeOutputResolutionId(s.outputResolution);
-    set(S.settingOutputRes, outNorm);
-    set(S.settingCustomW, String(s.customOutputWidth || 1920));
-    set(S.settingCustomH, String(s.customOutputHeight || 1080));
     const previewRes = Math.max(512, Math.min(8192, Number(s.stripPreviewRes) || DEFAULT_STRIP_PREVIEW_MAX_DIM));
     set(S.settingPreviewRes, String(previewRes));
+    updateDisplayProfileButtons();
     set(S.settingDarkMode, s.darkMode, 'checked');
+    set(S.settingCompactUi, !!s.compactUi, 'checked');
     matrixPanelMask = parsePanelMaskString(s.windowGridAutoOpenMask);
     setMatrixPermutationFromString(s.windowGridPermutation || '1,2,3,4,5,6');
     set(S.settingArrangeAllDisplays, !!s.arrangeAcrossAllDisplays, 'checked');
@@ -352,30 +420,24 @@ async function loadForm() {
     set(S.settingArrowStepShiftPx, String(arrowShiftPx));
     set(S.settingPreserveGridOnScanNav, s.preserveGridOnScanNav !== false, 'checked');
     applyTheme(s.darkMode);
-    const wrap = gel(S.settingCustomResWrap);
-    if (wrap) wrap.classList.toggle('hidden', outNorm !== 'custom');
     await buildStripShortcutsSettingsTable();
     applyToDOM(document.body);
   } catch (_) {}
 }
 
 async function saveForm() {
-  const outRes = normalizeOutputResolutionId(gel(S.settingOutputRes)?.value || 'original');
-  const sel = gel(S.settingOutputRes);
-  if (sel) sel.value = outRes;
   const arrowPx = Math.max(1, Math.min(10, parseInt(gel(S.settingArrowStepPx)?.value, 10) || 1));
   const arrowShiftPx = Math.max(10, Math.min(100, parseInt(gel(S.settingArrowStepShiftPx)?.value, 10) || 10));
   const settings = {
     scanDpi: parseInt(gel(S.settingDpi)?.value, 10) || 4800,
     defaultFramesPerStrip: parseInt(gel(S.settingDefaultFrames)?.value, 10) || 30,
-    outputFormat: gel(S.settingOutputFormat)?.value || 'png',
-    outputResolution: outRes,
-    customOutputWidth: parseInt(gel(S.settingCustomW)?.value, 10) || 1920,
-    customOutputHeight: parseInt(gel(S.settingCustomH)?.value, 10) || 1080,
+    outputFormat: 'png',
+    outputResolution: 'original',
     stripPreviewRes: parseInt(gel(S.settingPreviewRes)?.value, 10) || DEFAULT_STRIP_PREVIEW_MAX_DIM,
     darkMode: !!gel(S.settingDarkMode)?.checked,
+    compactUi: !!gel(S.settingCompactUi)?.checked,
     windowGridPermutation: gel(S.settingWindowGrid)?.value || '1,2,3,4,5,6',
-    windowGridAutoOpenMask: gel(S.settingWindowGridMask)?.value || '111111',
+    windowGridAutoOpenMask: gel(S.settingWindowGridMask)?.value || encodePanelMaskString(matrixPanelMask),
     arrangeAcrossAllDisplays: !!gel(S.settingArrangeAllDisplays)?.checked,
     arrangeWindowsOnStartup: !!gel(S.settingArrangeOnStartup)?.checked,
     windowsGeometryLocked: !!gel(S.settingWindowsGeometryLocked)?.checked,
@@ -432,7 +494,11 @@ async function onAutoArrangeFromGrid() {
 async function boot() {
   await initI18n(window.api);
   await loadForm();
-  gel(S.settingOutputRes)?.addEventListener('change', onOutputResolutionChange);
+  gel(S.settingPreviewRes)?.addEventListener('change', updateDisplayProfileButtons);
+  gel(S.displayProfileFullHdBtn)?.addEventListener('click', () => applyDisplayProfile('fullhd').catch(() => {}));
+  gel(S.displayProfile4kBtn)?.addEventListener('click', () => applyDisplayProfile('4k').catch(() => {}));
+  gel(S.quickFullHdPresetBtn)?.addEventListener('click', () => applyQuickFullHdPreset().catch(() => {}));
+  gel(S.quickResetWorkspaceBtn)?.addEventListener('click', () => applyQuickResetWorkspace().catch(() => {}));
   gel(S.arrangeMatrix)?.addEventListener('click', (e) => {
     const btn = e.target.closest('.f2f-arrange-matrix-cell');
     if (!btn || btn.dataset.cell == null) return;

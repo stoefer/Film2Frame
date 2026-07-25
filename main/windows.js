@@ -8,11 +8,15 @@ const constants = require('./constants');
 const prefs = require('./prefs');
 const locales = require('./locales');
 
-/** Venster- en taakbalkicoon (PNG in repo); ontbreekt het bestand, dan laat Electron de standaard zien. */
+/** Venster- en taakbalkicoon; op Windows bij voorkeur .ico, anders PNG. */
 function getAppIconPath() {
   try {
-    const p = path.join(__dirname, '..', 'build', 'icon.png');
-    if (fs.existsSync(p)) return p;
+    const base = path.join(__dirname, '..', 'build');
+    const ico = path.join(base, 'icon.ico');
+    if (process.platform === 'win32' && fs.existsSync(ico)) return ico;
+    const png = path.join(base, 'icon.png');
+    if (fs.existsSync(png)) return png;
+    if (fs.existsSync(ico)) return ico;
   } catch (_) {}
   return undefined;
 }
@@ -28,13 +32,13 @@ function localizedAuxWindowTitle(dictKey, fallbackSuffix) {
   return `${constants.APP_NAME} – ${suf}`;
 }
 
-/** Zijkant- en tussenruimte zodat Scanlint, Uitlijning en Output naast elkaar in het werkgebied passen. */
+/** Zijkant- en tussenruimte voor standaard 2-vensteropstelling (hoofd + raster setup). */
 const PREVIEW_TILE_SIDE_PAD = 10;
 const PREVIEW_TILE_GAP = 8;
 const PREVIEW_TILE_BOTTOM_MARGIN = 24;
 
 /**
- * Eén tegelmaat voor alle drie preview-vensters: breedte = (werkbreedte − padding − 2×gap) / 3.
+ * Standaard tegelmaat voor de raster-setup: halve werkbreedte (2 kolommen).
  * @returns {{ work: Electron.Rectangle, width: number, height: number, x0: number, y: number, avail: number }}
  */
 function getUnifiedPreviewTileSize() {
@@ -43,11 +47,11 @@ function getUnifiedPreviewTileSize() {
     const work = display.workArea || display.bounds;
     const W = work.width != null ? work.width : 1400;
     const H = work.height != null ? work.height : 900;
-    /** Ruimte voor 3×breedte + 2×gap tussen de kolommen. */
+    /** Ruimte voor 2×breedte + 1×gap tussen de kolommen. */
     const avail = W - 2 * PREVIEW_TILE_SIDE_PAD;
-    let width = Math.floor((avail - 2 * PREVIEW_TILE_GAP) / 3);
+    let width = Math.floor((avail - PREVIEW_TILE_GAP) / 2);
     width = Math.max(240, width);
-    while (3 * width + 2 * PREVIEW_TILE_GAP > avail && width > 200) width -= 1;
+    while (2 * width + PREVIEW_TILE_GAP > avail && width > 200) width -= 1;
     const height = Math.max(400, H - PREVIEW_TILE_BOTTOM_MARGIN);
     const x0 = (work.x != null ? work.x : 0) + PREVIEW_TILE_SIDE_PAD;
     const y = work.y != null ? work.y : 0;
@@ -65,10 +69,10 @@ function getUnifiedPreviewTileSize() {
 }
 
 /**
- * Standaardpositie voor preview-tegel: 0 = Scanlint (links), 1 = Uitlijning (midden), 2 = Output (rechts).
+ * Standaardpositie voor preview-tegel: 0 = links, 1 = rechts.
  */
 function getUnifiedPreviewSlotBounds(slotIndex) {
-  const s = Math.max(0, Math.min(2, Math.floor(Number(slotIndex)) || 0));
+  const s = Math.max(0, Math.min(1, Math.floor(Number(slotIndex)) || 0));
   const { width, height, x0, y } = getUnifiedPreviewTileSize();
   return {
     x: x0 + s * (width + PREVIEW_TILE_GAP),
@@ -190,6 +194,7 @@ let stripPreviewWindow = null;
 let outputPreviewWindow = null;
 let alignPreviewWindow = null;
 let settingsWindow = null;
+let docsWindow = null;
 let pixelEditorWindow = null;
 
 /** Laatste strip-payload; UITLIJN opent na IPC → eerste updates kunnen verloren gaan → opnieuw sturen bij load. */
@@ -280,30 +285,35 @@ function resendLastStripPayloadToStripPreview() {
  */
 function applyWindowGeometryLock(locked) {
   const L = !!locked;
-  const applyOne = (win) => {
+  const floatingStrip = !!prefs.getAllSettings().stripPreviewFloating;
+  const applyOne = (win, lockThis) => {
     if (!win || win.isDestroyed()) return;
     try {
-      win.setMovable(!L);
-      win.setResizable(!L);
-      win.setMaximizable(!L);
+      win.setMovable(!lockThis);
+      win.setResizable(!lockThis);
+      win.setMaximizable(!lockThis);
     } catch (_) {}
   };
-  applyOne(mainWindow);
-  applyOne(stripPreviewWindow);
-  applyOne(outputPreviewWindow);
-  applyOne(alignPreviewWindow);
-  applyOne(settingsWindow);
-  if (!L) {
-    try {
+  applyOne(mainWindow, L);
+  // Zwevend preview: altijd verplaatsbaar/herschaalbaar, ook bij globale vergrendeling
+  applyOne(stripPreviewWindow, L && !floatingStrip);
+  applyOne(outputPreviewWindow, L);
+  applyOne(alignPreviewWindow, L);
+  applyOne(settingsWindow, L);
+  applyOne(docsWindow, L);
+  try {
+    const minW = getUnifiedPreviewMinWidthPx();
+    if (!L) {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.setMinimumSize(constants.MIN_WIDTH, constants.MIN_HEIGHT);
       }
-      const minW = getUnifiedPreviewMinWidthPx();
-      [stripPreviewWindow, outputPreviewWindow, alignPreviewWindow, settingsWindow].forEach((w) => {
+      [stripPreviewWindow, outputPreviewWindow, alignPreviewWindow, settingsWindow, docsWindow].forEach((w) => {
         if (w && !w.isDestroyed()) w.setMinimumSize(minW, 400);
       });
-    } catch (_) {}
-  }
+    } else if (floatingStrip && stripPreviewWindow && !stripPreviewWindow.isDestroyed()) {
+      stripPreviewWindow.setMinimumSize(minW, 400);
+    }
+  } catch (_) {}
 }
 
 function applyWindowGeometryLockFromPrefs() {
@@ -320,9 +330,24 @@ function createMainWindow(preloadPath) {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
   const winState = prefs.getWindowState();
   const savedMain = winState.mainBounds ? clampBoundsToDisplay(winState.mainBounds) : null;
+  let defaultMainBounds = null;
+  if (!savedMain) {
+    try {
+      const display = screen.getPrimaryDisplay();
+      const work = display.workArea || display.bounds;
+      const gap = PREVIEW_TILE_GAP;
+      const colW = Math.max(640, Math.floor((work.width - gap) / 2));
+      defaultMainBounds = {
+        x: work.x,
+        y: work.y,
+        width: colW,
+        height: work.height
+      };
+    } catch (_) {}
+  }
   const opts = {
-    width: savedMain?.width ?? 1440,
-    height: savedMain?.height ?? 900,
+    width: savedMain?.width ?? defaultMainBounds?.width ?? 1280,
+    height: savedMain?.height ?? defaultMainBounds?.height ?? 900,
     minWidth: constants.MIN_WIDTH,
     minHeight: constants.MIN_HEIGHT,
     title: localizedAuxWindowTitle('window.mainPanelTitleSuffix', '1 — Main panel'),
@@ -335,6 +360,9 @@ function createMainWindow(preloadPath) {
   if (savedMain && Number.isFinite(savedMain.x) && Number.isFinite(savedMain.y)) {
     opts.x = savedMain.x;
     opts.y = savedMain.y;
+  } else if (defaultMainBounds && Number.isFinite(defaultMainBounds.x) && Number.isFinite(defaultMainBounds.y)) {
+    opts.x = defaultMainBounds.x;
+    opts.y = defaultMainBounds.y;
   }
   applyWindowIcon(opts);
   mainWindow = new BrowserWindow(opts);
@@ -369,6 +397,7 @@ function createMainWindow(preloadPath) {
       closeOutputPreviewWindow();
       closeAlignPreviewWindow();
       closeSettingsWindow();
+      closeDocsWindow();
       closePixelEditorWindow();
       return;
     }
@@ -377,19 +406,21 @@ function createMainWindow(preloadPath) {
     closeOutputPreviewWindow();
     closeAlignPreviewWindow();
     closeSettingsWindow();
+    closeDocsWindow();
     closePixelEditorWindow();
     mainWindow._f2fQuitSavePending = true;
     if (mainWindow._f2fQuitSaveTimer) {
       clearTimeout(mainWindow._f2fQuitSaveTimer);
       mainWindow._f2fQuitSaveTimer = null;
     }
+    /* Korter dan NSIS-timeout: installer/soft-close mag niet minuten blijven hangen. */
     mainWindow._f2fQuitSaveTimer = setTimeout(() => {
       mainWindow._f2fQuitSaveTimer = null;
       if (!mainWindow || mainWindow.isDestroyed() || !mainWindow._f2fQuitSavePending) return;
       mainWindow._f2fQuitSavePending = false;
       mainWindow._f2fAllowClose = true;
       mainWindow.close();
-    }, 8000);
+    }, 2500);
     if (mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send('request-quit-save');
     } else {
@@ -415,63 +446,74 @@ function createStripPreviewWindow(preloadPath, htmlPath) {
     stripPreviewWindow.focus();
     return stripPreviewWindow;
   }
+  const base = path.join(__dirname, '..');
+  /* Zwevend venster = alleen vergrote raster-preview (geen knoppen/instellingen). */
+  const displayPre = path.join(base, 'preloads', 'strip-display.js');
+  const displayHtml = path.join(base, 'windows', 'strip-display.html');
+  const useDisplay = fs.existsSync(displayPre) && fs.existsSync(displayHtml);
+  const pre = useDisplay ? displayPre : preloadPath;
+  const html = useDisplay ? displayHtml : htmlPath;
   const winState = prefs.getWindowState();
   const saved = winState.stripPreviewBounds ? clampBoundsToDisplay(winState.stripPreviewBounds) : null;
-  const minW = getUnifiedPreviewMinWidthPx();
-  const base = saved || getUnifiedPreviewSlotBounds(0);
-  const bounds = { ...base, width: Math.max(minW, base.width) };
+  const minW = Math.max(480, Math.floor(getUnifiedPreviewMinWidthPx() * 0.75));
+  const baseBounds = saved || getUnifiedPreviewSlotBounds(1);
+  const bounds = {
+    ...baseBounds,
+    width: Math.max(minW, saved ? baseBounds.width : Math.min(1100, baseBounds.width)),
+    height: Math.max(400, saved ? baseBounds.height : Math.min(900, baseBounds.height))
+  };
   const stripOpts = {
     x: bounds.x,
     y: bounds.y,
     width: bounds.width,
     height: bounds.height,
     minWidth: minW,
-    minHeight: 400,
-    title: localizedAuxWindowTitle('window.rasterSetupTitleSuffix', '2 — RASTER SETUP'),
+    minHeight: 320,
+    title: localizedAuxWindowTitle('window.floatingStripPreviewTitleSuffix', 'Raster preview'),
     webPreferences: {
-      preload: preloadPath,
+      preload: pre,
       contextIsolation: true,
       nodeIntegration: false
     }
   };
   applyWindowIcon(stripOpts);
-  stripPreviewWindow = new BrowserWindow(stripOpts);
-  stripPreviewWindow.loadFile(htmlPath);
-  stripPreviewWindow.webContents.on('did-finish-load', () => {
-    /* Na inline script + preload listeners: voorkomt race waarbij eerste resend geen handler heeft. */
+  const win = new BrowserWindow(stripOpts);
+  stripPreviewWindow = win;
+  win.loadFile(html);
+  win.webContents.on('did-finish-load', () => {
     setImmediate(() => {
       resendLastStripPayloadToStripPreview();
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('strip-preview-ready');
       }
     });
-    scheduleFitWindowContent(stripPreviewWindow, MEASURE_STRIP_PREVIEW_HEIGHT, 520, [60, 240]);
   });
-  stripPreviewWindow.on('close', () => {
+  win.on('close', () => {
     const state = prefs.getWindowState();
     state.stripPreviewOpen = false;
-    if (stripPreviewWindow && !stripPreviewWindow.isDestroyed()) {
-      state.stripPreviewBounds = stripPreviewWindow.getBounds();
+    if (!win.isDestroyed()) {
+      state.stripPreviewBounds = win.getBounds();
     }
     prefs.setWindowState(state);
   });
-  stripPreviewWindow.on('closed', () => {
-    stripPreviewWindow = null;
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('strip-preview-closed');
+  win.on('closed', () => {
+    /* Alleen opruimen/melden als dit nog het actieve venster is (voorkomt race bij snel opnieuw openen). */
+    if (stripPreviewWindow === win) {
+      stripPreviewWindow = null;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('strip-preview-closed');
+      }
     }
   });
-  (function markStripOpen() {
-    prefs.setWindowState({ ...prefs.getWindowState(), stripPreviewOpen: true });
-  })();
+  prefs.setWindowState({ ...prefs.getWindowState(), stripPreviewOpen: true });
   applyWindowGeometryLockFromPrefs();
-  return stripPreviewWindow;
+  return win;
 }
 
 function closeStripPreviewWindow() {
   if (stripPreviewWindow && !stripPreviewWindow.isDestroyed()) {
     stripPreviewWindow.close();
-    stripPreviewWindow = null;
+    /* Referentie blijft tot 'closed'; anders kan snel heropenen de nieuwe instance nullen. */
   }
 }
 
@@ -666,6 +708,66 @@ function closeSettingsWindow() {
   }
 }
 
+function getDocsWindow() {
+  return docsWindow;
+}
+
+function createDocsWindow(preloadPath, htmlPath) {
+  if (docsWindow && !docsWindow.isDestroyed()) {
+    docsWindow.focus();
+    return docsWindow;
+  }
+  const winState = prefs.getWindowState();
+  const saved = winState.docsWindowBounds ? clampBoundsToDisplay(winState.docsWindowBounds) : null;
+  const defaultW = 920;
+  const defaultH = 720;
+  const opts = {
+    width: saved?.width ?? defaultW,
+    height: saved?.height ?? defaultH,
+    minWidth: 640,
+    minHeight: 480,
+    title: localizedAuxWindowTitle('window.docsTitleSuffix', '7 — DOCUMENTS'),
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  };
+  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+    opts.x = saved.x;
+    opts.y = saved.y;
+  } else {
+    try {
+      const display = screen.getPrimaryDisplay();
+      const work = display.workArea || display.bounds;
+      opts.x = Math.round(work.x + (work.width - defaultW) / 2);
+      opts.y = Math.round(work.y + (work.height - defaultH) / 4);
+    } catch (_) {}
+  }
+  applyWindowIcon(opts);
+  docsWindow = new BrowserWindow(opts);
+  docsWindow.loadFile(htmlPath);
+  docsWindow.on('close', () => {
+    const state = prefs.getWindowState();
+    if (docsWindow && !docsWindow.isDestroyed()) {
+      state.docsWindowBounds = docsWindow.getBounds();
+    }
+    prefs.setWindowState(state);
+  });
+  docsWindow.on('closed', () => {
+    docsWindow = null;
+  });
+  applyWindowGeometryLockFromPrefs();
+  return docsWindow;
+}
+
+function closeDocsWindow() {
+  if (docsWindow && !docsWindow.isDestroyed()) {
+    docsWindow.close();
+    docsWindow = null;
+  }
+}
+
 function getPixelEditorWindow() {
   return pixelEditorWindow;
 }
@@ -767,7 +869,7 @@ function applyLocalizedWindowTitles() {
     mainWindow.setTitle(localizedAuxWindowTitle('window.mainPanelTitleSuffix', '1 — Main panel'));
   }
   if (stripPreviewWindow && !stripPreviewWindow.isDestroyed()) {
-    stripPreviewWindow.setTitle(localizedAuxWindowTitle('window.rasterSetupTitleSuffix', '2 — RASTER SETUP'));
+    stripPreviewWindow.setTitle(localizedAuxWindowTitle('window.floatingStripPreviewTitleSuffix', 'Raster preview'));
   }
   if (alignPreviewWindow && !alignPreviewWindow.isDestroyed()) {
     alignPreviewWindow.setTitle(localizedAuxWindowTitle('window.rasterPreviewTitleSuffix', '3 — RASTER PREVIEW'));
@@ -781,12 +883,15 @@ function applyLocalizedWindowTitles() {
   if (pixelEditorWindow && !pixelEditorWindow.isDestroyed()) {
     pixelEditorWindow.setTitle(localizedAuxWindowTitle('window.pixelEditorTitleSuffix', '6 — FRAME PIXEL EDITOR'));
   }
+  if (docsWindow && !docsWindow.isDestroyed()) {
+    docsWindow.setTitle(localizedAuxWindowTitle('window.docsTitleSuffix', '7 — DOCUMENTS'));
+  }
 }
 
-/** Zes bits voor panelen 1–6; ongeldig → alles aan (open alle hulpvensters). */
+/** Zes bits legacy compat; default = alleen hoofd + raster setup. */
 function parsePanelOpenMask6(str) {
   const s = String(str || '').replace(/\s/g, '');
-  if (s.length !== 6 || !/^[01]+$/.test(s)) return [true, true, true, true, true, true];
+  if (s.length !== 6 || !/^[01]+$/.test(s)) return [true, true, false, false, false, false];
   return s.split('').map((c) => c === '1');
 }
 
@@ -795,8 +900,8 @@ function openAuxiliaryWindowsFromPanelMask(maskInput) {
   const mask = Array.isArray(maskInput) && maskInput.length === 6 ? maskInput.map(Boolean) : parsePanelOpenMask6(maskInput);
   const base = path.join(__dirname, '..');
   if (mask[1]) {
-    const pre = path.join(base, 'preloads', 'strip.js');
-    const html = path.join(base, 'windows', 'strip-preview.html');
+    const pre = path.join(base, 'preloads', 'strip-display.js');
+    const html = path.join(base, 'windows', 'strip-display.html');
     if (fs.existsSync(html) && fs.existsSync(pre)) createStripPreviewWindow(pre, html);
   }
   if (mask[2]) {
@@ -812,7 +917,7 @@ function openAuxiliaryWindowsFromPanelMask(maskInput) {
   if (mask[4]) {
     const pre = path.join(base, 'preloads', 'settings.js');
     const html = path.join(base, 'windows', 'settings.html');
-    if (fs.existsSync(html)) createSettingsWindow(pre, html);
+    if (fs.existsSync(html) && fs.existsSync(pre)) createSettingsWindow(pre, html);
   }
   if (mask[5]) {
     const pre = path.join(base, 'preloads', 'pixel-editor.js');
@@ -837,6 +942,7 @@ module.exports = {
   getOutputPreviewWindow,
   getAlignPreviewWindow,
   getSettingsWindow,
+  getDocsWindow,
   getPixelEditorWindow,
   setLastStripUpdatePayload,
   resendLastStripPayloadToStripPreview,
@@ -850,6 +956,8 @@ module.exports = {
   closeAlignPreviewWindow,
   createSettingsWindow,
   closeSettingsWindow,
+  createDocsWindow,
+  closeDocsWindow,
   createPixelEditorWindow,
   closePixelEditorWindow,
   focusPixelEditorWindow,

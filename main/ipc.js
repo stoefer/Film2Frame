@@ -4,18 +4,168 @@
 const { ipcMain, dialog, app } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const windows = require('./windows');
 const project = require('./project');
 const prefs = require('./prefs');
-const presets = require('./presets');
-const gridPresets = require('./grid-presets');
 const version = require('./version');
 const locales = require('./locales');
-const videoExport = require('./video-export');
 const { applyAppMenu } = require('./app-menu');
 const { tr } = require('./main-i18n');
 
 const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp'];
+
+/** ArrayBuffer / Uint8Array / IPC-clone → Node Buffer. */
+function toNodeBuffer(buffer) {
+  if (buffer == null) return null;
+  if (Buffer.isBuffer(buffer)) return buffer;
+  if (buffer instanceof ArrayBuffer) return Buffer.from(buffer);
+  if (ArrayBuffer.isView(buffer)) {
+    return Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  }
+  // Structured-clone van Buffer in oudere Electron: { type:'Buffer', data:[...] }
+  if (buffer && buffer.type === 'Buffer' && Array.isArray(buffer.data)) {
+    return Buffer.from(buffer.data);
+  }
+  try {
+    return Buffer.from(buffer);
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Windows extended path alleen waar nodig.
+ * Op sommige externe/USB-volumes faalt \\?\… met UNKNOWN terwijl I:\… wél werkt.
+ */
+function toExtendedFsPath(p) {
+  const raw = path.resolve(String(p || ''));
+  if (process.platform !== 'win32') return raw;
+  if (raw.startsWith('\\\\?\\') || raw.startsWith('\\\\.\\')) return raw;
+  if (raw.startsWith('\\\\')) return `\\\\?\\UNC\\${raw.slice(2)}`;
+  if (raw.length >= 240) return `\\\\?\\${raw}`;
+  return raw;
+}
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableFsError(err) {
+  const code = err && err.code;
+  return (
+    code === 'UNKNOWN' ||
+    code === 'EBUSY' ||
+    code === 'EPERM' ||
+    code === 'EACCES' ||
+    code === 'EAGAIN' ||
+    code === 'EMFILE' ||
+    code === 'ENFILE'
+  );
+}
+
+/** Wek volume (externe schijven slapen vaak) en controleer schrijfrechten op de map. */
+function wakeDestinationDir(destDir) {
+  try {
+    fs.mkdirSync(destDir, { recursive: true });
+  } catch (_) {}
+  try {
+    fs.accessSync(destDir, fs.constants.W_OK);
+  } catch (_) {}
+  try {
+    fs.readdirSync(destDir);
+  } catch (_) {}
+}
+
+function tryUnlinkQuiet(filePath) {
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch (_) {}
+}
+
+function writeFileDirect(filePath, buf) {
+  const fd = fs.openSync(filePath, 'w');
+  try {
+    let offset = 0;
+    const chunk = 1024 * 1024;
+    while (offset < buf.length) {
+      const n = Math.min(chunk, buf.length - offset);
+      fs.writeSync(fd, buf, offset, n);
+      offset += n;
+    }
+    try {
+      fs.fsyncSync(fd);
+    } catch (_) {}
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
+ * Schrijf bestand robuust naar lokale én externe volumes (I: e.d.).
+ * Volgorde: direct chunked write → temp+copy; retries bij UNKNOWN/EBUSY.
+ */
+async function writeBufferToDestination(destPath, buf) {
+  const destDir = path.dirname(destPath);
+  wakeDestinationDir(destDir);
+
+  const candidates = [];
+  const primary = path.resolve(destPath);
+  candidates.push(primary);
+  const extended = toExtendedFsPath(destPath);
+  if (extended !== primary) candidates.push(extended);
+
+  let lastErr = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) {
+      wakeDestinationDir(destDir);
+      await sleepMs(150 * attempt);
+    }
+    for (const target of candidates) {
+      try {
+        tryUnlinkQuiet(target);
+        writeFileDirect(target, buf);
+        return;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    // Fallback: lokaal temp → copy (sommige volumes accepteren copy beter)
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'f2f-export-'));
+    const tmpPath = path.join(tmpDir, path.basename(destPath) || 'frame.png');
+    try {
+      fs.writeFileSync(tmpPath, buf);
+      for (const target of candidates) {
+        try {
+          tryUnlinkQuiet(target);
+          fs.copyFileSync(tmpPath, target);
+          lastErr = null;
+          return;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+    } finally {
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch (_) {}
+      try {
+        fs.rmdirSync(tmpDir);
+      } catch (_) {}
+    }
+    if (!isRetryableFsError(lastErr)) break;
+  }
+  if (lastErr) throw lastErr;
+}
+
+function formatWriteError(err, filePath) {
+  const code = err && err.code ? String(err.code) : '';
+  const msg = (err && err.message) || tr('ipc.errorWriteFailed');
+  if (code === 'UNKNOWN' || /unknown error/i.test(msg)) {
+    return tr('ipc.errorWriteUnknown', { path: filePath || '' });
+  }
+  return msg;
+}
 
 function registerIPC() {
   /** Renderer bewaart project + lintStates naar schijf; daarna mag het hoofdvenster echt sluiten. */
@@ -72,12 +222,13 @@ function registerIPC() {
     const { projectFolderPath, name, location, framesPerLint, numberOfScans, scanInfos, filmFormat, filmPolarity, outputFolder, outputFormat, scanDpi } = payload || {};
     if (!projectFolderPath) return { ok: false, error: tr('ipc.errorNoProjectFolderChosen') };
     try {
-      const count = await project.countImagesInFolder(location || projectFolderPath);
+      const hasManualCount = numberOfScans !== undefined && numberOfScans !== null && Number.isFinite(Number(numberOfScans));
+      const count = hasManualCount ? undefined : await project.countImagesInFolder(location || projectFolderPath);
       const data = {
         name: name || path.basename(projectFolderPath),
         location: location || projectFolderPath,
         framesPerLint: Math.max(1, Math.min(99, Number(framesPerLint) || 30)),
-        numberOfScans: numberOfScans !== undefined ? Number(numberOfScans) : count,
+        numberOfScans: hasManualCount ? Number(numberOfScans) : count,
         state: null,
         lintStates: [],
         currentLintPath: null,
@@ -113,9 +264,10 @@ function registerIPC() {
       prefs.setLocale(locale);
       windows.applyLocalizedWindowTitles();
       windows.sendToStripPreview('strip-locale-changed', {});
-      windows.sendToAlignPreview('strip-locale-changed', {});
-      windows.sendToOutputPreview('strip-locale-changed', {});
-      windows.sendToPixelEditor('strip-locale-changed', {});
+      const mainWin = windows.getMainWindow();
+      if (mainWin && !mainWin.isDestroyed()) {
+        mainWin.webContents.send('strip-locale-changed');
+      }
       applyAppMenu(windows);
     }
   });
@@ -222,6 +374,8 @@ function registerIPC() {
       state,
       lintStates,
       currentLintPath,
+      location,
+      framesPerLint,
       scanInfos,
       filmFormat,
       filmPolarity,
@@ -234,36 +388,50 @@ function registerIPC() {
     } = payload || {};
     if (!projectFolderPath) return { ok: false, error: tr('ipc.errorNoProjectOpen') };
     try {
-      const existing = await project.readProject(projectFolderPath);
+      // Cache i.p.v. 7MB parse; scanInfos niet steeds over IPC sturen
+      let side = project.getProjectSideCache(projectFolderPath);
+      if (!side) {
+        await project.getProjectMetaLightweight(projectFolderPath);
+        side = project.getProjectSideCache(projectFolderPath);
+      }
+      const resolvedScanInfos = Array.isArray(scanInfos)
+        ? scanInfos
+        : (side?.scanInfos || []);
       const data = {
-        name: existing?.name || path.basename(projectFolderPath),
-        location: existing?.location || '',
-        framesPerLint: existing?.framesPerLint ?? 30,
-        numberOfScans: existing?.numberOfScans ?? 0,
-        created: existing?.created,
+        name: side?.name || path.basename(projectFolderPath),
+        location:
+          location !== undefined && location !== null
+            ? String(location)
+            : (side?.location || ''),
+        framesPerLint:
+          framesPerLint !== undefined
+            ? Math.max(1, Math.min(99, Number(framesPerLint) || 30))
+            : (side?.framesPerLint ?? 30),
+        numberOfScans: resolvedScanInfos.length || side?.numberOfScans || 0,
+        created: side?.created || undefined,
         state: state || null,
-        lintStates: Array.isArray(lintStates) ? lintStates : (existing?.lintStates || []),
-        currentLintPath: currentLintPath ?? existing?.currentLintPath ?? null,
-        scanInfos: Array.isArray(scanInfos) ? scanInfos : (existing?.scanInfos ?? []),
-        filmFormat: filmFormat ?? existing?.filmFormat ?? '16mm-double',
-        filmPolarity: filmPolarity ?? existing?.filmPolarity ?? 'positief',
-        outputFolder: outputFolder ?? existing?.outputFolder ?? null,
-        outputFormat: outputFormat ?? existing?.outputFormat ?? 'png',
-        scanDpi: scanDpi ?? existing?.scanDpi ?? 4800,
+        lintStates: Array.isArray(lintStates) ? lintStates : [],
+        currentLintPath: currentLintPath ?? null,
+        scanInfos: resolvedScanInfos,
+        filmFormat: filmFormat ?? side?.filmFormat ?? '16mm-double',
+        filmPolarity: filmPolarity ?? side?.filmPolarity ?? 'positief',
+        outputFolder: outputFolder !== undefined ? outputFolder : (side?.outputFolder ?? null),
+        outputFormat: outputFormat ?? side?.outputFormat ?? 'png',
+        scanDpi: scanDpi ?? side?.scanDpi ?? 4800,
         stripPresetId:
           stripPresetId !== undefined
             ? stripPresetId != null && typeof stripPresetId === 'string' && stripPresetId.trim() !== ''
               ? stripPresetId.trim()
               : null
-            : existing?.stripPresetId ?? null,
+            : (side?.stripPresetId ?? null),
         pixelEditorOutputFolder:
           pixelEditorOutputFolder !== undefined
             ? pixelEditorOutputFolder || null
-            : existing?.pixelEditorOutputFolder ?? null,
+            : (side?.pixelEditorOutputFolder ?? null),
         pixelEditorSourceFolder:
           pixelEditorSourceFolder !== undefined
             ? pixelEditorSourceFolder || null
-            : existing?.pixelEditorSourceFolder ?? null
+            : (side?.pixelEditorSourceFolder ?? null)
       };
       await project.writeProject(projectFolderPath, data);
       prefs.setLastProjectPath(projectFolderPath);
@@ -271,6 +439,42 @@ function registerIPC() {
     } catch (err) {
       return { ok: false, error: err.message || tr('ipc.errorSaveFailed') };
     }
+  });
+
+  ipcMain.handle('confirm-export-overwrite', async (_, payload) => {
+    const { start, end, count, names } = payload || {};
+    const { BrowserWindow } = require('electron');
+    const win =
+      BrowserWindow.getFocusedWindow() ||
+      windows.getStripPreviewWindow() ||
+      windows.getMainWindow();
+    const countN = Math.max(1, Math.round(Number(count) || 1));
+    const startNum = Number(start);
+    const endNum = Number(end);
+    const useNames =
+      (typeof start === 'string' && !Number.isFinite(startNum)) ||
+      (typeof names === 'string' && names.trim());
+    const message = useNames
+      ? tr('frameExport.confirmOverwriteNames', {
+          names: (typeof names === 'string' && names.trim()) || String(start || ''),
+          count: countN
+        })
+      : tr('frameExport.confirmOverwrite', {
+          start: String(Math.max(1, Math.round(Number.isFinite(startNum) ? startNum : 1))).padStart(6, '0'),
+          end: String(Math.max(1, Math.round(Number.isFinite(endNum) ? endNum : 1))).padStart(6, '0'),
+          count: countN
+        });
+    const result = await dialog.showMessageBox(win || null, {
+      type: 'warning',
+      title: tr('frameExport.overwriteDialogTitle'),
+      message,
+      buttons: [tr('frameExport.overwriteButtonContinue'), tr('frameExport.overwriteButtonOverwrite')],
+      defaultId: 1,
+      cancelId: 0,
+      noLink: true
+    });
+    // 0 = Ga verder (geen overschrijven), 1 = Overschrijven
+    return { action: result.response === 1 ? 'overwrite' : 'continue' };
   });
 
   ipcMain.handle('select-export-folder', async () => {
@@ -293,35 +497,114 @@ function registerIPC() {
     return result.filePaths[0];
   });
 
-  async function writeFrameToFile(folder, baseName, index, dataUrl, ext) {
-    const base = (baseName || 'frame').replace(/[/\\:*?"<>|]/g, '_');
-    const num = Number(index);
-    const padded = Number.isFinite(num) && num >= 1 ? String(Math.min(999999, Math.floor(num))).padStart(6, '0') : '000001';
+  async function writeFrameToFile(folder, baseName, index, dataUrl, ext, fileName) {
     const extension = (ext || 'png').toLowerCase().replace(/^\./, '');
-    const filePath = path.join(folder, `${base}_${padded}.${extension}`);
+    let destName;
+    if (fileName && typeof fileName === 'string' && fileName.trim()) {
+      destName = fileName.trim().replace(/[/\\:*?"<>|]/g, '_');
+      if (!/\.[a-z0-9]+$/i.test(destName)) destName = `${destName}.${extension}`;
+    } else {
+      const base = (baseName || 'frame').replace(/[/\\:*?"<>|]/g, '_');
+      const num = Number(index);
+      const padded = Number.isFinite(num) && num >= 1 ? String(Math.min(999999, Math.floor(num))).padStart(6, '0') : '000001';
+      destName = `${base}_${padded}.${extension}`;
+    }
+    const filePath = path.join(folder, destName);
     const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
     if (!base64) return { ok: false, error: tr('ipc.errorNoImageData') };
-    fs.mkdirSync(folder, { recursive: true });
-    fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
-    return { ok: true };
+    const buf = Buffer.from(base64, 'base64');
+    if (!buf.length) return { ok: false, error: tr('ipc.errorNoImageData') };
+    await writeBufferToDestination(filePath, buf);
+    return { ok: true, path: filePath, fileName: destName };
   }
 
-  ipcMain.handle('write-frame', async (_, { folder, baseName, index, dataUrl, ext }) => {
+  async function writeFrameBufferToFile(folder, fileName, buffer, ext) {
+    const extension = (ext || 'png').toLowerCase().replace(/^\./, '');
+    let destName =
+      fileName && typeof fileName === 'string' && fileName.trim()
+        ? fileName.trim().replace(/[/\\:*?"<>|]/g, '_')
+        : `frame_000001.${extension}`;
+    if (!/\.[a-z0-9]+$/i.test(destName)) destName = `${destName}.${extension}`;
+    const filePath = path.join(folder, destName);
+    const buf = toNodeBuffer(buffer);
+    if (!buf || buf.length < 1) return { ok: false, error: tr('ipc.errorNoImageData') };
+    await writeBufferToDestination(filePath, buf);
+    return { ok: true, path: filePath, fileName: destName };
+  }
+
+  ipcMain.handle('write-frame', async (_, { folder, baseName, index, dataUrl, ext, fileName }) => {
     if (!folder || typeof folder !== 'string' || !dataUrl || typeof dataUrl !== 'string') return { ok: false, error: tr('ipc.errorInvalidParams') };
     try {
-      return await writeFrameToFile(folder, baseName, index, dataUrl, ext || 'png');
+      return await writeFrameToFile(folder, baseName, index, dataUrl, ext || 'png', fileName);
     } catch (err) {
-      return { ok: false, error: err.message || tr('ipc.errorWriteFailed') };
+      const dest =
+        fileName && typeof fileName === 'string'
+          ? path.join(folder, fileName)
+          : folder;
+      return { ok: false, error: formatWriteError(err, dest) };
     }
   });
 
-  ipcMain.handle('write-frame-png', async (_, { folder, baseName, index, dataUrl }) => {
+  ipcMain.handle('write-frame-png', async (_, { folder, baseName, index, dataUrl, fileName }) => {
     if (!folder || typeof folder !== 'string' || !dataUrl || typeof dataUrl !== 'string') return { ok: false, error: tr('ipc.errorInvalidParams') };
     try {
-      return await writeFrameToFile(folder, baseName, index, dataUrl, 'png');
+      return await writeFrameToFile(folder, baseName, index, dataUrl, 'png', fileName);
     } catch (err) {
-      return { ok: false, error: err.message || tr('ipc.errorWriteFailed') };
+      const dest =
+        fileName && typeof fileName === 'string'
+          ? path.join(folder, fileName)
+          : folder;
+      return { ok: false, error: formatWriteError(err, dest) };
     }
+  });
+
+  ipcMain.handle('write-frame-buffer', async (_, { folder, fileName, buffer, ext }) => {
+    if (!folder || typeof folder !== 'string' || !fileName || buffer == null) {
+      return { ok: false, error: tr('ipc.errorInvalidParams') };
+    }
+    try {
+      return await writeFrameBufferToFile(folder, fileName, buffer, ext || 'png');
+    } catch (err) {
+      return { ok: false, error: formatWriteError(err, path.join(folder, String(fileName))) };
+    }
+  });
+
+  ipcMain.handle('export-files-exist', async (_, { folder, fileNames }) => {
+    if (!folder || typeof folder !== 'string' || !Array.isArray(fileNames)) return { ok: false, any: false, existing: [] };
+    const existing = [];
+    for (const name of fileNames) {
+      const safe = String(name || '').replace(/[/\\:*?"<>|]/g, '_');
+      if (!safe) continue;
+      try {
+        if (fs.existsSync(path.join(folder, safe))) existing.push(safe);
+      } catch (_) {}
+    }
+    return { ok: true, any: existing.length > 0, existing };
+  });
+
+  ipcMain.handle('open-strip-preview', () => {
+    try {
+      const base = path.join(__dirname, '..');
+      const preload = path.join(base, 'preloads', 'strip-display.js');
+      const html = path.join(base, 'windows', 'strip-display.html');
+      if (!fs.existsSync(html) || !fs.existsSync(preload)) {
+        return { ok: false, error: tr('ipc.errorStripPreviewNotFound') };
+      }
+      windows.createStripPreviewWindow(preload, html);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || tr('ipc.errorOpenStripPreviewFailed') };
+    }
+  });
+
+  ipcMain.handle('close-strip-preview', () => {
+    windows.closeStripPreviewWindow();
+    return { ok: true };
+  });
+
+  ipcMain.handle('is-strip-preview-open', () => {
+    const w = windows.getStripPreviewWindow();
+    return { open: !!(w && !w.isDestroyed()) };
   });
 
   ipcMain.handle('get-next-frame-number', async (_, { outputFolder, baseName, ext }) => {
@@ -371,52 +654,77 @@ function registerIPC() {
   });
 
   ipcMain.handle('get-file-url', (_, filePath) => {
-    if (!filePath) return '';
+    if (!filePath || typeof filePath !== 'string') return '';
     try {
-      return require('url').pathToFileURL(filePath).href;
+      const normalized = path.normalize(filePath);
+      if (!fs.existsSync(normalized)) return '';
+      return require('url').pathToFileURL(normalized).href;
     } catch {
       return '';
     }
   });
 
-  ipcMain.handle('open-strip-preview', () => {
+  ipcMain.handle('save-macro-file', async (_, payload) => {
     try {
-      const base = path.join(__dirname, '..');
-      const preload = path.join(base, 'preloads', 'strip.js');
-      const html = path.join(base, 'windows', 'strip-preview.html');
-      if (!fs.existsSync(html)) return { ok: false, error: tr('ipc.errorStripPreviewHtmlNotFound') };
-      if (!fs.existsSync(preload)) return { ok: false, error: tr('ipc.errorStripPreloadNotFound') };
-      windows.createStripPreviewWindow(preload, html);
-      return { ok: true };
+      const win = windows.getMainWindow();
+      const p = payload && typeof payload === 'object' ? payload : {};
+      const macroData = p.macro && typeof p.macro === 'object' ? p.macro : null;
+      if (!macroData) return { ok: false, error: 'Geen macrodata om op te slaan.' };
+      const projectPath = prefs.getLastProjectPath();
+      const defaultDir = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath('documents');
+      const suggestedRaw = typeof p.suggestedName === 'string' ? p.suggestedName.trim() : '';
+      const suggestedSafe = suggestedRaw
+        .replace(/[/\\:*?"<>|]/g, '-')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 120);
+      const suggestedFile = (suggestedSafe || 'raster-macro') + '.json';
+      const defaultPath = path.join(defaultDir, suggestedFile);
+      const result = await dialog.showSaveDialog(win || null, {
+        title: 'Macro opslaan',
+        defaultPath,
+        filters: [{ name: 'Macro JSON', extensions: ['json'] }]
+      });
+      if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+      const out = {
+        format: 'film2frame-macro',
+        version: 1,
+        savedAt: new Date().toISOString(),
+        macro: macroData
+      };
+      fs.writeFileSync(result.filePath, JSON.stringify(out, null, 2), 'utf8');
+      return { ok: true, path: result.filePath };
     } catch (err) {
-      return { ok: false, error: (err && err.message) || tr('ipc.errorOpenStripPreviewFailed') };
+      return { ok: false, error: err && err.message ? err.message : 'Macro opslaan mislukt.' };
     }
   });
 
-  ipcMain.handle('close-strip-preview', () => {
-    windows.closeStripPreviewWindow();
-  });
-
-  ipcMain.handle('open-output-preview', () => {
-    const base = path.join(__dirname, '..');
-    const preload = path.join(base, 'preloads', 'output.js');
-    const html = path.join(base, 'windows', 'output-preview.html');
-    if (!fs.existsSync(html)) return { ok: false, error: tr('ipc.errorOutputPreviewHtmlNotFound') };
-    windows.createOutputPreviewWindow(preload, html);
-    return { ok: true };
-  });
-
-  ipcMain.handle('open-align-preview', () => {
+  ipcMain.handle('open-macro-file', async () => {
     try {
-      const base = path.join(__dirname, '..');
-      const preload = path.join(base, 'preloads', 'align-preview.js');
-      const html = path.join(base, 'windows', 'align-preview.html');
-      if (!fs.existsSync(html)) return { ok: false, error: tr('ipc.errorAlignPreviewHtmlNotFound') };
-      if (!fs.existsSync(preload)) return { ok: false, error: tr('ipc.errorAlignPreloadNotFound') };
-      windows.createAlignPreviewWindow(preload, html);
-      return { ok: true };
+      const win = windows.getMainWindow();
+      const projectPath = prefs.getLastProjectPath();
+      const defaultDir = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath('documents');
+      const result = await dialog.showOpenDialog(win || null, {
+        title: 'Macro laden',
+        properties: ['openFile'],
+        defaultPath: defaultDir,
+        filters: [{ name: 'Macro JSON', extensions: ['json'] }]
+      });
+      if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
+      const filePath = result.filePaths[0];
+      const raw = fs.readFileSync(filePath, 'utf8');
+      let parsed = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return { ok: false, error: 'Macrobestand is geen geldige JSON.' };
+      }
+      const macro = parsed && typeof parsed === 'object' ? (parsed.macro || parsed) : null;
+      if (!macro || typeof macro !== 'object') return { ok: false, error: 'Macrobestand bevat geen macrodata.' };
+      return { ok: true, path: filePath, macro };
     } catch (err) {
-      return { ok: false, error: (err && err.message) || tr('ipc.errorOpenAlignPreviewFailed') };
+      return { ok: false, error: err && err.message ? err.message : 'Macro laden mislukt.' };
     }
   });
 
@@ -434,101 +742,67 @@ function registerIPC() {
     }
   });
 
-  function assertPixelEditorSender(wc) {
-    const win = windows.getPixelEditorWindow();
-    return win && !win.isDestroyed() && wc && wc === win.webContents;
+  const DOCS_CATALOG = [
+    { id: 'freeware', file: 'FREEWARE.md', titleKey: 'docs.docFreeware' },
+    { id: 'snelstart', file: 'SNELSTART.md', titleKey: 'docs.docSnelstart' },
+    { id: 'handleiding', file: 'HANDLEIDING.md', titleKey: 'docs.docHandleiding' },
+    { id: 'quickstart', file: 'QUICK_START.md', titleKey: 'docs.docQuickStart' },
+    { id: 'manual', file: 'USER_MANUAL.md', titleKey: 'docs.docUserManual' }
+  ];
+
+  function getDocsDir() {
+    return path.join(__dirname, '..', 'docs');
   }
 
-  ipcMain.handle('open-pixel-editor', () => {
+  function resolveDocEntry(id) {
+    const key = typeof id === 'string' ? id.trim().toLowerCase() : '';
+    return DOCS_CATALOG.find((d) => d.id === key) || null;
+  }
+
+  ipcMain.handle('open-docs-window', () => {
     try {
       const base = path.join(__dirname, '..');
-      const preload = path.join(base, 'preloads', 'pixel-editor.js');
-      const html = path.join(base, 'windows', 'pixel-editor.html');
-      if (!fs.existsSync(html)) return { ok: false, error: tr('ipc.errorPixelEditorHtmlNotFound') };
-      if (!fs.existsSync(preload)) return { ok: false, error: tr('ipc.errorPixelEditorPreloadNotFound') };
-      windows.createPixelEditorWindow(preload, html);
+      const preload = path.join(base, 'preloads', 'docs.js');
+      const html = path.join(base, 'windows', 'docs.html');
+      if (!fs.existsSync(html)) return { ok: false, error: tr('ipc.errorDocsHtmlNotFound') };
+      if (!fs.existsSync(preload)) return { ok: false, error: tr('ipc.errorDocsPreloadNotFound') };
+      windows.createDocsWindow(preload, html);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: (err && err.message) || tr('ipc.errorOpenPixelEditorFailed') };
+      return { ok: false, error: (err && err.message) || tr('ipc.errorOpenDocsWindowFailed') };
     }
   });
 
-  ipcMain.handle('close-pixel-editor', () => {
-    windows.closePixelEditorWindow();
+  ipcMain.handle('list-docs', () => {
+    const dir = getDocsDir();
+    return DOCS_CATALOG.filter((d) => fs.existsSync(path.join(dir, d.file))).map((d) => ({
+      id: d.id,
+      file: d.file,
+      titleKey: d.titleKey
+    }));
   });
 
-  /** Opent geen venster; alleen focus als de pixel-editor al open is. */
-  ipcMain.handle('focus-pixel-editor', () => ({ ok: windows.focusPixelEditorWindow() }));
-
-  ipcMain.handle('pixel-editor-pull', async (event) => {
-    if (!assertPixelEditorSender(event.sender)) return { ok: false, error: tr('ipc.errorForbidden') };
-    const mainWin = windows.getMainWindow();
-    if (!mainWin || mainWin.isDestroyed()) return { ok: false, error: tr('ipc.errorNoMainWindow') };
+  ipcMain.handle('get-doc-content', (_, id) => {
     try {
-      return await mainWin.webContents.executeJavaScript(
-        `(window.__f2fPixelEditorBridge && window.__f2fPixelEditorBridge('pull'))`
-      );
+      const entry = resolveDocEntry(id);
+      if (!entry) return { ok: false, error: tr('ipc.errorDocNotFound') };
+      const resolvedDir = path.resolve(getDocsDir());
+      const full = path.resolve(resolvedDir, entry.file);
+      if (!full.startsWith(resolvedDir + path.sep)) {
+        return { ok: false, error: tr('ipc.errorDocNotFound') };
+      }
+      if (!fs.existsSync(full)) return { ok: false, error: tr('ipc.errorDocNotFound') };
+      const markdown = fs.readFileSync(full, 'utf8');
+      return {
+        ok: true,
+        id: entry.id,
+        file: entry.file,
+        titleKey: entry.titleKey,
+        title: tr(entry.titleKey),
+        markdown
+      };
     } catch (err) {
-      return { ok: false, error: (err && err.message) || tr('ipc.errorPixelEditorPullFailed') };
-    }
-  });
-
-  ipcMain.handle('pixel-editor-push-overlay', async (event, payload) => {
-    if (!assertPixelEditorSender(event.sender)) return { ok: false, error: tr('ipc.errorForbidden') };
-    const mainWin = windows.getMainWindow();
-    if (!mainWin || mainWin.isDestroyed()) return { ok: false, error: tr('ipc.errorNoMainWindow') };
-    const dataUrl = payload && typeof payload.dataUrl === 'string' ? payload.dataUrl : '';
-    try {
-      return await mainWin.webContents.executeJavaScript(
-        `(window.__f2fPixelEditorBridge && window.__f2fPixelEditorBridge('pushOverlay', { dataUrl: ${JSON.stringify(dataUrl)} }))`
-      );
-    } catch (err) {
-      return { ok: false, error: (err && err.message) || tr('ipc.errorPixelEditorPushFailed') };
-    }
-  });
-
-  ipcMain.handle('pixel-editor-main-action', async (event, payload) => {
-    if (!assertPixelEditorSender(event.sender)) return { ok: false, error: tr('ipc.errorForbidden') };
-    const mainWin = windows.getMainWindow();
-    if (!mainWin || mainWin.isDestroyed()) return { ok: false, error: tr('ipc.errorNoMainWindow') };
-    const action = payload && typeof payload.action === 'string' ? payload.action : '';
-    const pl = payload && payload.payload != null ? payload.payload : null;
-    try {
-      return await mainWin.webContents.executeJavaScript(
-        `(async () => {
-          const fn = window.__f2fPixelEditorMainUi;
-          if (typeof fn !== 'function') return { ok: false, error: ${JSON.stringify(tr('ipc.errorPixelEditorNoMainUi'))} };
-          return await fn(${JSON.stringify(action)}, ${JSON.stringify(pl)});
-        })()`
-      );
-    } catch (err) {
-      return { ok: false, error: (err && err.message) || tr('ipc.errorPixelEditorMainActionFailed') };
-    }
-  });
-
-  ipcMain.on('notify-pixel-editor-remote-refresh', (event) => {
-    const mainWin = windows.getMainWindow();
-    if (!mainWin || mainWin.isDestroyed() || event.sender !== mainWin.webContents) return;
-    windows.sendToPixelEditor('pixel-editor-refresh-from-main', {});
-  });
-
-  ipcMain.handle('close-align-preview', () => {
-    windows.closeAlignPreviewWindow();
-  });
-
-  ipcMain.handle('close-output-preview', () => {
-    windows.closeOutputPreviewWindow();
-  });
-
-  ipcMain.handle('send-output-preview-image', (_, dataUrl) => {
-    windows.sendToOutputPreview('output-image', { dataUrl });
-  });
-
-  ipcMain.on('send-strip-update', (_, payload) => {
-    const merged = windows.setLastStripUpdatePayload(payload);
-    if (merged) {
-      windows.sendToStripPreview('strip-update', merged);
-      windows.sendToAlignPreview('align-preview-update', merged);
+      return { ok: false, error: (err && err.message) || tr('ipc.errorDocReadFailed') };
     }
   });
 
@@ -539,221 +813,41 @@ function registerIPC() {
     }
   });
 
-  /** Belasting/status uit scanlint-preview doorsturen naar hoofdvenster (toolbar-indicator). */
-  ipcMain.on('strip-preview-status', (_, data) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed() && data) {
-      mainWin.webContents.send('status-from-strip', { percent: data.percent, operation: data.operation });
+  ipcMain.handle('get-eula-status', () => ({
+    accepted: prefs.isEulaAccepted(),
+    version: prefs.CURRENT_EULA_VERSION
+  }));
+
+  ipcMain.handle('get-eula-text', () => {
+    try {
+      const p = path.join(__dirname, '..', 'END_USER_AGREEMENT.md');
+      const markdown = fs.readFileSync(p, 'utf8');
+      return { ok: true, markdown, version: prefs.CURRENT_EULA_VERSION };
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || 'EULA read failed' };
     }
   });
 
-  /** Strip-preview vraagt om opnieuw strip-data (na reload of bij eerste load). */
-  ipcMain.on('request-strip-refresh', () => {
-    windows.resendLastStripPayloadToStripPreview();
-    windows.resendLastStripPayloadToAlignPreview();
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      mainWin.webContents.send('strip-preview-ready');
-    }
+  ipcMain.handle('accept-eula', () => {
+    prefs.acceptEula();
+    try {
+      windows.openAuxiliaryWindowsFromPanelMask('010000');
+      setTimeout(() => {
+        try {
+          if (prefs.getAllSettings().arrangeWindowsOnStartup) {
+            require('./window-arrange').arrangeWindows();
+          }
+          windows.applyWindowGeometryLockFromPrefs();
+        } catch (_) {}
+      }, 450);
+    } catch (_) {}
+    return { ok: true, version: prefs.CURRENT_EULA_VERSION };
   });
 
-  /** Uitlijning-venster: zelfde strip-payload ophalen als scanlint-preview. */
-  ipcMain.on('request-align-preview-refresh', () => {
-    windows.resendLastStripPayloadToStripPreview();
-    windows.resendLastStripPayloadToAlignPreview();
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      mainWin.webContents.send('align-preview-ready');
-    }
+  ipcMain.handle('quit-app', () => {
+    app.quit();
+    return { ok: true };
   });
-
-  /** Rasteraanpassingen uit frame- of strip-voorbekijk doorsturen naar hoofdvenster voor real-time sync. Payload: { deltaX, deltaY, tool }. */
-  ipcMain.on('from-frame-grid-offset', (_, payload) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      const p = payload && typeof payload === 'object' ? payload : {};
-      mainWin.webContents.send('frame-grid-offset-update', {
-        deltaX: p.deltaX != null ? Number(p.deltaX) : 0,
-        deltaY: p.deltaY != null ? Number(p.deltaY) : 0,
-        tool: p.tool || 'hand'
-      });
-    }
-  });
-
-  /** Absolute rasterpositie uit strip-preview (handmatige X/Y-invoer). Payload: { gridOffsetX, gridOffsetY, gridOffsetYBottom }. */
-  ipcMain.on('set-grid-offset-absolute', (_, payload) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      const p = payload && typeof payload === 'object' ? payload : {};
-      mainWin.webContents.send('set-grid-offset-absolute', {
-        gridOffsetX: p.gridOffsetX != null ? Number(p.gridOffsetX) : 0,
-        gridOffsetY: p.gridOffsetY != null ? Number(p.gridOffsetY) : 0,
-        gridOffsetYBottom: p.gridOffsetYBottom != null && Number.isFinite(Number(p.gridOffsetYBottom)) ? Number(p.gridOffsetYBottom) : 0
-      });
-    }
-  });
-
-  /** Overlay Grid-tools vanuit strip-preview: doorsturen naar hoofdvenster. */
-  ipcMain.on('strip-apply-width-narrow', () => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('strip-apply-width-narrow');
-  });
-  ipcMain.on('strip-apply-width-widen', () => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('strip-apply-width-widen');
-  });
-  ipcMain.on('strip-apply-vertical-push', () => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('strip-apply-vertical-push');
-  });
-  ipcMain.on('strip-apply-vertical-stretch', () => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('strip-apply-vertical-stretch');
-  });
-  ipcMain.on('strip-adjust-width-edge', (_, payload) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      const p = payload && typeof payload === 'object' ? payload : {};
-      mainWin.webContents.send('strip-adjust-width-edge', {
-        edge: p.edge === 'right' ? 'right' : 'left',
-        delta: p.delta != null ? Number(p.delta) : 0
-      });
-    }
-  });
-  ipcMain.on('strip-adjust-height-edge', (_, payload) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      const p = payload && typeof payload === 'object' ? payload : {};
-      mainWin.webContents.send('strip-adjust-height-edge', {
-        edge: p.edge === 'bottom' ? 'bottom' : 'top',
-        delta: p.delta != null ? Number(p.delta) : 0
-      });
-    }
-  });
-
-  /** Shift+Samendruk / Shift+Uitrek: rigide pan tot clamp-grens (towardCompress true = omlaag, false = omhoog). */
-  ipcMain.on('strip-vertical-rigid-pan-boundary', (_, payload) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      const p = payload && typeof payload === 'object' ? payload : {};
-      mainWin.webContents.send('strip-vertical-rigid-pan-boundary', {
-        towardCompress: !!p.towardCompress
-      });
-    }
-  });
-
-  /** Vorige/volgende scanlint of spring naar index (1-based): hoofdvenster slaat project eerst op, daarna laden. */
-  ipcMain.on('strip-navigate-scan', (_, payload) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      const p = payload && typeof payload === 'object' ? payload : {};
-      const idx = p.index != null ? Math.floor(Number(p.index)) : NaN;
-      if (Number.isFinite(idx) && idx >= 1) {
-        mainWin.webContents.send('strip-navigate-scan', { index: idx });
-        return;
-      }
-      const direction = p.direction === 'next' ? 'next' : p.direction === 'prev' ? 'prev' : '';
-      if (direction) mainWin.webContents.send('strip-navigate-scan', { direction });
-    }
-  });
-
-  /** delta in preview-pixels: + / − = rigide verticale pan (zelfde als Hand ▲▼), geen celhoogte-wijziging */
-  ipcMain.on('strip-vertical-fixed-bottom-step', (_, payload) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      const p = payload && typeof payload === 'object' ? payload : {};
-      mainWin.webContents.send('strip-vertical-fixed-bottom-step', {
-        delta: p.delta != null ? Number(p.delta) : 0,
-        duwKind: p.duwKind === 'compress' || p.duwKind === 'stretch' ? p.duwKind : undefined
-      });
-    }
-  });
-
-  /** Referentielijn Lijn # (optioneel legacy mode); customK = index 0…n. */
-  ipcMain.on('strip-vertical-anchor', (_, payload) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      const p = payload && typeof payload === 'object' ? payload : {};
-      mainWin.webContents.send('strip-vertical-anchor', {
-        mode: typeof p.mode === 'string' ? p.mode : undefined,
-        customK: p.customK != null ? Number(p.customK) : undefined
-      });
-    }
-  });
-
-  /** Referentielijn koppelen aan scanlint-previewpaneel (Hand/Duw/Shift+Duw). */
-  ipcMain.on('strip-panel-link-vertical-anchor', (_, payload) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      const p = payload && typeof payload === 'object' ? payload : {};
-      mainWin.webContents.send('strip-panel-link-vertical-anchor', { link: !!p.link });
-    }
-  });
-
-  ipcMain.on('strip-preset-save', (_, name) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('strip-preset-do-save', typeof name === 'string' ? name : '');
-  });
-  ipcMain.on('strip-preset-load', (_, id) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('strip-preset-do-load', id);
-  });
-  ipcMain.on('strip-preset-delete', (_, id) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('strip-preset-do-delete', id);
-  });
-  /** Scanlint-preview: draai 90° / spiegelen — zelfde state als hoofdvenster. */
-  ipcMain.on('strip-rotate-90', () => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) mainWin.webContents.send('strip-rotate-90');
-  });
-  ipcMain.on('strip-set-flip', (_, payload) => {
-    const mainWin = windows.getMainWindow();
-    const p = payload && typeof payload === 'object' ? payload : {};
-    if (mainWin && !mainWin.isDestroyed()) {
-      mainWin.webContents.send('strip-set-flip', {
-        flipHorizontal: !!p.flipHorizontal,
-        flipVertical: !!p.flipVertical
-      });
-    }
-  });
-  ipcMain.on('notify-strip-presets-updated', () => {
-    windows.sendToStripPreview('presets-updated');
-  });
-
-  /** Frame-voorbekijk: spring naar boven/midden/onder van het scanlint. */
-  ipcMain.handle('frame-preview-jump-to', (_, position) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      mainWin.webContents.send('frame-preview-jump', position);
-    }
-  });
-
-  /** Scanlint: dubbelklik op rastercel → dat frame wordt actief (rood). */
-  ipcMain.handle('set-active-frame', (_, frameNumber) => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      mainWin.webContents.send('set-active-frame', Math.max(1, Math.floor(Number(frameNumber) || 1)));
-    }
-  });
-
-  /** Reset raster naar startpositie (X=0, Y=0, Y-onder=0). Aanroepbaar vanuit scanlint-preview of hoofdvenster. */
-  ipcMain.handle('reset-grid-to-default', () => {
-    const mainWin = windows.getMainWindow();
-    if (mainWin && !mainWin.isDestroyed()) {
-      mainWin.webContents.send('do-reset-grid');
-    }
-  });
-
-  ipcMain.handle('presets-list', () => presets.listPresets());
-  ipcMain.handle('preset-save', (_, name, data) => presets.savePreset(name, data));
-  ipcMain.handle('preset-load', (_, id) => presets.loadPreset(id));
-  ipcMain.handle('preset-delete', (_, id) => presets.deletePreset(id));
-
-  ipcMain.handle('grid-presets-list', () => gridPresets.listGridPresets());
-  ipcMain.handle('grid-preset-save', (_, name, grid) => gridPresets.saveGridPreset(name, grid));
-  ipcMain.handle('grid-preset-load', (_, id) => gridPresets.loadGridPreset(id));
-  ipcMain.handle('grid-preset-delete', (_, id) => gridPresets.deleteGridPreset(id));
 
   ipcMain.handle('get-app-settings', () => prefs.getAllSettings());
   ipcMain.handle('set-app-settings', (_, settings) => {
@@ -761,12 +855,36 @@ function registerIPC() {
     if (settings && settings.stripPreviewShortcuts !== undefined) {
       const stripShortcuts = require('./strip-shortcuts');
       const user = prefs.getAllSettings().stripPreviewShortcuts || {};
-      windows.sendToStripPreview('strip-shortcuts-updated', stripShortcuts.getPayloadForStrip(user));
+      const payload = stripShortcuts.getPayloadForStrip(user);
+      windows.sendToStripPreview('strip-shortcuts-updated', payload);
+      const mainWin = windows.getMainWindow();
+      if (mainWin && !mainWin.isDestroyed()) {
+        mainWin.webContents.send('strip-shortcuts-updated', payload);
+      }
     }
     if (settings && settings.locale !== undefined) {
       windows.applyLocalizedWindowTitles();
     }
     windows.applyWindowGeometryLockFromPrefs();
+    const all = prefs.getAllSettings();
+    windows.sendToStripPreview('strip-preview-display-prefs', {
+      stripPreviewFloating: all.stripPreviewFloating !== false
+    });
+    // Zwevend aan/uit: open of sluit previewvenster
+    if (settings && settings.stripPreviewFloating !== undefined) {
+      if (settings.stripPreviewFloating) {
+        try {
+          const base = path.join(__dirname, '..');
+          const preload = path.join(base, 'preloads', 'strip-display.js');
+          const html = path.join(base, 'windows', 'strip-display.html');
+          if (fs.existsSync(html) && fs.existsSync(preload)) {
+            windows.createStripPreviewWindow(preload, html);
+          }
+        } catch (_) {}
+      } else {
+        windows.closeStripPreviewWindow();
+      }
+    }
     return { ok: true };
   });
 
@@ -853,91 +971,196 @@ function registerIPC() {
     return { ok: true };
   });
 
-  ipcMain.handle('select-video-output-file', async (_, formatId) => {
-    const win = windows.getMainWindow();
-    const formats = videoExport.getVideoFormats();
-    const preset = formats[formatId] || formats.h264;
-    const ext = preset.ext;
-    const result = await dialog.showSaveDialog(win || null, {
-      title: tr('ipc.dialogSaveVideoTitle'),
-      defaultPath: `output.${ext}`,
-      filters: [{ name: tr('ipc.videoFileFilter', { ext: ext.toUpperCase() }), extensions: [ext] }]
+  function isStripPreviewSender(event) {
+    const stripWin = windows.getStripPreviewWindow();
+    return !!(stripWin && !stripWin.isDestroyed() && event && event.sender === stripWin.webContents);
+  }
+
+  function sendToMainWindow(channel, payload) {
+    const mainWin = windows.getMainWindow();
+    if (mainWin && !mainWin.isDestroyed()) {
+      if (payload === undefined) mainWin.webContents.send(channel);
+      else mainWin.webContents.send(channel, payload);
+    }
+  }
+
+  /** Hoofdvenster → scanlint-/align-preview: raster + beeldpayload. */
+  ipcMain.on('send-strip-update', (_, payload) => {
+    const merged = windows.setLastStripUpdatePayload(payload);
+    if (merged) {
+      windows.sendToStripPreview('strip-update', merged);
+      windows.sendToAlignPreview('align-preview-update', merged);
+    }
+  });
+
+  ipcMain.on('strip-preview-status', (event, data) => {
+    if (!isStripPreviewSender(event)) return;
+    if (data) sendToMainWindow('status-from-strip', { percent: data.percent, operation: data.operation });
+  });
+
+  ipcMain.on('request-strip-refresh', (event) => {
+    if (!isStripPreviewSender(event)) return;
+    windows.resendLastStripPayloadToStripPreview();
+    windows.resendLastStripPayloadToAlignPreview();
+    sendToMainWindow('strip-preview-ready');
+  });
+
+  ipcMain.handle('strip-preview-request-pick-scan-folder', (event) => {
+    if (!isStripPreviewSender(event)) return { ok: false };
+    sendToMainWindow('pick-scan-folder-from-strip');
+    return { ok: true };
+  });
+
+  ipcMain.on('from-frame-grid-offset', (event, payload) => {
+    if (!isStripPreviewSender(event)) return;
+    const p = payload && typeof payload === 'object' ? payload : {};
+    sendToMainWindow('frame-grid-offset-update', {
+      deltaX: p.deltaX != null ? Number(p.deltaX) : 0,
+      deltaY: p.deltaY != null ? Number(p.deltaY) : 0,
+      tool: p.tool || 'hand'
     });
-    if (result.canceled || !result.filePath) return null;
-    return result.filePath;
   });
 
-  ipcMain.handle('get-temp-video-folder', async () => {
-    const dir = path.join(require('os').tmpdir(), `film2frame-video-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    fs.mkdirSync(dir, { recursive: true });
-    return dir;
+  ipcMain.on('set-grid-offset-absolute', (event, payload) => {
+    if (!isStripPreviewSender(event)) return;
+    const p = payload && typeof payload === 'object' ? payload : {};
+    sendToMainWindow('set-grid-offset-absolute', {
+      gridOffsetX: p.gridOffsetX != null ? Number(p.gridOffsetX) : 0,
+      gridOffsetY: p.gridOffsetY != null ? Number(p.gridOffsetY) : 0,
+      gridOffsetYBottom: p.gridOffsetYBottom != null && Number.isFinite(Number(p.gridOffsetYBottom))
+        ? Number(p.gridOffsetYBottom)
+        : 0
+    });
   });
 
-  ipcMain.handle('prepare-video-export', () => {
-    videoExport.beginVideoExportJob();
-    return { ok: true };
+  ipcMain.on('strip-apply-width-narrow', (event) => {
+    if (!isStripPreviewSender(event)) return;
+    sendToMainWindow('strip-apply-width-narrow');
+  });
+  ipcMain.on('strip-apply-width-widen', (event) => {
+    if (!isStripPreviewSender(event)) return;
+    sendToMainWindow('strip-apply-width-widen');
+  });
+  ipcMain.on('strip-apply-vertical-push', (event) => {
+    if (!isStripPreviewSender(event)) return;
+    sendToMainWindow('strip-apply-vertical-push');
+  });
+  ipcMain.on('strip-apply-vertical-stretch', (event) => {
+    if (!isStripPreviewSender(event)) return;
+    sendToMainWindow('strip-apply-vertical-stretch');
+  });
+  ipcMain.on('strip-adjust-width-edge', (event, payload) => {
+    if (!isStripPreviewSender(event)) return;
+    const p = payload && typeof payload === 'object' ? payload : {};
+    sendToMainWindow('strip-adjust-width-edge', {
+      edge: p.edge === 'right' ? 'right' : 'left',
+      delta: p.delta != null ? Number(p.delta) : 0
+    });
+  });
+  ipcMain.on('strip-adjust-height-edge', (event, payload) => {
+    if (!isStripPreviewSender(event)) return;
+    const p = payload && typeof payload === 'object' ? payload : {};
+    sendToMainWindow('strip-adjust-height-edge', {
+      edge: p.edge === 'bottom' ? 'bottom' : 'top',
+      delta: p.delta != null ? Number(p.delta) : 0
+    });
+  });
+  ipcMain.on('strip-vertical-rigid-pan-boundary', (event, payload) => {
+    if (!isStripPreviewSender(event)) return;
+    const p = payload && typeof payload === 'object' ? payload : {};
+    sendToMainWindow('strip-vertical-rigid-pan-boundary', { towardCompress: !!p.towardCompress });
+  });
+  ipcMain.on('strip-vertical-fixed-bottom-step', (event, payload) => {
+    if (!isStripPreviewSender(event)) return;
+    const p = payload && typeof payload === 'object' ? payload : {};
+    sendToMainWindow('strip-vertical-fixed-bottom-step', {
+      delta: p.delta != null ? Number(p.delta) : 0,
+      duwKind: p.duwKind === 'compress' || p.duwKind === 'stretch' ? p.duwKind : undefined
+    });
+  });
+  ipcMain.on('strip-vertical-anchor', (event, payload) => {
+    if (!isStripPreviewSender(event)) return;
+    const p = payload && typeof payload === 'object' ? payload : {};
+    sendToMainWindow('strip-vertical-anchor', {
+      mode: typeof p.mode === 'string' ? p.mode : undefined,
+      customK: p.customK != null ? Number(p.customK) : undefined
+    });
+  });
+  ipcMain.on('strip-panel-link-vertical-anchor', (event, payload) => {
+    if (!isStripPreviewSender(event)) return;
+    const p = payload && typeof payload === 'object' ? payload : {};
+    sendToMainWindow('strip-panel-link-vertical-anchor', { link: !!p.link });
   });
 
-  ipcMain.handle('cancel-video-export', () => {
-    videoExport.cancelVideoExport();
-    return { ok: true };
-  });
-
-  ipcMain.handle('remove-temp-video-folder', (_, folderPath) => {
-    videoExport.removeTempFolder(folderPath);
-    return { ok: true };
-  });
-
-  ipcMain.handle('create-video-from-frames', async (_, opts) => {
-    const { tempFolder, outputPath, fps, formatId } = opts || {};
-    if (!tempFolder || !outputPath) return { ok: false, error: tr('ipc.errorMissingParams') };
-    try {
-      const result = await videoExport.createVideo({
-        framesFolder: tempFolder,
-        outputPath,
-        fps: Number(fps) || 24,
-        formatId: formatId || 'h264',
-        onProgress: (phase, detail) => {
-          const win = windows.getMainWindow();
-          if (win && !win.isDestroyed()) {
-            win.webContents.send('video-export-progress', { phase, detail });
-          }
-        }
+  /** Vorige/Volgende/Ga naar — inclusief exportCurrent (Volgende schrijft frames weg). */
+  ipcMain.on('strip-navigate-scan', (event, payload) => {
+    if (!isStripPreviewSender(event)) return;
+    const p = payload && typeof payload === 'object' ? payload : {};
+    const idx = p.index != null ? Math.floor(Number(p.index)) : NaN;
+    if (Number.isFinite(idx) && idx >= 1) {
+      sendToMainWindow('strip-navigate-scan', {
+        index: idx,
+        exportCurrent: !!p.exportCurrent,
+        fromAutoAdvance: !!p.fromAutoAdvance
       });
-      videoExport.removeTempFolder(tempFolder);
-      return result;
-    } catch (err) {
-      videoExport.removeTempFolder(tempFolder);
-      return { ok: false, error: err.message || tr('ipc.errorVideoFailed') };
+      return;
+    }
+    const direction = p.direction === 'next' ? 'next' : p.direction === 'prev' ? 'prev' : '';
+    if (!direction) return;
+    sendToMainWindow('strip-navigate-scan', {
+      direction,
+      exportCurrent: direction === 'next' && !!p.exportCurrent,
+      fromAutoAdvance: !!p.fromAutoAdvance
+    });
+  });
+
+  ipcMain.on('strip-rotate-90', (event) => {
+    if (!isStripPreviewSender(event)) return;
+    sendToMainWindow('strip-rotate-90');
+  });
+  ipcMain.on('strip-set-flip', (event, payload) => {
+    if (!isStripPreviewSender(event)) return;
+    const p = payload && typeof payload === 'object' ? payload : {};
+    sendToMainWindow('strip-set-flip', {
+      flipHorizontal: !!p.flipHorizontal,
+      flipVertical: !!p.flipVertical
+    });
+  });
+
+  ipcMain.handle('frame-preview-jump-to', (event, position) => {
+    if (!isStripPreviewSender(event)) return;
+    sendToMainWindow('frame-preview-jump', position);
+  });
+  ipcMain.handle('set-active-frame', (event, frameNumber) => {
+    if (!isStripPreviewSender(event)) return;
+    sendToMainWindow('set-active-frame', Math.max(1, Math.floor(Number(frameNumber) || 1)));
+  });
+  ipcMain.handle('reset-grid-to-default', (event) => {
+    if (!isStripPreviewSender(event)) return;
+    sendToMainWindow('do-reset-grid');
+  });
+
+  /**
+   * Generieke strip→main API-aanroep (Auto ▶, detectie, assist-instellingen).
+   * Roept window.__f2fInvokeStripApi in het hoofdvenster aan.
+   */
+  ipcMain.handle('strip-api-invoke', async (event, payload) => {
+    if (!isStripPreviewSender(event)) return null;
+    const mainWin = windows.getMainWindow();
+    if (!mainWin || mainWin.isDestroyed()) return null;
+    const p = payload && typeof payload === 'object' ? payload : {};
+    const method = typeof p.method === 'string' ? p.method.trim() : '';
+    if (!/^[a-zA-Z][a-zA-Z0-9]*$/.test(method)) return null;
+    const args = Array.isArray(p.args) ? p.args : [];
+    try {
+      return await mainWin.webContents.executeJavaScript(
+        `Promise.resolve(typeof window.__f2fInvokeStripApi === 'function' ? window.__f2fInvokeStripApi(${JSON.stringify(method)}, ${JSON.stringify(args)}) : null)`
+      );
+    } catch (_) {
+      return null;
     }
   });
 
-  ipcMain.handle('create-video-from-folder', async (_, opts) => {
-    const { folderPath, outputPath, fps, formatId, uniformFit } = opts || {};
-    if (!folderPath || !outputPath) return { ok: false, error: tr('ipc.errorMissingParams') };
-    try {
-      const imagePaths = await project.listImagesInFolder(folderPath);
-      if (!imagePaths.length) return { ok: false, error: tr('ipc.errorNoImagesInFolder') };
-      const sendProgress = (phase, detail) => {
-        const win = windows.getMainWindow();
-        if (win && !win.isDestroyed()) {
-          win.webContents.send('video-export-progress', { phase, detail });
-        }
-      };
-      return await videoExport.createVideoFromImagePaths({
-        imagePaths,
-        outputPath,
-        fps: Number(fps) || 24,
-        formatId: formatId || 'h264',
-        onProgress: sendProgress,
-        uniformFit: uniformFit === 'cover' ? 'cover' : 'pad'
-      });
-    } catch (err) {
-      return { ok: false, error: err.message || tr('ipc.errorVideoFailed') };
-    }
-  });
-
-  ipcMain.handle('check-ffmpeg-available', () => videoExport.checkFfmpegAvailable());
 }
 
 module.exports = { registerIPC };

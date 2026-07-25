@@ -14,6 +14,7 @@ function el(id) {
 }
 
 let cancelClickWired = false;
+let scanStartedAtMs = 0;
 
 function wireCancelButtonOnce() {
   if (cancelClickWired) return;
@@ -36,6 +37,7 @@ function normalizeScanInfosResult(raw) {
 
 export function showScanFolderProgressOverlay() {
   wireCancelButtonOnce();
+  scanStartedAtMs = Date.now();
   const o = el(OVERLAY_ID);
   if (o) {
     o.classList.remove('hidden');
@@ -47,6 +49,7 @@ export function showScanFolderProgressOverlay() {
 }
 
 export function hideScanFolderProgressOverlay() {
+  scanStartedAtMs = 0;
   const o = el(OVERLAY_ID);
   if (o) {
     o.classList.add('hidden');
@@ -54,6 +57,15 @@ export function hideScanFolderProgressOverlay() {
   }
   const cancelBtn = el(CANCEL_BTN_ID);
   if (cancelBtn) cancelBtn.disabled = true;
+}
+
+function formatDuration(ms) {
+  const totalSec = Math.max(0, Math.round((Number(ms) || 0) / 1000));
+  const hh = Math.floor(totalSec / 3600);
+  const mm = Math.floor((totalSec % 3600) / 60);
+  const ss = totalSec % 60;
+  if (hh > 0) return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
 }
 
 /**
@@ -65,11 +77,17 @@ export function updateScanFolderProgressOverlay(current, total) {
   const bar = el(BAR_ID);
   const cnt = el(COUNT_ID);
   const det = el(DETAIL_ID);
+  const elapsedMs = scanStartedAtMs > 0 ? Math.max(0, Date.now() - scanStartedAtMs) : 0;
+  const etaMs = total > 0 && current > 0 ? Math.max(0, Math.round(((total - current) * elapsedMs) / current)) : null;
+  const elapsedLabel = formatDuration(elapsedMs);
+  const remainingLabel = Number.isFinite(etaMs) ? formatDuration(etaMs) : t('scanFolderOverlay.timeUnknown');
   if (bar) bar.style.width = `${pct}%`;
   if (cnt) cnt.textContent = total > 0 ? t('scanFolderOverlay.countFormat', { current, total }) : t('scanFolderOverlay.countPlaceholder');
   if (det) {
     det.textContent =
-      total > 0 ? t('scanFolderOverlay.detailProgress', { current, total }) : t('scanFolderOverlay.detailChecking');
+      total > 0
+        ? t('scanFolderOverlay.detailProgressWithEta', { current, total, elapsed: elapsedLabel, remaining: remainingLabel })
+        : t('scanFolderOverlay.detailChecking');
   }
 }
 
@@ -92,7 +110,9 @@ export async function getScanInfosWithProgressOverlay(folderPath, apiGetScanInfo
       overlayVisible = true;
     }
     if (overlayVisible) updateScanFolderProgressOverlay(current, total);
-    if (typeof onProgressExtra === 'function') onProgressExtra(d);
+    const elapsedMs = scanStartedAtMs > 0 ? Math.max(0, Date.now() - scanStartedAtMs) : 0;
+    const etaMs = total > 0 && current > 0 ? Math.max(0, Math.round(((total - current) * elapsedMs) / current)) : null;
+    if (typeof onProgressExtra === 'function') onProgressExtra({ current, total, elapsedMs, etaMs });
   };
   try {
     const raw = await apiGetScanInfos(folderPath, onProgress);

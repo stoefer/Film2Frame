@@ -145,10 +145,11 @@ export function persistCurrentLintStateInProject() {
   if (snapshot) setLintStateForPath(s.path, snapshot);
 }
 
-export async function saveProject() {
+export async function saveProject(opts = {}) {
   const s = getState();
   if (!s.projectPath) return { ok: false, error: t('ipc.errorNoProjectOpen') };
   const snapshot = getLintStateSnapshot();
+  const framesPerLint = Math.max(1, Math.min(99, Math.round(Number(s.numFrames) || 30)));
   if (s.path && snapshot) setLintStateForPath(s.path, snapshot);
   const lintStatesOut = s.lintStates.map((e) => {
     if (!e || typeof e !== 'object') return e;
@@ -156,12 +157,16 @@ export async function saveProject() {
     return rest;
   });
   if (typeof window.api?.saveProject !== 'function') return { ok: false, error: t('errors.apiUnavailable') };
+  const includeScanInfos = opts.includeScanInfos === true;
   const result = await window.api.saveProject({
     projectFolderPath: s.projectPath,
     state: snapshot,
     lintStates: lintStatesOut,
     currentLintPath: s.path,
-    scanInfos: s.projectMeta?.scanInfos,
+    location: s.projectMeta?.location,
+    framesPerLint,
+    // scanInfos alleen meesturen als ze vernieuwd zijn — anders main-cache (scheelt MB's IPC)
+    scanInfos: includeScanInfos ? (s.projectMeta?.scanInfos || []) : undefined,
     filmFormat: s.filmFormat,
     filmPolarity: s.filmPolarity,
     outputFolder: s.exportFolderPath,
@@ -174,6 +179,7 @@ export async function saveProject() {
   if (result.ok) {
     s.isDirty = false;
     if (s.projectMeta) {
+      s.projectMeta.framesPerLint = framesPerLint;
       s.projectMeta.lintStates = [...s.lintStates];
       s.projectMeta.currentLintPath = s.path || null;
       s.projectMeta.pixelEditorOutputFolder = s.pixelEditorOutputFolder || null;

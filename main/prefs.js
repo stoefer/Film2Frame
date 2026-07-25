@@ -24,28 +24,25 @@ const KEYS = {
   arrangeWindowsOnStartup: 'arrangeWindowsOnStartup',
   arrangeAcrossAllDisplays: 'arrangeAcrossAllDisplays',
   windowsGeometryLocked: 'windowsGeometryLocked',
+  stripPreviewFloating: 'stripPreviewFloating',
   mainWindowBounds: 'mainWindowBounds',
   stripPreviewBounds: 'stripPreviewBounds',
-  outputPreviewBounds: 'outputPreviewBounds',
-  alignPreviewBounds: 'alignPreviewBounds',
-  settingsWindowBounds: 'settingsWindowBounds',
-  pixelEditorBounds: 'pixelEditorBounds',
   stripPreviewOpen: 'stripPreviewOpen',
-  outputPreviewOpen: 'outputPreviewOpen',
-  alignPreviewOpen: 'alignPreviewOpen',
-  pixelEditorOpen: 'pixelEditorOpen',
   arrowStepPx: 'arrowStepPx',
   arrowStepShiftPx: 'arrowStepShiftPx',
   stripPreviewShortcuts: 'stripPreviewShortcuts',
   locale: 'locale',
   preserveGridOnScanNav: 'preserveGridOnScanNav',
-  /** Video-export: 'pad' = zwarte rand tot gemeenschappelijke max; 'cover' = vullen, randen bijsnijden. */
-  videoExportUniformFit: 'videoExportUniformFit'
+  compactUi: 'compactUi',
+  eulaAcceptedVersion: 'eulaAcceptedVersion'
 };
+
+/** Bump when END_USER_AGREEMENT.md terms change meaningfully (forces re-accept). */
+const CURRENT_EULA_VERSION = '1.2';
 
 const DEFAULTS = {
   darkMode: false,
-  stripPreviewRes: 2048,
+  stripPreviewRes: 1536,
   outputFormat: 'png',
   scanDpi: 4800,
   defaultFramesPerStrip: 30,
@@ -56,11 +53,12 @@ const DEFAULTS = {
   arrangeWindowsOnStartup: false,
   arrangeAcrossAllDisplays: false,
   windowsGeometryLocked: false,
+  stripPreviewFloating: true,
   arrowStepPx: 1,
   arrowStepShiftPx: 10,
   preserveGridOnScanNav: true,
-  videoExportUniformFit: 'pad',
-  windowGridAutoOpenMask: '111111'
+  compactUi: false,
+  windowGridAutoOpenMask: '000000'
 };
 
 function getPrefsPath() {
@@ -156,6 +154,7 @@ function getAllSettings() {
     arrangeWindowsOnStartup: data[KEYS.arrangeWindowsOnStartup] === true,
     arrangeAcrossAllDisplays: data[KEYS.arrangeAcrossAllDisplays] === true,
     windowsGeometryLocked: data[KEYS.windowsGeometryLocked] === true,
+    stripPreviewFloating: data[KEYS.stripPreviewFloating] !== false,
   arrowStepPx: typeof data[KEYS.arrowStepPx] === 'number' ? Math.max(1, Math.min(10, data[KEYS.arrowStepPx])) : DEFAULTS.arrowStepPx,
   arrowStepShiftPx: typeof data[KEYS.arrowStepShiftPx] === 'number' ? Math.max(10, Math.min(100, data[KEYS.arrowStepShiftPx])) : DEFAULTS.arrowStepShiftPx,
   locale: typeof data[KEYS.locale] === 'string' && ['en', 'nl'].includes(data[KEYS.locale]) ? data[KEYS.locale] : 'nl',
@@ -165,8 +164,8 @@ function getAllSettings() {
         : {},
     preserveGridOnScanNav:
       data[KEYS.preserveGridOnScanNav] === false ? false : DEFAULTS.preserveGridOnScanNav,
-    videoExportUniformFit:
-      data[KEYS.videoExportUniformFit] === 'cover' ? 'cover' : DEFAULTS.videoExportUniformFit
+    compactUi:
+      data[KEYS.compactUi] === true
   };
 }
 
@@ -212,6 +211,9 @@ function setSettings(settings) {
   if (settings.windowsGeometryLocked !== undefined) {
     data[KEYS.windowsGeometryLocked] = !!settings.windowsGeometryLocked;
   }
+  if (settings.stripPreviewFloating !== undefined) {
+    data[KEYS.stripPreviewFloating] = !!settings.stripPreviewFloating;
+  }
   if (settings.arrowStepPx !== undefined) data[KEYS.arrowStepPx] = Math.max(1, Math.min(10, Number(settings.arrowStepPx) || 1));
   if (settings.arrowStepShiftPx !== undefined) data[KEYS.arrowStepShiftPx] = Math.max(10, Math.min(100, Number(settings.arrowStepShiftPx) || 10));
   if (settings.locale !== undefined && ['en', 'nl'].includes(String(settings.locale))) {
@@ -220,9 +222,8 @@ function setSettings(settings) {
   if (settings.preserveGridOnScanNav !== undefined) {
     data[KEYS.preserveGridOnScanNav] = !!settings.preserveGridOnScanNav;
   }
-  if (settings.videoExportUniformFit !== undefined) {
-    const f = String(settings.videoExportUniformFit);
-    data[KEYS.videoExportUniformFit] = f === 'cover' ? 'cover' : 'pad';
+  if (settings.compactUi !== undefined) {
+    data[KEYS.compactUi] = !!settings.compactUi;
   }
   if (settings.stripPreviewShortcuts !== undefined && settings.stripPreviewShortcuts != null) {
     const sc = require('./strip-shortcuts');
@@ -261,14 +262,7 @@ function getWindowState() {
   return {
     mainBounds: parseBounds(data[KEYS.mainWindowBounds]),
     stripPreviewBounds: parseBounds(data[KEYS.stripPreviewBounds]),
-    outputPreviewBounds: parseBounds(data[KEYS.outputPreviewBounds]),
-    alignPreviewBounds: parseBounds(data[KEYS.alignPreviewBounds]),
-    settingsWindowBounds: parseBounds(data[KEYS.settingsWindowBounds]),
-    pixelEditorBounds: parseBounds(data[KEYS.pixelEditorBounds]),
-    stripPreviewOpen: data[KEYS.stripPreviewOpen] === true,
-    outputPreviewOpen: data[KEYS.outputPreviewOpen] === true,
-    alignPreviewOpen: data[KEYS.alignPreviewOpen] === true,
-    pixelEditorOpen: data[KEYS.pixelEditorOpen] === true
+    stripPreviewOpen: data[KEYS.stripPreviewOpen] === true
   };
 }
 
@@ -281,22 +275,7 @@ function setWindowState(state) {
   if (state.stripPreviewBounds && typeof state.stripPreviewBounds === 'object') {
     data[KEYS.stripPreviewBounds] = state.stripPreviewBounds;
   }
-  if (state.outputPreviewBounds && typeof state.outputPreviewBounds === 'object') {
-    data[KEYS.outputPreviewBounds] = state.outputPreviewBounds;
-  }
-  if (state.alignPreviewBounds && typeof state.alignPreviewBounds === 'object') {
-    data[KEYS.alignPreviewBounds] = state.alignPreviewBounds;
-  }
-  if (state.settingsWindowBounds && typeof state.settingsWindowBounds === 'object') {
-    data[KEYS.settingsWindowBounds] = state.settingsWindowBounds;
-  }
-  if (state.pixelEditorBounds && typeof state.pixelEditorBounds === 'object') {
-    data[KEYS.pixelEditorBounds] = state.pixelEditorBounds;
-  }
   if (state.stripPreviewOpen !== undefined) data[KEYS.stripPreviewOpen] = !!state.stripPreviewOpen;
-  if (state.outputPreviewOpen !== undefined) data[KEYS.outputPreviewOpen] = !!state.outputPreviewOpen;
-  if (state.alignPreviewOpen !== undefined) data[KEYS.alignPreviewOpen] = !!state.alignPreviewOpen;
-  if (state.pixelEditorOpen !== undefined) data[KEYS.pixelEditorOpen] = !!state.pixelEditorOpen;
   write(data);
 }
 
@@ -313,6 +292,23 @@ function setLocale(locale) {
   write(data);
 }
 
+function isEulaAccepted() {
+  const data = read();
+  return data[KEYS.eulaAcceptedVersion] === CURRENT_EULA_VERSION;
+}
+
+function acceptEula() {
+  const data = read();
+  data[KEYS.eulaAcceptedVersion] = CURRENT_EULA_VERSION;
+  write(data);
+}
+
+function getEulaAcceptedVersion() {
+  const data = read();
+  const v = data[KEYS.eulaAcceptedVersion];
+  return typeof v === 'string' ? v : null;
+}
+
 module.exports = {
   getLastPaths,
   getLastProjectPath,
@@ -323,6 +319,10 @@ module.exports = {
   setSettings,
   getLocale,
   setLocale,
+  isEulaAccepted,
+  acceptEula,
+  getEulaAcceptedVersion,
+  CURRENT_EULA_VERSION,
   getWindowState,
   setWindowState,
   read,

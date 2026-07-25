@@ -27,95 +27,45 @@
       <input type="number" id="f2f-setting-default-frames" min="1" max="99" value="30" class="input-num" />
     </div>
     <div class="row">
-      <label for="f2f-setting-output-format" data-i18n="settings.outputFormatLabel">Uitvoerformaat</label>
-      <select id="f2f-setting-output-format" class="input-select">
-        <option value="png" selected data-i18n="settings.outputFormatPng">PNG</option>
-        <option value="jpg" data-i18n="settings.outputFormatJpg">JPG</option>
-      </select>
-    </div>
-    <div class="row">
-      <label for="f2f-setting-output-res" data-i18n="settings.outputResLabel">Uitvoerresolutie (Frame generator)</label>
-      <select id="f2f-setting-output-res" class="input-select" data-i18n-title="settings.outputResTooltip">
-        <option value="original" selected data-i18n="settings.outputResOriginal">Raster (native pixels)</option>
-        <option value="r1024x768" data-i18n="settings.outputRes1024x768">1024 × 768</option>
-        <option value="r1280x720" data-i18n="settings.outputRes1280x720">1280 × 720 (SD)</option>
-        <option value="r1280x960" data-i18n="settings.outputRes1280x960">1280 × 960</option>
-        <option value="r1600x1200" data-i18n="settings.outputRes1600x1200">1600 × 1200</option>
-        <option value="r1920x1080" data-i18n="settings.outputRes1920x1080">1920 × 1080 (Full HD)</option>
-        <option value="r2560x1440" data-i18n="settings.outputRes2560x1440">2560 × 1440 (QHD)</option>
-        <option value="r3840x2160" data-i18n="settings.outputRes3840x2160">3840 × 2160 (UHD 4K)</option>
-        <option value="custom" data-i18n="settings.outputResCustom">Aangepast…</option>
-      </select>
-    </div>
-    <div id="f2f-setting-custom-res-wrap" class="row hidden">
-      <label data-i18n="settings.customResLabel">Custom resolutie</label>
-      <input type="number" id="f2f-setting-custom-w" min="1" data-i18n-placeholder="settings.customResWidthPlaceholder" class="input-num" />
-      <span>×</span>
-      <input type="number" id="f2f-setting-custom-h" min="1" data-i18n-placeholder="settings.customResHeightPlaceholder" class="input-num" />
-    </div>
-    <div class="row">
       <label for="f2f-setting-preview-res" data-i18n="settings.previewResLabel">Preview-resolutie scanlint</label>
       <select id="f2f-setting-preview-res" class="input-select">
         <option value="1024">1024 px</option>
-        <option value="1536">1536 px</option>
-        <option value="2048" selected>2048 px</option>
+        <option value="1536" selected>1536 px (Full HD)</option>
+        <option value="2048">2048 px</option>
         <option value="2560">2560 px</option>
         <option value="3072">3072 px</option>
-        <option value="4096">4096 px</option>
+        <option value="4096">4096 px (4K)</option>
       </select>
     </div>
+    <div class="row">
+      <label data-i18n="settings.displayProfileLabel">Weergaveprofiel</label>
+      <button type="button" id="f2f-display-profile-fullhd" class="btn btn-secondary small" data-i18n="settings.displayProfileFullHdButton">Profiel Full HD</button>
+      <span id="f2f-display-profile-fullhd-active" class="display-profile-active-badge hidden" data-i18n="settings.displayProfileActiveBadge">Actief</span>
+      <button type="button" id="f2f-display-profile-4k" class="btn btn-secondary small" data-i18n="settings.displayProfile4kButton">Profiel 4K</button>
+      <span id="f2f-display-profile-4k-active" class="display-profile-active-badge hidden" data-i18n="settings.displayProfileActiveBadge">Actief</span>
+    </div>
+    <div class="row">
+      <label data-i18n="settings.quickPresetLabel">Snelle preset</label>
+      <button type="button" id="f2f-quick-fullhd-preset" class="btn btn-secondary small" data-i18n="settings.quickPresetFullHdButton">Full HD workspace</button>
+      <button type="button" id="f2f-quick-reset-workspace" class="btn btn-secondary small" data-i18n="settings.quickPresetResetButton">Reset workspace</button>
+    </div>
+    <p class="settings-hint" data-i18n="settings.quickPresetFullHdHint">Zet meteen Full HD preview + compacte UI voor meer werkruimte op 1080p-schermen.</p>
+    <p class="settings-hint" data-i18n="settings.displayProfileHint">Past met één klik de scanlint-previewresolutie toe voor Full HD of 4K weergave.</p>
     <div class="row">
       <label class="checkbox-label">
         <input type="checkbox" id="f2f-setting-dark-mode" /><span data-i18n="settings.darkModeLabel">Donkere modus</span>
       </label>
     </div>
-    <div class="row row--arrange-matrix">
-      <span class="label-block" id="f2f-arrange-matrix-label" data-i18n="settings.arrangeMatrixLabel">Vensterraster (3 × 2)</span>
-      <p class="settings-hint" data-i18n="settings.arrangeMatrixHint">Met alle zes open: gelijke tegels op dit raster. Eén venster: vol scherm; twee: twee kolommen; drie: drie kolommen; vier of meer: dit 3×2-raster.</p>
-      <input type="hidden" id="f2f-setting-window-grid" value="1,2,3,4,5,6" />
-      <input type="hidden" id="f2f-setting-window-grid-mask" value="111111" />
-      <div class="row row--matrix-mode f2f-matrix-mode-row" role="radiogroup" data-i18n-aria-label="settings.arrangeMatrixModeGroupLabel">
-        <label class="checkbox-label f2f-matrix-mode-label">
-          <input type="radio" name="f2f-matrix-ui-mode" id="f2f-matrix-mode-pick" value="pick" checked />
-          <span data-i18n="settings.arrangeMatrixModePick">Vensters kiezen</span>
-        </label>
-        <label class="checkbox-label f2f-matrix-mode-label">
-          <input type="radio" name="f2f-matrix-ui-mode" id="f2f-matrix-mode-swap" value="swap" />
-          <span data-i18n="settings.arrangeMatrixModeSwap">Posities wisselen</span>
-        </label>
-      </div>
-      <p class="settings-hint" data-i18n="settings.arrangeMatrixModesHint">Kies vensters: klik een vak om het getoonde paneel (1–6) aan of uit te zetten voor automatisch openen; gekozen panelen hebben een blauwe rand. Posities wisselen: klik twee vakken om de nummers te verwisselen (tijdelijke oranje rand bij de eerste klik).</p>
-      <div id="f2f-arrange-matrix" class="f2f-arrange-matrix" role="group" aria-labelledby="f2f-arrange-matrix-label">
-        <button type="button" class="f2f-arrange-matrix-cell" data-cell="0"><span class="f2f-arrange-matrix-num">1</span></button>
-        <button type="button" class="f2f-arrange-matrix-cell" data-cell="1"><span class="f2f-arrange-matrix-num">2</span></button>
-        <button type="button" class="f2f-arrange-matrix-cell" data-cell="2"><span class="f2f-arrange-matrix-num">3</span></button>
-        <button type="button" class="f2f-arrange-matrix-cell" data-cell="3"><span class="f2f-arrange-matrix-num">4</span></button>
-        <button type="button" class="f2f-arrange-matrix-cell" data-cell="4"><span class="f2f-arrange-matrix-num">5</span></button>
-        <button type="button" class="f2f-arrange-matrix-cell" data-cell="5"><span class="f2f-arrange-matrix-num">6</span></button>
-      </div>
-      <div class="f2f-matrix-panel-legend">
-        <div class="f2f-matrix-panel-legend-title" data-i18n="settings.arrangeMatrixPanelLegendTitle">Pick windows</div>
-        <ul class="f2f-matrix-panel-legend-list" data-i18n-aria-label="settings.arrangeMatrixPanelLegendListLabel">
-          <li data-i18n="settings.arrangeMatrixPanel1">1 = Film2Frame (main window)</li>
-          <li data-i18n="settings.arrangeMatrixPanel2">2 = RASTER SETUP</li>
-          <li data-i18n="settings.arrangeMatrixPanel3">3 = RASTER PREVIEW</li>
-          <li data-i18n="settings.arrangeMatrixPanel4">4 = OUTPUT</li>
-          <li data-i18n="settings.arrangeMatrixPanel5">5 = SETTINGS</li>
-          <li data-i18n="settings.arrangeMatrixPanel6">6 = PIXEL EDITOR</li>
-        </ul>
-      </div>
-      <div class="row row--arrange-matrix-actions">
-        <button type="button" id="f2f-arrange-matrix-reset" class="btn btn-secondary small" data-i18n="settings.arrangeMatrixReset">Standaardraster (1…6)</button>
-        <button type="button" id="f2f-apply-window-grid" class="btn btn-secondary small" data-i18n="settings.arrangeApplyGridButton">Layout toepassen</button>
-        <button type="button" id="f2f-auto-arrange-grid" class="btn btn-secondary small" data-i18n="settings.arrangeMatrixAutoArrange">Auto schikken</button>
-      </div>
-    </div>
     <div class="row">
       <label class="checkbox-label">
-        <input type="checkbox" id="f2f-setting-arrange-all-displays" /><span data-i18n="settings.arrangeAcrossAllDisplaysLabel">Vensters over alle schermen: panelen 1–6 op opeenvolgende monitoren</span>
+        <input type="checkbox" id="f2f-setting-compact-ui" />
+        <span data-i18n="settings.compactUiLabel">Ultra compacte interface (linkerkolom)</span>
       </label>
     </div>
-    <p class="settings-hint" data-i18n="settings.arrangeAcrossAllDisplaysHint">Staat dit aan, dan wordt het raster hierboven genegeerd: open vensters gaan in vaste volgorde (1 hoofd, 2 RASTER SETUP, 3 RASTER PREVIEW, 4 OUTPUT, 5 instellingen, 6 pixel-editor) naar schermen links naar rechts. Meer vensters dan schermen: rest wordt op het laatste scherm gestapeld.</p>
+    <p class="settings-hint" data-i18n="settings.compactUiHint">Maakt Overzicht, Project en scanlintvelden compacter in het hoofdvenster. Uitschakelen herstelt de ruimere weergave.</p>
+    <input type="hidden" id="f2f-setting-window-grid" value="1,2,3,4,5,6" />
+    <input type="hidden" id="f2f-setting-window-grid-mask" value="110000" />
+    <input type="hidden" id="f2f-setting-arrange-all-displays" />
     <div class="row">
       <label class="checkbox-label">
         <input type="checkbox" id="f2f-setting-arrange-on-startup" /><span data-i18n="settings.arrangeOnStartupLabel">Vensters automatisch schikken bij opstart (na openen preview-vensters)</span>
@@ -143,7 +93,7 @@
     </div>
     <div class="settings-strip-shortcuts">
       <h3 class="settings-subheading" data-i18n="settings.stripShortcutsTitle">Scanlint — sneltoetsen</h3>
-      <p class="settings-hint" data-i18n="settings.stripShortcutsHint">Geldt voor het venster <strong>Scanlint – raster afstellen</strong>. Klik <strong>Wijzig…</strong> en druk daarna de gewenste toets (met Ctrl, Shift, Alt of Win indien nodig). <kbd>Esc</kbd> annuleert. <strong>Wissen</strong> schakelt de sneltoets uit. Na <strong>Instellingen bewaren</strong> worden actieve scanlint-vensters direct bijgewerkt.</p>
+      <p class="settings-hint" data-i18n="settings.stripShortcutsHint">Geldt voor RASTER SETUP in het hoofdvenster. Klik <strong>Wijzig…</strong> en druk daarna de gewenste toets (met Ctrl, Shift, Alt of Win indien nodig). <kbd>Esc</kbd> annuleert. <strong>Wissen</strong> schakelt de sneltoets uit. Na <strong>Instellingen bewaren</strong> worden actieve vensters direct bijgewerkt.</p>
       <table class="f2f-strip-shortcuts-table" id="f2f-strip-shortcuts-table" data-i18n-aria-label="settings.stripShortcutsTableLabel" data-i18n-title="settings.stripShortcutsTableLabel">
         <thead>
           <tr><th data-i18n="settings.stripShortcutsFunctionColumn">Functie</th><th data-i18n="settings.stripShortcutsKeyColumn">Toets</th><th></th></tr>

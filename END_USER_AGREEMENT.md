@@ -1,91 +1,177 @@
-# Film2Frame – End User Agreement (Non-Commercial)
+# Film2Frame – End User Agreement (Freeware, Non-Commercial)
 
-*Version 1.0*
+*Version 1.2 — July 2026*
 
-## Grant of Rights
+**Film2Frame** (“the Software”) is **freeware**: you may use it free of charge under the terms below.  
+This is **not** an open-source / public-domain dedication. Copyright remains with the copyright holder.
 
-This software, including all source code, documentation, and associated materials (**"the Software"**), is made freely available for use, copying, modification, and distribution under the following terms.
+---
 
-## Permitted Use
+## 1. Copyright
 
-You may use, copy, modify, merge, and distribute the Software **only for non-commercial purposes** without payment of a license fee, subject to the restrictions below.
+Copyright © 2026 Jan De Nef (Film2Frame).  
+All rights not expressly granted in this agreement are reserved.
 
-## Non-Commercial Use Defined
+## 2. Contact
 
-**Non-commercial use** means any use that is not primarily intended for or directed toward commercial advantage or monetary compensation. This includes, but is not limited to:
+**Author / contact:** Jan De Nef  
+**E-mail:** softwarejdn@gmail.com  
 
-- Personal, educational, or hobby use  
-- Use by non-profit organizations for their internal operations  
+Use this address for commercial licensing requests and other inquiries about the Software.
+
+## 3. Grant of Rights (Freeware)
+
+Subject to this agreement, you are granted a free, non-exclusive, non-transferable license to:
+
+- Install and use the Software on computers you own or control  
+- Make backup copies for your own use  
+- Share the **unmodified** installer or official distribution package with others **for non-commercial purposes**, provided this agreement accompanies the Software  
+
+## 4. Non-Commercial Use Only
+
+You may use, copy, and redistribute the Software **only for non-commercial purposes**.
+
+**Non-commercial use** includes, for example:
+
+- Personal, hobby, educational, or archival use  
+- Internal use by non-profit organizations  
 - Academic research and teaching  
-- Community and archival projects  
+- Community film / heritage projects without fee-based exploitation of the Software itself  
 
-**Commercial use** includes, but is not limited to:
+**Commercial use** requires prior written permission. Examples:
 
-- Incorporation into a product or service sold for profit  
-- Use in a business that charges fees for its services  
-- Redistribution as part of a paid offering  
-- Use to generate revenue, directly or indirectly  
+- Use in a paid digitization / post-production business  
+- Bundling with a product or service sold for profit  
+- Charging for copies, hosting, or support of the Software as a commercial offering  
+- Using the Software as a core tool in revenue-generating production workflows without a commercial license  
 
-## Restrictions
+Contact Jan De Nef (softwarejdn@gmail.com) to discuss a commercial license.
 
-1. **Commercial use** of the Software requires prior written permission from the copyright holder. Contact the author to request a commercial license.
+## 5. Restrictions
 
-2. The Software is provided **“as is”** without warranty of any kind. The authors and contributors disclaim all warranties, express or implied, including merchantability and fitness for a particular purpose. In no event shall they be liable for any damages arising from use of the Software.
+You may **not**, without written permission:
 
-3. Any derivative works or modifications must remain subject to this same End User Agreement (non-commercial use only) unless you obtain separate permission.
+1. Sell, rent, lease, or sublicense the Software  
+2. Remove or alter copyright, trademark, or license notices  
+3. Claim authorship of the Software  
+4. Use the name “Film2Frame” in a way that implies endorsement of your commercial service without permission  
 
-## Summary
+## 6. Modifications
 
-- ✅ **Free** for non-commercial use  
-- ✅ **Modify and share** freely for non-commercial purposes  
-- ❌ **Commercial use** requires a separate agreement  
+You may modify the Software for your own non-commercial use.  
+If you redistribute modified versions, you must:
+
+- Clearly state that the version is modified  
+- Keep this End User Agreement (non-commercial freeware terms) intact unless you obtain separate permission  
+- Not present the modified version as the official Film2Frame release  
+
+## 7. No Warranty
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.  
+
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM USE OF THE SOFTWARE (INCLUDING DATA LOSS, CORRUPT EXPORTS, OR INTERRUPTION OF WORK).
+
+## 8. Termination
+
+This license ends automatically if you breach these terms. Upon termination you must stop using the Software and destroy copies in your possession, except as required by law for archival purposes.
+
+## 9. Summary
+
+| Allowed | Not allowed without permission |
+|--------|---------------------------------|
+| Free personal / educational / archival use | Commercial / paid business use |
+| Share the official free package | Sell or rent the Software |
+| Modify for your own non-commercial use | Remove license / copyright notices |
 
 ---
 
+# Film2Frame – Gebruikersovereenkomst (freeware, niet-commercieel)
+
+*Versie 1.2 — juli 2026*
+
+**Film2Frame** („de Software”) is **freeware**: u mag ze gratis gebruiken onder de onderstaande voorwaarden.  
+Dit is **geen** open-source- of publiekdomeinverklaring. Het auteursrecht blijft bij de rechthebbende.
+
 ---
 
-# Film2Frame – Gebruikersovereenkomst (niet-commercieel)
+## 1. Auteursrecht
 
-*Versie 1.0*
+Copyright © 2026 Jan De Nef (Film2Frame).  
+Alle rechten die hier niet uitdrukkelijk worden verleend, blijven voorbehouden.
 
-## Toekenning van rechten
+## 2. Contact
 
-Deze software, inclusief alle broncode, documentatie en overige materialen (**„de Software”**), wordt vrijelijk ter beschikking gesteld voor gebruik, kopiëren, aanpassen en verspreiden onder de volgende voorwaarden.
+**Auteur / contactpersoon:** Jan De Nef  
+**E-mail:** softwarejdn@gmail.com  
 
-## Toegestaan gebruik
+Gebruik dit adres voor verzoeken om een commerciële licentie en andere vragen over de Software.
 
-U mag de Software **uitsluitend voor niet-commerciële doeleinden** gebruiken, kopiëren, aanpassen, samenvoegen en verspreiden zonder vergoeding, met inachtneming van de onderstaande beperkingen.
+## 3. Toekenning van rechten (freeware)
 
-## Niet-commercieel gebruik gedefinieerd
+Onder deze overeenkomst krijgt u een gratis, niet-exclusieve, niet-overdraagbare licentie om:
 
-**Niet-commercieel gebruik** betekent elk gebruik dat niet primair is gericht op commercieel voordeel of financiële vergoeding. Dit omvat onder meer:
+- De Software te installeren en te gebruiken op computers die u bezit of beheert  
+- Reservekopieën voor eigen gebruik te maken  
+- Het **ongewijzigde** officiële installatie- of distributiepakket te delen met anderen **voor niet-commerciële doeleinden**, mits deze overeenkomst meegaat  
 
-- Persoonlijk, educatief of hobbygebruik  
-- Gebruik door non-profitorganisaties voor hun interne werkzaamheden  
+## 4. Alleen niet-commercieel gebruik
+
+U mag de Software **uitsluitend voor niet-commerciële doeleinden** gebruiken, kopiëren en verder verspreiden.
+
+**Niet-commercieel gebruik** omvat onder meer:
+
+- Persoonlijk, hobby-, onderwijs- of archiefgebruik  
+- Intern gebruik door non-profitorganisaties  
 - Wetenschappelijk onderzoek en onderwijs  
-- Gemeenschaps- en archiefprojecten  
+- Community- of erfgoedprojecten zonder commerciële exploitatie van de Software zelf  
 
-**Commercieel gebruik** omvat onder meer:
+**Commercieel gebruik** vereist voorafgaande schriftelijke toestemming. Voorbeelden:
 
-- Integratie in een product of dienst die tegen betaling wordt verkocht  
-- Gebruik in een bedrijf dat voor zijn diensten betaalt  
-- Herdistributie als onderdeel van een betaald aanbod  
-- Gebruik om direct of indirect omzet te genereren  
+- Gebruik in een betaalde digitaliserings- of postproductieactiviteit  
+- Bundeling met een product of dienst die tegen betaling wordt aangeboden  
+- Verkoop of verhuur van kopieën, hosting of support van de Software  
+- Gebruik als kernhulpmiddel in omzetgenererende productie zonder commerciële licentie  
 
-## Beperkingen
+Neem contact op met Jan De Nef (softwarejdn@gmail.com) voor een commerciële licentie.
 
-1. **Commercieel gebruik** van de Software vereist voorafgaande schriftelijke toestemming van de rechthebbende. Neem contact op met de auteur voor een commerciële licentie.
+## 5. Beperkingen
 
-2. De Software wordt geleverd **„zoals ze is”** zonder garantie van welke aard ook. De auteurs en medewerkers wijzen alle garanties af, expliciet of stilzwijgend, inclusief verkoopbaarheid en geschiktheid voor een bepaald doel. Zij zijn in geen geval aansprakelijk voor schade die voortvloeit uit het gebruik van de Software.
+Zonder schriftelijke toestemming mag u **niet**:
 
-3. Afgeleide werken of aanpassingen blijven onder dezezelfde Gebruikersovereenkomst vallen (alleen niet-commercieel gebruik), tenzij u aparte toestemming verkrijgt.
+1. De Software verkopen, verhuren of in sublicentie geven  
+2. Copyright-, merk- of licentievermeldingen verwijderen of wijzigen  
+3. Auteurschap van de Software claimen  
+4. De naam „Film2Frame” gebruiken alsof uw commerciële dienst officieel wordt ondersteund  
 
-## Samenvatting
+## 6. Aanpassingen
 
-- ✅ **Gratis** voor niet-commercieel gebruik  
-- ✅ **Aanpassen en delen** vrij voor niet-commerciële doeleinden  
-- ❌ **Commercieel gebruik** vereist een aparte overeenkomst  
+U mag de Software aanpassen voor eigen niet-commercieel gebruik.  
+Bij herdistributie van aangepaste versies moet u:
+
+- Duidelijk vermelden dat het een aangepaste versie is  
+- Deze Gebruikersovereenkomst (freeware, niet-commercieel) behouden tenzij u aparte toestemming heeft  
+- De aangepaste versie niet presenteren als de officiële Film2Frame-release  
+
+## 7. Geen garantie
+
+DE SOFTWARE WORDT GELEVERD „ZOALS ZE IS”, ZONDER ENIGE GARANTIE, EXPLICIET OF IMPLICIET, INCLUSIEF MAAR NIET BEPERKT TOT VERKOOPBAARHEID, GESCHIKTHEID VOOR EEN BEPAALD DOEL EN NIET-INBREUK.  
+
+DE AUTEURS OF RECHTHEBBENDEN ZIJN IN GEEN GEVAL AANSPRAKELIJK VOOR SCHADE DIE VOORTVLOEIT UIT HET GEBRUIK VAN DE SOFTWARE (INCLUSIEF GEGEVENSVERLIES, CORRUPTE EXPORT OF ONDERBREKING VAN WERK).
+
+## 8. Beëindiging
+
+Deze licentie eindigt automatisch bij schending van deze voorwaarden. U moet dan het gebruik staken en kopieën vernietigen, behalve voor zover de wet archivering verplicht.
+
+## 9. Samenvatting
+
+| Toegestaan | Niet toegestaan zonder toestemming |
+|------------|-------------------------------------|
+| Gratis persoonlijk / educatief / archiefgebruik | Commercieel / betaald zakelijk gebruik |
+| Officieel gratis pakket delen | Software verkopen of verhuren |
+| Aanpassen voor eigen niet-commercieel gebruik | Licentie-/copyrightvermeldingen verwijderen |
 
 ---
 
-*Film2Frame – 16mm scan strip naar frames*
+*Film2Frame – scanlinten (filmstroken) uitsnijden naar losse frames*  
+*By installing or using Film2Frame you agree to this End User Agreement.*  
+*Door Film2Frame te installeren of te gebruiken gaat u akkoord met deze Gebruikersovereenkomst.*

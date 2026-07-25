@@ -5,7 +5,7 @@
  */
 import { getState } from './state.js';
 import { getFrameCropRectInStripPx } from './grid.js';
-import { STRIP_CANVAS_MAX_DIM, EXPORT_STRIP_MAX_DIM } from './constants.js';
+import { STRIP_CANVAS_MAX_DIM, EXPORT_STRIP_MAX_DIM, STRIP_IMAGE_LOAD_TIMEOUT_MS } from './constants.js';
 
 /**
  * Kantelpunt in bronpixels: (0,0) linksonder? — Nee: canvas drawImage gebruikt linkerboven als oorsprong.
@@ -128,6 +128,81 @@ function scaleCanvasToMaxDim(source, maxDim) {
   return scaled || source;
 }
 
+/** Cache voor preview-strip: voorkomt herhaaldelijk alloceren van multi‑100MB canvassen. */
+let previewStripCache = { key: '', canvas: null };
+
+/**
+ * Canvassen die nog door een actieve export (of andere caller) worden vastgehouden.
+ * Voorkomt dat updateUI/preview de strip op 0×0 zet terwijl cropFrameAtIndexForExport nog loopt.
+ */
+const heldStripCanvases = new Set();
+
+/**
+ * Laat GPU/CPU-geheugen van een canvas los (Chromium geeft buffer vrij bij 0×0).
+ * @param {HTMLCanvasElement|null|undefined} canvas
+ */
+export function disposeCanvas(canvas) {
+  if (!canvas) return;
+  if (heldStripCanvases.has(canvas)) return;
+  try {
+    canvas.width = 0;
+    canvas.height = 0;
+  } catch (_) {}
+}
+
+/** Invalideert de gecachte preview-strip (na unload of zware state-wissel). */
+export function invalidateStripCanvasCache() {
+  const c = previewStripCache.canvas;
+  previewStripCache = { key: '', canvas: null };
+  if (c) disposeCanvas(c);
+}
+
+function paintOverlayCacheKey() {
+  const map = getState().framePaintOverlays;
+  if (!map || map.size === 0) return '0';
+  const parts = [];
+  for (const [fi, entry] of map.entries()) {
+    const c = entry && entry.canvas;
+    parts.push(
+      String(fi) +
+        ':' +
+        String(entry.stripW || 0) +
+        'x' +
+        String(entry.stripH || 0) +
+        ':' +
+        String(entry.x || 0) +
+        ',' +
+        String(entry.y || 0) +
+        ',' +
+        String(entry.w || 0) +
+        'x' +
+        String(entry.h || 0) +
+        ':' +
+        String(c && c.width ? c.width : 0) +
+        'x' +
+        String(c && c.height ? c.height : 0)
+    );
+  }
+  parts.sort();
+  return parts.join('|');
+}
+
+function stripPreviewCacheKey() {
+  const s = getState();
+  return [
+    s.path || '',
+    s.naturalWidth || 0,
+    s.naturalHeight || 0,
+    s.rotation90 || 0,
+    Number(s.fineRotationDeg) || 0,
+    s.tiltPivot || 'center',
+    s.flipHorizontal ? 1 : 0,
+    s.flipVertical ? 1 : 0,
+    STRIP_CANVAS_MAX_DIM,
+    paintOverlayCacheKey()
+  ].join(';');
+}
+
 /**
  * @param {string} path
  * @param {string} fileUrl
@@ -135,10 +210,28 @@ function scaleCanvasToMaxDim(source, maxDim) {
  */
 export function loadImage(path, fileUrl) {
   return new Promise((resolve) => {
-    if (!path || !fileUrl) { resolve(null); return; }
+    if (!path || !fileUrl) {
+      resolve(null);
+      return;
+    }
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
+    let done = false;
+    const finish = (result) => {
+      if (done) return;
+      done = true;
+      if (timeoutId != null) clearTimeout(timeoutId);
+      resolve(result);
+    };
+    const timeoutId = setTimeout(() => {
+      try {
+        img.onload = null;
+        img.onerror = null;
+        img.src = '';
+      } catch (_) {}
+      finish(null);
+    }, STRIP_IMAGE_LOAD_TIMEOUT_MS);
+    img.onload = () => finish(img);
+    img.onerror = () => finish(null);
     img.src = fileUrl;
   });
 }
@@ -148,9 +241,10 @@ export function loadImage(path, fileUrl) {
  * @param {CanvasImageSource} image
  * @param {number} w
  * @param {number} h
+ * @param {number} [maxDim] - max. zijde van het resultaat (preview vs export)
  * @returns {HTMLCanvasElement|null}
  */
-function buildStripCanvasRawFromImage(image, w, h) {
+function buildStripCanvasRawFromImage(image, w, h, maxDim = EXPORT_STRIP_MAX_DIM) {
   const s = getState();
   if (!image || w < 1 || h < 1) return null;
   const totalDeg = s.rotation90 + s.fineRotationDeg;
@@ -160,11 +254,9 @@ function buildStripCanvasRawFromImage(image, w, h) {
   let drawScale = 1;
   let cw = outW;
   let ch = outH;
-  if (
-    EXPORT_STRIP_MAX_DIM > 0 &&
-    (outW > EXPORT_STRIP_MAX_DIM || outH > EXPORT_STRIP_MAX_DIM)
-  ) {
-    drawScale = Math.min(EXPORT_STRIP_MAX_DIM / outW, EXPORT_STRIP_MAX_DIM / outH, 1);
+  const cap = Number(maxDim) > 0 ? Number(maxDim) : 0;
+  if (cap > 0 && (outW > cap || outH > cap)) {
+    drawScale = Math.min(cap / outW, cap / outH, 1);
     cw = Math.max(1, Math.round(outW * drawScale));
     ch = Math.max(1, Math.round(outH * drawScale));
   }
@@ -195,6 +287,7 @@ function buildStripCanvasRawFromImage(image, w, h) {
   let result = canvas;
   if (flipH || flipV) {
     result = copyCanvasFlipped(canvas, flipH, flipV);
+    if (result !== canvas) disposeCanvas(canvas);
   }
   return result;
 }
@@ -206,7 +299,7 @@ function buildStripCanvasRawFromImage(image, w, h) {
 export function buildStripCanvasRawBase() {
   const s = getState();
   if (!s.image || !s.naturalWidth || !s.naturalHeight) return null;
-  return buildStripCanvasRawFromImage(s.image, s.naturalWidth, s.naturalHeight);
+  return buildStripCanvasRawFromImage(s.image, s.naturalWidth, s.naturalHeight, STRIP_CANVAS_MAX_DIM);
 }
 
 /**
@@ -216,7 +309,7 @@ export function buildStripCanvasRawBase() {
  */
 export function buildPixelEditorExternalStripRaw(image) {
   if (!image || !image.naturalWidth || !image.naturalHeight) return null;
-  return buildStripCanvasRawFromImage(image, image.naturalWidth, image.naturalHeight);
+  return buildStripCanvasRawFromImage(image, image.naturalWidth, image.naturalHeight, STRIP_CANVAS_MAX_DIM);
 }
 
 function applyFramePaintOverlaysToStripCanvas(result) {
@@ -253,10 +346,13 @@ function applyFramePaintOverlaysToStripCanvas(result) {
 
 /**
  * Strip na rotatie + spiegeling, nog niet geschaald (bron voor preview- én export-canvas), incl. pixel-editor.
+ * @param {number} [maxDim]
  * @returns {HTMLCanvasElement|null}
  */
-function buildStripCanvasRaw() {
-  const result = buildStripCanvasRawBase();
+function buildStripCanvasRaw(maxDim = EXPORT_STRIP_MAX_DIM) {
+  const s = getState();
+  if (!s.image || !s.naturalWidth || !s.naturalHeight) return null;
+  const result = buildStripCanvasRawFromImage(s.image, s.naturalWidth, s.naturalHeight, maxDim);
   if (!result) return null;
   applyFramePaintOverlaysToStripCanvas(result);
   return result;
@@ -264,31 +360,95 @@ function buildStripCanvasRaw() {
 
 /**
  * Geef een canvas terug met de strip getekend (incl. rotatie), voor overlay/preview (max. STRIP_CANVAS_MAX_DIM).
+ * Gecached: herhaalde Hand/Detecteer/Volgende mag geen multi‑100MB canvassen blijven alloceren.
  * @returns {HTMLCanvasElement|null}
  */
 export function getStripCanvas() {
-  const raw = buildStripCanvasRaw();
-  if (!raw) return null;
-  return scaleCanvasToMaxDim(raw, STRIP_CANVAS_MAX_DIM);
+  const key = stripPreviewCacheKey();
+  if (previewStripCache.canvas && previewStripCache.key === key) {
+    return previewStripCache.canvas;
+  }
+  const built = buildStripCanvasRaw(STRIP_CANVAS_MAX_DIM);
+  if (!built) {
+    invalidateStripCanvasCache();
+    return null;
+  }
+  if (previewStripCache.canvas && previewStripCache.canvas !== built) {
+    disposeCanvas(previewStripCache.canvas);
+  }
+  previewStripCache = { key, canvas: built };
+  return built;
+}
+
+/**
+ * Export-stripafmetingen zonder te tekenen (zelfde schaalregel als buildStripCanvasRaw(EXPORT_STRIP_MAX_DIM)).
+ * @returns {{ width: number, height: number }|null}
+ */
+export function getExportStripDimensions() {
+  const s = getState();
+  if (!s.image || !s.naturalWidth || !s.naturalHeight) return null;
+  const w = s.naturalWidth;
+  const h = s.naturalHeight;
+  const totalDeg = s.rotation90 + s.fineRotationDeg;
+  const rad = (totalDeg * Math.PI) / 180;
+  const { px, py } = tiltPivotToSourcePoint(w, h, s.tiltPivot);
+  let { outW, outH } = rotatedImageBounds(w, h, rad, px, py);
+  if (EXPORT_STRIP_MAX_DIM > 0 && (outW > EXPORT_STRIP_MAX_DIM || outH > EXPORT_STRIP_MAX_DIM)) {
+    const scale = Math.min(EXPORT_STRIP_MAX_DIM / outW, EXPORT_STRIP_MAX_DIM / outH, 1);
+    outW = Math.max(1, Math.round(outW * scale));
+    outH = Math.max(1, Math.round(outH * scale));
+  }
+  if (outW < 1 || outH < 1) return null;
+  return { width: outW, height: outH };
 }
 
 /**
  * Eén keer de strip rasterizen: preview (laag) + export (volle resolutie tot EXPORT_STRIP_MAX_DIM).
  * Raster staat in preview-pixels; export gebruikt cropFrameAtIndexForExport(exportStrip, previewStrip, i).
+ * Caller moet releaseStripCanvasPair() aanroepen.
  * @returns {{ preview: HTMLCanvasElement, export: HTMLCanvasElement } | null}
  */
 export function getStripCanvasPairForExport() {
-  const raw = buildStripCanvasRaw();
+  const raw = buildStripCanvasRaw(EXPORT_STRIP_MAX_DIM);
   if (!raw) return null;
-  const preview = scaleCanvasToMaxDim(raw, STRIP_CANVAS_MAX_DIM);
   let exportCanvas = raw;
   if (
     EXPORT_STRIP_MAX_DIM > 0 &&
     (raw.width > EXPORT_STRIP_MAX_DIM || raw.height > EXPORT_STRIP_MAX_DIM)
   ) {
     exportCanvas = scaleCanvasToMaxDim(raw, EXPORT_STRIP_MAX_DIM) || raw;
+    if (exportCanvas !== raw) disposeCanvas(raw);
   }
+  let preview = exportCanvas;
+  if (
+    exportCanvas.width > STRIP_CANVAS_MAX_DIM ||
+    exportCanvas.height > STRIP_CANVAS_MAX_DIM
+  ) {
+    preview = scaleCanvasToMaxDim(exportCanvas, STRIP_CANVAS_MAX_DIM) || exportCanvas;
+  }
+  const key = stripPreviewCacheKey();
+  if (previewStripCache.canvas && previewStripCache.canvas !== preview) {
+    disposeCanvas(previewStripCache.canvas);
+  }
+  previewStripCache = { key, canvas: preview };
+  heldStripCanvases.add(preview);
+  heldStripCanvases.add(exportCanvas);
   return { preview, export: exportCanvas };
+}
+
+/**
+ * Na export: geef het zware export-canvas vrij. Preview-cache blijft bruikbaar.
+ * @param {{ preview?: HTMLCanvasElement, export?: HTMLCanvasElement }|null} pair
+ */
+export function releaseStripCanvasPair(pair) {
+  if (!pair) return;
+  const cached = previewStripCache.canvas;
+  if (pair.export) heldStripCanvases.delete(pair.export);
+  if (pair.preview) heldStripCanvases.delete(pair.preview);
+  if (pair.export && pair.export !== cached) disposeCanvas(pair.export);
+  if (pair.preview && pair.preview !== cached && pair.preview !== pair.export) {
+    disposeCanvas(pair.preview);
+  }
 }
 
 /**
@@ -405,6 +565,7 @@ function copyCanvasFlipped(source, flipH, flipV) {
 
 /**
  * Strip-canvasafmetingen zonder canvas te tekenen (voor delta-toepassing als getStripCanvas nog niet beschikbaar is).
+ * Preview-schaal (STRIP_CANVAS_MAX_DIM).
  * @returns {{ width: number, height: number }|null}
  */
 export function getStripCanvasDimensions() {

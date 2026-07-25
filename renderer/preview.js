@@ -4,14 +4,15 @@
  */
 import { getState } from './state.js';
 import { getProjectMeta, hasProject, persistCurrentLintStateInProject } from './project.js';
-import { getStripCanvas, getStripCanvasDimensions, copyCanvasNearestScaled } from './strip-loader.js';
+import { getStripCanvas, getStripCanvasDimensions, copyCanvasNearestScaled, getExportStripDimensions } from './strip-loader.js';
 import {
   getGridRect,
   getGridRectWithOverride,
   clampGridVerticalMarginsCanvas,
   getLadderRowsCanvasFromMargins,
   usesSplitLowerVerticalPan,
-  resolveVerticalPivotKFromState
+  resolveVerticalPivotKFromState,
+  getFrameCropRectInStripPx
 } from './grid.js';
 import { STRIP_EXTENDED_RATIO, DEFAULT_STRIP_PREVIEW_MAX_DIM } from './constants.js';
 import { refreshFramePixelEditor } from './frame-pixel-editor.js';
@@ -309,8 +310,11 @@ export function buildGridPayload(displayWidth, displayHeight, scale, overrideGri
       ? { x: activeR.x, y: activeR.y, width: activeR.width, height: activeR.height }
       : { x: gridRect.x, y: gridRect.y, width: gridRect.width, height: gridRect.height },
     gridRects,
+    /** Canvas→display schaal (voor overlays in canvas-px, bv. zoekbereik). */
+    stripScale: Number.isFinite(Number(scale)) && Number(scale) > 0 ? Number(scale) : 1,
     arrowStepPx: Math.max(1, Math.min(10, Number(s.arrowStepPx) || 1)),
     arrowStepShiftPx: Math.max(10, Math.min(100, Number(s.arrowStepShiftPx) || 10)),
+    previewResSetting: Math.max(512, Number(s.stripPreviewMaxDim) || DEFAULT_STRIP_PREVIEW_MAX_DIM),
     gridOffsetX: Number(s.gridOffsetX) || 0,
     gridOffsetY: yTopCanvas,
     gridOffsetYBottom: Math.round(yBottomCanvas),
@@ -323,6 +327,38 @@ export function buildGridPayload(displayWidth, displayHeight, scale, overrideGri
       return Math.max(0, Math.min(n, Math.round(Number(s.gridVerticalPivotCustomK) || 0)));
     })(),
     panelLinkVerticalAnchor: s.gridPanelLinkVerticalAnchor !== false,
+    fixResolutionLocked: s.fixResolutionLocked === true,
+    autoAdvanceAfterAlign: s.autoAdvanceAfterAlign === true,
+    autoRasterAssistMode: s.autoRasterAssistMode === 'strong' ? 'strong' : (s.autoRasterAssistMode === 'soft' ? 'soft' : 'off'),
+    autoRasterAssistXRef: s.autoRasterAssistXRef === 'left' ? 'left' : 'right',
+    autoRasterAssistYRef: s.autoRasterAssistYRef === 'top' || s.autoRasterAssistYRef === 'bottom' ? s.autoRasterAssistYRef : 'both',
+    autoRasterAssistPreset:
+      s.autoRasterAssistPreset === 'standard' ||
+      s.autoRasterAssistPreset === 'bottom-soft' ||
+      s.autoRasterAssistPreset === 'difficult-edge' ||
+      s.autoRasterAssistPreset === 'bottom-v2' ||
+      s.autoRasterAssistPreset === 'black-line' ||
+      s.autoRasterAssistPreset === 'black-line-left' ||
+      s.autoRasterAssistPreset === 'sprocket-left' ||
+      s.autoRasterAssistPreset === 'sprocket-right' ||
+      s.autoRasterAssistPreset === 'left-white' ||
+      s.autoRasterAssistPreset === 'right-white'
+        ? s.autoRasterAssistPreset
+        : 'bottom-v1',
+    autoRasterAssistExtraLeftPx: Math.max(0, Math.min(400, Math.round(Number(s.autoRasterAssistExtraLeftPx) || 0))),
+    autoRasterAssistExtraRightPx: Math.max(0, Math.min(400, Math.round(Number(s.autoRasterAssistExtraRightPx) || 0))),
+    autoRasterAssistExtraTopPx: Math.max(0, Math.min(400, Math.round(Number(s.autoRasterAssistExtraTopPx) || 0))),
+    autoRasterAssistExtraBottomPx: Math.max(0, Math.min(400, Math.round(Number(s.autoRasterAssistExtraBottomPx) || 0))),
+    autoRasterCenterBeforeDetect: s.autoRasterCenterBeforeDetect === true,
+    autoRasterDetectOnScanNav: s.autoRasterDetectOnScanNav === true,
+    autoRasterLeftWhiteMinMarginPx: Math.max(0, Math.min(24, Math.round(Number(s.autoRasterLeftWhiteMinMarginPx) || 0))),
+    autoRasterDarkLineLeftBiasPx: Math.max(0, Math.min(6, Math.round(Number(s.autoRasterDarkLineLeftBiasPx) || 0))),
+    autoRasterDarkLineStrongScale: Math.max(1, Math.min(48, Math.round(Number(s.autoRasterDarkLineStrongScale) || 0))),
+    autoRasterDarkLineStrongScaleAuto: s.autoRasterDarkLineStrongScaleAuto === true,
+    autoRasterDarkBottomBiasPx: Math.max(-24, Math.min(24, Math.round(Number(s.autoRasterDarkBottomBiasPx) || 0))),
+    autoRasterDarkLineThickness: Math.max(1, Math.min(10, Math.round(Number(s.autoRasterDarkLineThickness) || 5))),
+    autoRasterDarkLineSearchRangePx: Math.max(20, Math.min(300, Math.round(Number(s.autoRasterDarkLineSearchRangePx) || 160))),
+    autoRasterTriangleSensitivity: Math.max(0, Math.min(100, Math.round(Number(s.autoRasterTriangleSensitivity) || 60))),
     stripPresetId:
       meta && meta.stripPresetId != null && typeof meta.stripPresetId === 'string' && meta.stripPresetId.trim() !== ''
         ? meta.stripPresetId.trim()
@@ -333,10 +369,69 @@ export function buildGridPayload(displayWidth, displayHeight, scale, overrideGri
   };
 }
 
+/** Metadata voor Scaninfo in RASTER SETUP (strip-preview); bij elke strip-update meesturen. */
+function buildScanInfoForPreview() {
+  const s = getState();
+  return {
+    naturalWidth: s.naturalWidth > 0 ? s.naturalWidth : null,
+    naturalHeight: s.naturalHeight > 0 ? s.naturalHeight : null,
+    scanDpi: s.scanDpi > 0 ? s.scanDpi : null,
+    filmFormat: s.filmFormat || null,
+    filmPolarity: s.filmPolarity || null
+  };
+}
+
+/**
+ * Zelfde uitsnede als frame-export: schaal preview-raster naar export-resolutie (zonder zware export-canvas).
+ * Logisch formaat (niet afgekapt) zodat Detecteer Grenzen de W×H-velden niet “kapot” zet.
+ */
+function buildExportFrameCropPxForPreview() {
+  const s = getState();
+  const preview = getStripCanvas();
+  const exportDims = getExportStripDimensions();
+  if (!preview || preview.width < 1 || preview.height < 1 || !exportDims) return null;
+  const n = Math.max(1, s.numFrames || 1);
+  const activeIndex = Math.max(0, Math.min(n - 1, s.activeFrameIndex));
+  const r = getFrameCropRectInStripPx(preview, activeIndex);
+  if (!r) return null;
+  const kx = exportDims.width / preview.width;
+  const ky = exportDims.height / preview.height;
+  if (!(kx > 0) || !(ky > 0)) return null;
+  return {
+    width: Math.max(1, Math.round(r.w * kx)),
+    height: Math.max(1, Math.round(r.h * ky))
+  };
+}
+
+function attachScanInfo(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  return {
+    ...payload,
+    scanInfo: buildScanInfoForPreview(),
+    exportFrameCropPx: buildExportFrameCropPxForPreview()
+  };
+}
+
 function notifyPixelEditorRemoteRefresh() {
   try {
     if (typeof window !== 'undefined' && window.api?.notifyPixelEditorRemoteRefresh) {
       window.api.notifyPixelEditorRemoteRefresh();
+    }
+  } catch (_) {}
+}
+
+function pushInlineStripUpdate(payload) {
+  try {
+    if (typeof window !== 'undefined' && typeof window.__f2fInlineStripPushUpdate === 'function') {
+      window.__f2fInlineStripPushUpdate(payload);
+    }
+  } catch (_) {}
+}
+
+function sendStripUpdateToMain(payload) {
+  try {
+    if (typeof window !== 'undefined' && typeof window.api?.sendStripUpdate === 'function') {
+      window.api.sendStripUpdate(payload);
     }
   } catch (_) {}
 }
@@ -349,7 +444,6 @@ function afterStripPreviewRefresh() {
 }
 
 function sendStripUpdateFull() {
-  if (typeof window.api?.sendStripUpdate !== 'function') return;
   const canvas = getStripCanvas();
   const s = getState();
   const n = Math.max(1, s.numFrames || 1);
@@ -358,7 +452,9 @@ function sendStripUpdateFull() {
     const scale = canvas.height > 0 ? scaled.height / canvas.height : 1;
     const payload = buildGridPayload(scaled.width, scaled.height, scale, undefined, canvas.width);
     payload.stripDataUrl = scaled.toDataURL('image/png');
-    window.api.sendStripUpdate(payload);
+    const enriched = attachScanInfo(payload);
+    sendStripUpdateToMain(enriched);
+    pushInlineStripUpdate(enriched);
     return;
   }
   const dims = getStripCanvasDimensions();
@@ -366,27 +462,34 @@ function sendStripUpdateFull() {
     const dim = getScaledDimensionsFromSize(dims.width, dims.height);
     const scale = dim.height >= 1 ? dim.height / dims.height : 1;
     const payload = buildGridPayload(dim.width, dim.height, scale, undefined, dims.width);
-    window.api.sendStripUpdate(payload);
+    const enriched = attachScanInfo(payload);
+    sendStripUpdateToMain(enriched);
+    pushInlineStripUpdate(enriched);
     return;
   }
   /* Geen bronbeeld: geen synthetisch raster sturen — main zou anders de vorige stripDataUrl weer mergen. */
   if (!s.image) {
-    window.api.sendStripUpdate({});
+    const enriched = attachScanInfo({});
+    sendStripUpdateToMain(enriched);
+    pushInlineStripUpdate(enriched);
     return;
   }
   if (n >= 1) {
     const fallbackW = 800;
     const fallbackH = Math.max(200, Math.round(600 / n) * n);
     const payload = buildGridPayload(fallbackW, fallbackH, 1, undefined, undefined);
-    window.api.sendStripUpdate(payload);
+    const enriched = attachScanInfo(payload);
+    sendStripUpdateToMain(enriched);
+    pushInlineStripUpdate(enriched);
     return;
   }
-  window.api.sendStripUpdate({});
+  const enriched = attachScanInfo({});
+  sendStripUpdateToMain(enriched);
+  pushInlineStripUpdate(enriched);
 }
 
 /** Stuurt alleen rasterdata naar scanlint-preview (geen beeld). Realtime bij verplaatsen/aanpassen raster. Scanlint-beeld wordt niet opnieuw geladen. */
 function sendStripUpdateGridOnly() {
-  if (typeof window.api?.sendStripUpdate !== 'function') return;
   let payload = null;
   const canvas = getStripCanvas();
   if (canvas) {
@@ -401,7 +504,11 @@ function sendStripUpdateGridOnly() {
       payload = buildGridPayload(dim.width, dim.height, scale, undefined, dims.width);
     }
   }
-  if (payload) window.api.sendStripUpdate(payload);
+  if (payload) {
+    const enriched = attachScanInfo(payload);
+    sendStripUpdateToMain(enriched);
+    pushInlineStripUpdate(enriched);
+  }
 }
 
 export function refreshPreviews() {
@@ -412,7 +519,9 @@ export function refreshPreviews() {
 /** Alleen raster bijwerken. Optioneel: prebuiltPayload (van buildGridPayload) om tweede getStripCanvas te vermijden. */
 export function refreshPreviewsGridOnly(prebuiltPayload) {
   if (prebuiltPayload && Array.isArray(prebuiltPayload.gridRects) && prebuiltPayload.gridRects.length > 0 && Number(prebuiltPayload.displayWidth) > 0 && Number(prebuiltPayload.displayHeight) > 0) {
-    if (typeof window.api?.sendStripUpdate === 'function') window.api.sendStripUpdate(prebuiltPayload);
+    const enriched = attachScanInfo({ ...prebuiltPayload });
+    sendStripUpdateToMain(enriched);
+    pushInlineStripUpdate(enriched);
     afterStripPreviewRefresh();
     return;
   }

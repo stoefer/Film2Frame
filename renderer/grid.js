@@ -93,13 +93,35 @@ export function cropFrameAtIndex(stripCanvas, frameIndex) {
 }
 
 /**
- * Export: raster staat in previewStrip (laag); fullStrip is zelfde beeld op hogere resolutie (uniform geschaald).
- * @param {HTMLCanvasElement} fullStrip
- * @param {HTMLCanvasElement} previewStrip
- * @param {number} frameIndex 0-based
- * @returns {HTMLCanvasElement|null}
+ * Uitsnede op export-strip (zelfde rekenregel als cropFrameAtIndexForExport), zonder canvas.
+ * Let op: dit is de *getekende* uitsnede (afgekapt op stripranden). Voor UI-formaat: getExportFrameCropSizeLogicalPx.
+ * @returns {{ width: number, height: number }|null}
  */
-export function cropFrameAtIndexForExport(fullStrip, previewStrip, frameIndex) {
+export function getExportFrameCropSizePx(fullStrip, previewStrip, frameIndex) {
+  const rect = getExportFrameCropRectPx(fullStrip, previewStrip, frameIndex);
+  if (!rect) return null;
+  return { width: rect.width, height: rect.height };
+}
+
+/**
+ * Logisch rasterformaat in export-pixels (niet afgekapt op striprand).
+ * Als het raster deels buiten beeld staat, blijft W×H gelijk — anders “springt” Detecteer Grenzen
+ * het formaat in de UI en moet de gebruiker Laad Raster gebruiken.
+ */
+export function getExportFrameCropSizeLogicalPx(fullStrip, previewStrip, frameIndex) {
+  if (!fullStrip || !previewStrip || previewStrip.width < 1 || previewStrip.height < 1) return null;
+  const r = getFrameCropRectInStripPx(previewStrip, frameIndex);
+  if (!r) return null;
+  const kx = fullStrip.width / previewStrip.width;
+  const ky = fullStrip.height / previewStrip.height;
+  if (!(kx > 0) || !(ky > 0)) return null;
+  return {
+    width: Math.max(1, Math.round(r.w * kx)),
+    height: Math.max(1, Math.round(r.h * ky))
+  };
+}
+
+function getExportFrameCropRectPx(fullStrip, previewStrip, frameIndex) {
   if (!fullStrip || !previewStrip || previewStrip.width < 1 || previewStrip.height < 1) return null;
   const r = getFrameCropRectInStripPx(previewStrip, frameIndex);
   if (!r) return null;
@@ -107,8 +129,25 @@ export function cropFrameAtIndexForExport(fullStrip, previewStrip, frameIndex) {
   const ky = fullStrip.height / previewStrip.height;
   const x = Math.max(0, Math.floor(r.x * kx));
   const y = Math.max(0, Math.floor(r.y * ky));
-  const w = Math.max(1, Math.min(fullStrip.width - x, Math.round(r.w * kx)));
-  const h = Math.max(1, Math.min(fullStrip.height - y, Math.round(r.h * ky)));
+  const logicalW = Math.max(1, Math.round(r.w * kx));
+  const logicalH = Math.max(1, Math.round(r.h * ky));
+  /* Alleen de draw-rect kappen; breedte/hoogte voor UI komen uit getExportFrameCropSizeLogicalPx. */
+  const w = Math.max(1, Math.min(fullStrip.width - x, logicalW));
+  const h = Math.max(1, Math.min(fullStrip.height - y, logicalH));
+  return { x, y, w, h, width: w, height: h, logicalWidth: logicalW, logicalHeight: logicalH };
+}
+
+/**
+ * Export: raster staat in previewStrip (laag); fullStrip is zelfde beeld op hogere resolutie (uniform geschaald).
+ * @param {HTMLCanvasElement} fullStrip
+ * @param {HTMLCanvasElement} previewStrip
+ * @param {number} frameIndex 0-based
+ * @returns {HTMLCanvasElement|null}
+ */
+export function cropFrameAtIndexForExport(fullStrip, previewStrip, frameIndex) {
+  const rect = getExportFrameCropRectPx(fullStrip, previewStrip, frameIndex);
+  if (!rect) return null;
+  const { x, y, w, h } = rect;
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
@@ -503,17 +542,46 @@ export function splitLowerPanToBoundaryCanvas(frameHeight, numFrames, top, botto
 
 /**
  * Verschuif het raster als geheel over het lint: alle frames behouden dezelfde celhoogte
- * (gridOffsetY en gridOffsetYBottom tegengesteld, som blijft gelijk binnen clamp).
+ * (gridOffsetY en gridOffsetYBottom tegengesteld, som blijft gelijk).
  * dyCanvas > 0: raster schuift t.o.v. de film naar beneden (bovenmarge groeit, ondermarge krimpt).
+ *
+ * Begrenst tot de scan: top/bottom ≥ 0 — de eerste rakende buitenlijn stopt de beweging,
+ * zonder het rasterformaat te verkleinen (oude clamp kon hoogte “afkappen”).
  */
 export function applyRigidVerticalPanStepCanvas(frameHeight, numFrames, top, bottom, dyCanvas) {
   const n = Math.max(1, numFrames || 1);
   if (frameHeight < 1) return { top: Number(top) || 0, bottom: Math.round(Number(bottom) || 0) };
+  const S = Math.max(1, Math.round(frameHeight * n));
   const d = Math.round(Number(dyCanvas) || 0);
-  if (d === 0) return clampGridVerticalMarginsCanvas(frameHeight, n, top, bottom);
-  const T = Number(top) || 0;
-  const B = Math.round(Number(bottom) || 0);
-  return clampGridVerticalMarginsCanvas(frameHeight, n, T + d, B - d);
+  return panVerticalMarginsPreserveHeightOnStrip(S, top, bottom, d);
+}
+
+/**
+ * Verticale pan met vaste hoogte. Standaard binnen de scan (top/bottom ≥ 0).
+ * Als het raster groter is dan het lint (zeldzaam), val terug op slack-marges i.p.v. te krimpen.
+ */
+export function panVerticalMarginsPreserveHeightOnStrip(stripHeight, top, bottom, deltaY) {
+  const S = Math.max(1, Math.round(Number(stripHeight) || 0));
+  const T0 = Math.round(Number(top) || 0);
+  const B0 = Math.round(Number(bottom) || 0);
+  const h = Math.max(1, S - T0 - B0);
+  const d = Math.round(Number(deltaY) || 0);
+
+  if (h > S) {
+    // Past niet binnen scan: hoogte behouden, beperkte slack toestaan
+    const minT = getMinGridOffsetYCanvas(S);
+    const minB = getMinGridOffsetYBottomCanvas(S);
+    let nT = T0 + d;
+    const maxT = S - h - minB;
+    nT = Math.max(minT, Math.min(maxT, nT));
+    return { top: nT, bottom: S - h - nT };
+  }
+
+  let nT = T0 + d;
+  // minB = 0 → maxT = S - h; minT = 0 → eerste rakende boven-/onderrand stopt pan
+  const maxT = S - h;
+  nT = Math.max(0, Math.min(maxT, nT));
+  return { top: nT, bottom: S - h - nT };
 }
 
 /**
@@ -551,21 +619,27 @@ export function bottomAnchoredVerticalPanToBoundaryCanvas(frameHeight, numFrames
 
 /**
  * Zelfde als rigide pan, maar tot de clamp-grens: towardCompress true = zoveel mogelijk in "Samendruk"-richting
- * (top maximaliseren); false = zoveel mogelijk in "Uitrek"-richting (top minimaliseren).
+ * (top maximaliseren tot bottom = 0); false = zoveel mogelijk omhoog (top = 0), hoogte intact.
  */
 export function rigidVerticalPanToBoundaryCanvas(frameHeight, numFrames, top, bottom, towardCompress) {
   const n = Math.max(1, numFrames || 1);
   if (frameHeight < 1) return { top: 0, bottom: 0 };
-  const S = frameHeight * n;
-  const c0 = clampGridVerticalMarginsCanvas(frameHeight, n, top, bottom);
-  const T = c0.top;
-  const B = c0.bottom;
-  const C = T + B;
-  const minTop = getMinGridOffsetYCanvas(S);
-  if (towardCompress) {
-    return clampGridVerticalMarginsCanvas(frameHeight, n, C, 0);
+  const S = Math.max(1, Math.round(frameHeight * n));
+  const c0 = panVerticalMarginsPreserveHeightOnStrip(S, top, bottom, 0);
+  const h = Math.max(1, S - c0.top - c0.bottom);
+  if (h > S) {
+    // Fallback: oude slack-gedrag alleen als raster groter is dan lint
+    const C = c0.top + c0.bottom;
+    const minTop = getMinGridOffsetYCanvas(S);
+    if (towardCompress) {
+      return clampGridVerticalMarginsCanvas(frameHeight, n, C, 0);
+    }
+    return clampGridVerticalMarginsCanvas(frameHeight, n, minTop, C - minTop);
   }
-  return clampGridVerticalMarginsCanvas(frameHeight, n, minTop, C - minTop);
+  if (towardCompress) {
+    return { top: S - h, bottom: 0 };
+  }
+  return { top: 0, bottom: S - h };
 }
 
 /**
@@ -633,9 +707,9 @@ export function getGridRectWithOverride(frameWidth, frameHeight, displayScale, o
   const hasOverride = overrideGridOffsetX !== undefined && overrideGridOffsetX !== null;
   let leftC;
   let rightC;
+  const maxOx = (frameWidthCanvas * (1 - MIN_GRID_WIDTH_RATIO)) / 2;
   if (hasOverride && Number.isFinite(Number(overrideGridOffsetX))) {
     const ox = Number(overrideGridOffsetX);
-    const maxOx = (frameWidthCanvas * (1 - MIN_GRID_WIDTH_RATIO)) / 2;
     const oxClamped = Math.min(Math.max(0, ox), maxOx);
     leftC = oxClamped;
     rightC = oxClamped;
@@ -643,10 +717,8 @@ export function getGridRectWithOverride(frameWidth, frameHeight, displayScale, o
     const m = getEffectiveGridMargins(frameWidthCanvas);
     leftC = m.left;
     rightC = m.right;
+    /* Geen per-zijde maxOx hier: dat maakte asymmetrische Detecteer-marges breder/smaller. */
   }
-  const maxOx = (frameWidthCanvas * (1 - MIN_GRID_WIDTH_RATIO)) / 2;
-  leftC = Math.min(leftC, maxOx);
-  rightC = Math.min(rightC, maxOx);
   const clamped = clampGridMarginsCanvas(frameWidthCanvas, leftC, rightC);
   leftC = clamped.left;
   rightC = clamped.right;

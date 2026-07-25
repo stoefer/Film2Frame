@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Film2Frame – Raster preview</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0d0d0d;
+      color: #e0e0e0;
+      font-family: system-ui, sans-serif;
+      font-size: 12px;
+    }
+    .bar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 4px 10px;
+      background: #1a1a1a;
+      border-bottom: 1px solid #333;
+      min-height: 28px;
+    }
+    .bar-title { font-weight: 600; color: #ccc; white-space: nowrap; }
+    .bar-file {
+      color: #9cdcfe;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 70%;
+      text-align: right;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+    .viewport {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px;
+      background: #0d0d0d;
+    }
+    .zoom-wrap {
+      position: relative;
+      line-height: 0;
+      transform-origin: 0 0;
+    }
+    .strip-box {
+      position: relative;
+      display: inline-block;
+      line-height: 0;
+      overflow: hidden;
+      background: #111;
+    }
+    #strip-img {
+      display: block;
+      max-width: none;
+      user-select: none;
+      -webkit-user-drag: none;
+      vertical-align: top;
+    }
+    #strip-overlay {
+      position: absolute;
+      left: 0;
+      top: 0;
+      pointer-events: none;
+    }
+    .placeholder {
+      color: #666;
+      padding: 24px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <span class="bar-title" id="bar-title">Raster preview</span>
+    <span class="bar-file" id="bar-file" title="">—</span>
+  </div>
+  <div class="viewport" id="viewport">
+    <div class="placeholder" id="placeholder">Geen scan geladen</div>
+    <div class="zoom-wrap" id="zoom-wrap" style="display:none;">
+      <div class="strip-box" id="strip-box">
+        <img id="strip-img" alt="" />
+        <canvas id="strip-overlay"></canvas>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var api = window.stripDisplayApi;
+      if (!api) return;
+
+      var viewport = document.getElementById('viewport');
+      var placeholder = document.getElementById('placeholder');
+      var zoomWrap = document.getElementById('zoom-wrap');
+      var stripBox = document.getElementById('strip-box');
+      var img = document.getElementById('strip-img');
+      var overlay = document.getElementById('strip-overlay');
+      var barFile = document.getElementById('bar-file');
+      var barTitle = document.getElementById('bar-title');
+      var lastPayload = null;
+      var lastDataUrl = '';
+      var PAD = 8;
+
+      function basename(p) {
+        var s = String(p || '').replace(/\\/g, '/');
+        var i = s.lastIndexOf('/');
+        return i >= 0 ? s.slice(i + 1) : s;
+      }
+
+      function fitScale(w, h) {
+        var vw = Math.max(1, viewport.clientWidth - PAD * 2);
+        var vh = Math.max(1, viewport.clientHeight - PAD * 2);
+        return Math.max(0.05, Math.min(20, Math.min(vw / Math.max(1, w), vh / Math.max(1, h))));
+      }
+
+      function drawGrid(p, zoom) {
+        if (!overlay || !p || !Array.isArray(p.gridRects) || p.gridRects.length < 1) {
+          if (overlay) overlay.style.display = 'none';
+          return;
+        }
+        var w = Math.max(1, p.displayWidth || 1);
+        var h = Math.max(1, p.extendedDisplayHeight || p.displayHeight || 1);
+        var z = zoom > 0 ? zoom : 1;
+        var pixelW = Math.max(1, Math.round(w * z));
+        var pixelH = Math.max(1, Math.round(h * z));
+        overlay.width = pixelW;
+        overlay.height = pixelH;
+        overlay.style.width = w + 'px';
+        overlay.style.height = h + 'px';
+        overlay.style.display = 'block';
+        var ctx = overlay.getContext('2d');
+        if (!ctx) return;
+        ctx.save();
+        ctx.scale(z, z);
+        ctx.clearRect(0, 0, w, h);
+        var lineW = Math.max(0.3, 1 / z);
+        var lineWActive = Math.max(0.5, 2 / z);
+        var activeNum =
+          p.activeFrameNumber != null
+            ? p.activeFrameNumber
+            : p.activeFrameIndex != null
+              ? p.activeFrameIndex + 1
+              : 1;
+        for (var i = 0; i < p.gridRects.length; i++) {
+          var r = p.gridRects[i];
+          var x = Number(r.x) || 0;
+          var y = Number(r.y) || 0;
+          var rw = Math.max(0, Number(r.width) || 0);
+          var rh = Math.max(0, Number(r.height) || 0);
+          if (rw <= 0 || rh <= 0) continue;
+          var isActive = r.frameNumber != null && r.frameNumber === activeNum;
+          ctx.strokeStyle = isActive ? 'rgb(255, 60, 60)' : 'rgb(0, 255, 100)';
+          ctx.lineWidth = isActive ? lineWActive : lineW;
+          ctx.strokeRect(x + lineW / 2, y + lineW / 2, Math.max(0, rw - lineW), Math.max(0, rh - lineW));
+          var fontSize = Math.max(4, Math.min(10, (12 * z) / 10));
+          ctx.font = 'bold ' + fontSize + 'px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = isActive ? 'rgba(255,80,80,0.95)' : 'rgba(255,255,255,0.95)';
+          ctx.fillText(String(r.frameNumber != null ? r.frameNumber : i + 1), x + rw / 2, y + rh / 2);
+        }
+        ctx.restore();
+      }
+
+      function applyFit() {
+        if (!lastPayload) return;
+        var w = Math.max(1, lastPayload.displayWidth || img.naturalWidth || 1);
+        var dh = Math.max(1, lastPayload.displayHeight || img.naturalHeight || 1);
+        var extH = Math.max(dh, lastPayload.extendedDisplayHeight || dh);
+        var z = fitScale(w, extH);
+        /* Zelfde layout als RASTER SETUP: strip-bitmap gecentreerd in extended hoogte;
+         * gridRects liggen in die extended ruimte. */
+        img.style.width = w + 'px';
+        img.style.height = dh + 'px';
+        if (extH > dh) {
+          var margin = Math.round((extH - dh) / 2);
+          img.style.marginTop = margin + 'px';
+          img.style.marginBottom = margin + 'px';
+        } else {
+          img.style.marginTop = '';
+          img.style.marginBottom = '';
+        }
+        stripBox.style.width = w + 'px';
+        stripBox.style.height = extH + 'px';
+        zoomWrap.style.width = Math.max(1, Math.round(w * z)) + 'px';
+        zoomWrap.style.height = Math.max(1, Math.round(extH * z)) + 'px';
+        zoomWrap.style.transform = 'scale(' + z + ')';
+        zoomWrap.style.transformOrigin = '0 0';
+        drawGrid(lastPayload, z);
+      }
+
+      function showPayload(payload) {
+        lastPayload = payload && typeof payload === 'object' ? payload : null;
+        if (!lastPayload) {
+          placeholder.style.display = 'block';
+          zoomWrap.style.display = 'none';
+          barFile.textContent = '—';
+          return;
+        }
+        var name =
+          lastPayload.lintFileName ||
+          lastPayload.scanFileName ||
+          basename(lastPayload.path || lastPayload.lintPath || '');
+        barFile.textContent = name || '—';
+        barFile.title = name || '';
+
+        var url = lastPayload.stripDataUrl;
+        if (url && typeof url === 'string' && url.length > 0) {
+          if (url !== lastDataUrl) {
+            lastDataUrl = url;
+            img.onload = function () {
+              placeholder.style.display = 'none';
+              zoomWrap.style.display = 'block';
+              applyFit();
+            };
+            img.src = url;
+          } else {
+            placeholder.style.display = 'none';
+            zoomWrap.style.display = 'block';
+            applyFit();
+          }
+        } else if (lastDataUrl || (lastPayload.gridRects && lastPayload.gridRects.length > 0)) {
+          placeholder.style.display = 'none';
+          zoomWrap.style.display = 'block';
+          if (img.src) img.style.display = 'block';
+          applyFit();
+        } else {
+          placeholder.style.display = 'block';
+          zoomWrap.style.display = 'none';
+        }
+      }
+
+      var resizeTimer = null;
+      window.addEventListener('resize', function () {
+        if (resizeTimer) clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(function () {
+          applyFit();
+        }, 40);
+      });
+
+      api.onStripUpdate(showPayload);
+      if (api.requestStripRefresh) api.requestStripRefresh();
+
+      Promise.resolve(api.getTranslations && api.getTranslations())
+        .then(function (dict) {
+          if (dict && dict['window.rasterPreviewTitleSuffix']) {
+            barTitle.textContent = dict['window.rasterPreviewTitleSuffix'];
+          } else if (dict && dict['stripWindow.headerTitle']) {
+            barTitle.textContent = dict['stripWindow.headerTitle'];
+          }
+        })
+        .catch(function () {});
+    })();
+  </script>
+</body>
+</html>

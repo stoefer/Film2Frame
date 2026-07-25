@@ -1,8 +1,5 @@
 /**
- * Vensters schikken op primair scherm volgens een 3×2-raster (panelen 1–6).
- * 1 = hoofd · 2 = RASTER SETUP · 3 = RASTER PREVIEW · 4 = OUTPUT · 5 = instellingen · 6 = pixel-editor.
- * 1 venster: vol scherm; 2: twee gelijke kolommen; 3: drie gelijke kolommen; 4–6: 3×2 gelijke cellen.
- * Optioneel: vensters over alle schermen (vaste volgorde 1–6).
+ * Vensters schikken voor minimal cut: 1 = hoofd, 2 = RASTER SETUP.
  */
 const { screen } = require('electron');
 const windows = require('./windows');
@@ -145,18 +142,12 @@ function layoutThreeColumns(leftWin, midWin, rightWin, X, Y, W, H, gap) {
   setBounds(rightWin, x, Y, w3, H);
 }
 
-/**
- * Paneelvolgorde 1–6 over schermen (links → rechts); rest gestapeld op laatste scherm.
- */
+/** Paneelvolgorde over schermen (links → rechts): 1 hoofd, 2 raster setup. */
 function arrangeAcrossAllDisplays() {
   const gap = 8;
   const mainWin = windows.getMainWindow();
   const stripWin = windows.getStripPreviewWindow();
-  const alignWin = windows.getAlignPreviewWindow();
-  const outputWin = windows.getOutputPreviewWindow();
-  const settingsWin = windows.getSettingsWindow();
-  const pixelWin = windows.getPixelEditorWindow();
-  const ordered = [mainWin, stripWin, alignWin, outputWin, settingsWin, pixelWin];
+  const ordered = [mainWin, stripWin];
   const wins = ordered.filter((w) => w && !w.isDestroyed());
   if (!wins.length) return;
   const displays = screen
@@ -189,11 +180,7 @@ function arrangeAcrossAllDisplays() {
 function getPanelWindows() {
   return {
     1: windows.getMainWindow(),
-    2: windows.getStripPreviewWindow(),
-    3: windows.getAlignPreviewWindow(),
-    4: windows.getOutputPreviewWindow(),
-    5: windows.getSettingsWindow(),
-    6: windows.getPixelEditorWindow()
+    2: windows.getStripPreviewWindow()
   };
 }
 
