@@ -35,6 +35,7 @@ const KEYS = {
   preserveGridOnScanNav: 'preserveGridOnScanNav',
   compactUi: 'compactUi',
   exportScanBatchRanges: 'exportScanBatchRanges',
+  exportScanBatchAutoMerge: 'exportScanBatchAutoMerge',
   eulaAcceptedVersion: 'eulaAcceptedVersion'
 };
 
@@ -60,6 +61,7 @@ const DEFAULTS = {
   preserveGridOnScanNav: true,
   compactUi: false,
   exportScanBatchRanges: [],
+  exportScanBatchAutoMerge: true,
   windowGridAutoOpenMask: '000000'
 };
 
@@ -184,7 +186,11 @@ function getAllSettings() {
       data[KEYS.preserveGridOnScanNav] === false ? false : DEFAULTS.preserveGridOnScanNav,
     compactUi:
       data[KEYS.compactUi] === true,
-    exportScanBatchRanges: normalizeExportScanBatchRanges(data[KEYS.exportScanBatchRanges])
+    exportScanBatchRanges: normalizeExportScanBatchRanges(data[KEYS.exportScanBatchRanges]),
+    exportScanBatchAutoMerge:
+      data[KEYS.exportScanBatchAutoMerge] !== undefined
+        ? data[KEYS.exportScanBatchAutoMerge] !== false
+        : DEFAULTS.exportScanBatchAutoMerge
   };
 }
 
@@ -246,6 +252,9 @@ function setSettings(settings) {
   }
   if (settings.exportScanBatchRanges !== undefined) {
     data[KEYS.exportScanBatchRanges] = normalizeExportScanBatchRanges(settings.exportScanBatchRanges);
+  }
+  if (settings.exportScanBatchAutoMerge !== undefined) {
+    data[KEYS.exportScanBatchAutoMerge] = settings.exportScanBatchAutoMerge !== false;
   }
   if (settings.stripPreviewShortcuts !== undefined && settings.stripPreviewShortcuts != null) {
     const sc = require('./strip-shortcuts');

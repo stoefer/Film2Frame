@@ -59,6 +59,7 @@ let exportScanBatchRanges = [];
 let exportScanBatchSelectedIndex = -1;
 let exportScanBatchEditIndex = -1;
 let exportScanBatchInsertMode = 'append';
+let exportScanBatchAutoMerge = true;
 
 const ids = {
   projectInfo: 'project-info',
@@ -165,7 +166,11 @@ const ids = {
   exportBatchRangeRemove: 'f2f-export-batch-range-remove',
   exportBatchRangeClear: 'f2f-export-batch-range-clear',
   exportBatchRangeRun: 'f2f-export-batch-range-run',
+  exportBatchRangePrev: 'f2f-export-batch-range-prev',
+  exportBatchRangeNext: 'f2f-export-batch-range-next',
   exportBatchRangeMode: 'f2f-export-batch-range-mode',
+  exportBatchRangeSummary: 'f2f-export-batch-range-summary',
+  exportBatchAutoMerge: 'f2f-export-batch-auto-merge',
   exportCurrent: 'f2f-export-current',
   exportBatch: 'f2f-export-batch',
   frameGeneratorProgressWrap: 'f2f-frame-generator-progress-wrap',
@@ -907,12 +912,18 @@ function updateUI() {
   const insertBelowBtn = el(ids.exportBatchRangeInsertBelow);
   const clearBtn = el(ids.exportBatchRangeClear);
   const runBtn = el(ids.exportBatchRangeRun);
+  const prevBtn = el(ids.exportBatchRangePrev);
+  const nextBtn = el(ids.exportBatchRangeNext);
+  const autoMergeEl = el(ids.exportBatchAutoMerge);
   if (editBtn) editBtn.disabled = !hasSelection;
   if (removeBtn) removeBtn.disabled = !hasSelection;
   if (insertAboveBtn) insertAboveBtn.disabled = false;
   if (insertBelowBtn) insertBelowBtn.disabled = false;
   if (clearBtn) clearBtn.disabled = !hasRanges;
   if (runBtn) runBtn.disabled = !hasRanges;
+  if (prevBtn) prevBtn.disabled = !hasRanges || exportScanBatchSelectedIndex <= 0;
+  if (nextBtn) nextBtn.disabled = !hasRanges || (hasSelection && exportScanBatchSelectedIndex >= exportScanBatchRanges.length - 1);
+  if (autoMergeEl) autoMergeEl.checked = exportScanBatchAutoMerge !== false;
   syncScanCountInputMode();
   const tiltPivotEl = el(ids.tiltPivot);
   if (tiltPivotEl && tiltPivotEl.value !== s.tiltPivot) tiltPivotEl.value = s.tiltPivot || 'center';
@@ -943,6 +954,23 @@ function normalizeExportScanBatchRanges(raw, maxScanCount = Number.POSITIVE_INFI
     out.push({ from, to });
   }
   return out;
+}
+
+function sortAndMergeExportScanBatchRanges(ranges) {
+  const rows = Array.isArray(ranges) ? ranges.map((r) => ({ from: r.from, to: r.to })) : [];
+  rows.sort((a, b) => (a.from - b.from) || (a.to - b.to));
+  if (!rows.length) return [];
+  const merged = [rows[0]];
+  for (let i = 1; i < rows.length; i++) {
+    const prev = merged[merged.length - 1];
+    const cur = rows[i];
+    if (cur.from <= prev.to) {
+      prev.to = Math.max(prev.to, cur.to);
+    } else {
+      merged.push(cur);
+    }
+  }
+  return merged;
 }
 
 function getProjectScanCountEstimate() {
@@ -1034,12 +1062,26 @@ function setExportBatchInsertMode(mode) {
 
 function persistExportScanBatchRanges() {
   if (!window.api?.setAppSettings) return;
-  const payload = { exportScanBatchRanges: exportScanBatchRanges.map((r) => ({ from: r.from, to: r.to })) };
+  const payload = {
+    exportScanBatchRanges: exportScanBatchRanges.map((r) => ({ from: r.from, to: r.to })),
+    exportScanBatchAutoMerge: exportScanBatchAutoMerge !== false
+  };
   window.api.setAppSettings(payload).catch(() => {});
+}
+
+function getSelectedGlobalFramesCount(ranges) {
+  const normalized = normalizeExportScanBatchRanges(ranges, Number.POSITIVE_INFINITY);
+  const merged = sortAndMergeExportScanBatchRanges(normalized);
+  let total = 0;
+  for (const r of merged) {
+    total += Math.max(0, (r.to - r.from + 1));
+  }
+  return total;
 }
 
 function renderExportScanBatchRangeList() {
   const listEl = el(ids.exportBatchRangeList);
+  const summaryEl = el(ids.exportBatchRangeSummary);
   if (!listEl) return;
   if (exportScanBatchSelectedIndex >= exportScanBatchRanges.length) {
     exportScanBatchSelectedIndex = exportScanBatchRanges.length - 1;
@@ -1048,6 +1090,9 @@ function renderExportScanBatchRangeList() {
   listEl.innerHTML = '';
   if (!exportScanBatchRanges.length) {
     listEl.textContent = t('frameGenerator.batchRangeListEmpty');
+    if (summaryEl) {
+      summaryEl.textContent = t('frameGenerator.batchRangeSummary', { selected: 0, total: getProjectTotalFrameCountEstimate() });
+    }
     setExportBatchInsertMode(exportScanBatchEditIndex >= 0 ? 'edit' : exportScanBatchInsertMode);
     return;
   }
@@ -1076,6 +1121,12 @@ function renderExportScanBatchRangeList() {
     frag.appendChild(row);
   }
   listEl.appendChild(frag);
+  if (summaryEl) {
+    summaryEl.textContent = t('frameGenerator.batchRangeSummary', {
+      selected: getSelectedGlobalFramesCount(exportScanBatchRanges),
+      total: getProjectTotalFrameCountEstimate()
+    });
+  }
   setExportBatchInsertMode(exportScanBatchEditIndex >= 0 ? 'edit' : exportScanBatchInsertMode);
 }
 
@@ -6075,10 +6126,16 @@ async function loadAppSettings() {
     setScanDpi(Number(s.scanDpi) || 4800);
     setOutputFormat('png');
     const frameCount = getProjectTotalFrameCountEstimate();
+    exportScanBatchAutoMerge = s.exportScanBatchAutoMerge !== false;
+    const mergeToggleEl = el(ids.exportBatchAutoMerge);
+    if (mergeToggleEl) mergeToggleEl.checked = exportScanBatchAutoMerge;
     exportScanBatchRanges = normalizeExportScanBatchRanges(
       s.exportScanBatchRanges,
       frameCount > 0 ? frameCount : Number.POSITIVE_INFINITY
     );
+    if (exportScanBatchAutoMerge) {
+      exportScanBatchRanges = sortAndMergeExportScanBatchRanges(exportScanBatchRanges);
+    }
     exportScanBatchSelectedIndex = exportScanBatchRanges.length ? 0 : -1;
     exportScanBatchEditIndex = -1;
     setExportBatchInsertMode('append');
@@ -8500,6 +8557,9 @@ function bind() {
   el(ids.exportBatchRangeRemove)?.addEventListener('click', onBatchRangeRemoveSelected);
   el(ids.exportBatchRangeClear)?.addEventListener('click', onBatchRangeClearAll);
   el(ids.exportBatchRangeRun)?.addEventListener('click', () => { onRunBatchRangeList().catch(() => {}); });
+  el(ids.exportBatchRangePrev)?.addEventListener('click', () => { onGoToPreviousBatchRange().catch(() => {}); });
+  el(ids.exportBatchRangeNext)?.addEventListener('click', () => { onGoToNextBatchRange().catch(() => {}); });
+  el(ids.exportBatchAutoMerge)?.addEventListener('change', onToggleBatchAutoMerge);
   el(ids.exportCurrent)?.addEventListener('click', onExportCurrentScan);
   el(ids.exportBatch)?.addEventListener('click', onExportBatch);
   el(ids.openStrip)?.addEventListener('click', onOpenStrip);
@@ -9460,6 +9520,9 @@ function computeRangeInsertIndex() {
 function saveExportScanBatchRangesAndRefresh() {
   const max = getProjectTotalFrameCountEstimate();
   exportScanBatchRanges = normalizeExportScanBatchRanges(exportScanBatchRanges, max > 0 ? max : Number.POSITIVE_INFINITY);
+  if (exportScanBatchAutoMerge !== false) {
+    exportScanBatchRanges = sortAndMergeExportScanBatchRanges(exportScanBatchRanges);
+  }
   persistExportScanBatchRanges();
   renderExportScanBatchRangeList();
 }
@@ -9486,6 +9549,41 @@ function onBatchRangeInsertBelowMode() {
   exportScanBatchEditIndex = -1;
   setExportBatchInsertMode('insert-below');
   renderExportScanBatchRangeList();
+}
+
+function onToggleBatchAutoMerge() {
+  exportScanBatchAutoMerge = el(ids.exportBatchAutoMerge)?.checked !== false;
+  saveExportScanBatchRangesAndRefresh();
+}
+
+async function onGoToPreviousBatchRange() {
+  if (!exportScanBatchRanges.length) {
+    alert(t('frameExport.batchRangeListEmpty'));
+    return;
+  }
+  if (exportScanBatchSelectedIndex <= 0) {
+    updateStatus(0, t('frameGenerator.noPreviousBatchRange'));
+    return;
+  }
+  exportScanBatchSelectedIndex -= 1;
+  renderExportScanBatchRangeList();
+  await jumpToRangeStartScan(exportScanBatchRanges[exportScanBatchSelectedIndex]);
+}
+
+async function onGoToNextBatchRange() {
+  if (!exportScanBatchRanges.length) {
+    alert(t('frameExport.batchRangeListEmpty'));
+    return;
+  }
+  if (exportScanBatchSelectedIndex < 0) exportScanBatchSelectedIndex = 0;
+  else if (exportScanBatchSelectedIndex >= exportScanBatchRanges.length - 1) {
+    updateStatus(0, t('frameGenerator.noNextBatchRange'));
+    return;
+  } else {
+    exportScanBatchSelectedIndex += 1;
+  }
+  renderExportScanBatchRangeList();
+  await jumpToRangeStartScan(exportScanBatchRanges[exportScanBatchSelectedIndex]);
 }
 
 function onBatchRangeRemoveSelected() {

@@ -303,6 +303,13 @@
         <div class="row row--export-range-list">
           <div id="f2f-export-batch-range-list" class="export-range-list" data-i18n="frameGenerator.batchRangeListEmpty">Nog geen bereiken toegevoegd.</div>
         </div>
+        <div class="row">
+          <label class="checkbox-row" for="f2f-export-batch-auto-merge">
+            <input type="checkbox" id="f2f-export-batch-auto-merge" checked />
+            <span data-i18n="frameGenerator.batchAutoMergeLabel">Automatisch sorteren + overlap mergen</span>
+          </label>
+          <span id="f2f-export-batch-range-summary" class="export-range-summary">Geselecteerd: 0 / 0 frames</span>
+        </div>
         <div class="row row--export-range-actions">
           <button type="button" id="f2f-export-batch-range-edit" class="btn btn-secondary small" data-i18n="frameGenerator.batchEditButton">Bewerken</button>
           <button type="button" id="f2f-export-batch-range-insert-above" class="btn btn-secondary small" data-i18n="frameGenerator.batchInsertAboveButton">Invoegen boven</button>
@@ -310,6 +317,10 @@
           <button type="button" id="f2f-export-batch-range-remove" class="btn btn-secondary small" data-i18n="frameGenerator.batchRemoveButton">Verwijderen</button>
           <button type="button" id="f2f-export-batch-range-clear" class="btn btn-secondary small" data-i18n="frameGenerator.batchClearButton">Lijst leegmaken</button>
           <button type="button" id="f2f-export-batch-range-run" class="btn btn-primary small" data-i18n="frameGenerator.batchRunListButton">Batchbereiken exporteren</button>
+        </div>
+        <div class="row row--export-range-nav">
+          <button type="button" id="f2f-export-batch-range-prev" class="btn btn-secondary small" data-i18n="frameGenerator.batchPrevRangeButton">Vorig bereik</button>
+          <button type="button" id="f2f-export-batch-range-next" class="btn btn-secondary small" data-i18n="frameGenerator.batchNextRangeButton">Volgend bereik</button>
         </div>
         <div class="row">
           <span id="f2f-export-batch-range-mode" class="export-range-mode" data-i18n="frameGenerator.batchRangeModeIdle">Modus: toevoegen onderaan</span>

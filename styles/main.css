@@ -1314,6 +1314,19 @@ body.theme-light .frame-generator-progress-pct {
   align-items: end;
 }
 
+.checkbox-row {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+}
+
+.checkbox-row input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+}
+
 .export-range-list {
   width: 100%;
   min-height: 40px;
@@ -1362,6 +1375,12 @@ body.theme-light .frame-generator-progress-pct {
   color: #9fb0c4;
 }
 
+.export-range-summary {
+  font-size: 0.78rem;
+  color: #9fb0c4;
+  justify-self: end;
+}
+
 body.theme-light .export-range-list {
   border-color: #cbd5e1;
   background: #f8fafc;
@@ -1378,6 +1397,10 @@ body.theme-light .export-range-list-item.active {
 }
 
 body.theme-light .export-range-mode {
+  color: #475569;
+}
+
+body.theme-light .export-range-summary {
   color: #475569;
 }
 
