@@ -24,9 +24,7 @@ const S = {
   arrangeMatrixReset: 'f2f-arrange-matrix-reset',
   autoArrangeGridBtn: 'f2f-auto-arrange-grid',
   applyWindowGridBtn: 'f2f-apply-window-grid',
-  settingArrangeOnStartup: 'f2f-setting-arrange-on-startup',
   settingArrangeAllDisplays: 'f2f-setting-arrange-all-displays',
-  settingWindowsGeometryLocked: 'f2f-setting-windows-geometry-locked',
   settingArrowStepPx: 'f2f-setting-arrow-step-px',
   settingArrowStepShiftPx: 'f2f-setting-arrow-step-shift-px',
   settingPreserveGridOnScanNav: 'f2f-setting-preserve-grid-scan-nav',
@@ -38,6 +36,7 @@ const S = {
 
 let stripShortcutCaptureCleanup = null;
 const ACTIVE_LAYOUT_PANELS = new Set([1, 2]);
+let settingsWindowsGeometryLocked = false;
 
 /** @type {number[]} */
 let matrixPermutation = [1, 2, 3, 4, 5, 6];
@@ -412,8 +411,7 @@ async function loadForm() {
     matrixPanelMask = parsePanelMaskString(s.windowGridAutoOpenMask);
     setMatrixPermutationFromString(s.windowGridPermutation || '1,2,3,4,5,6');
     set(S.settingArrangeAllDisplays, !!s.arrangeAcrossAllDisplays, 'checked');
-    set(S.settingArrangeOnStartup, !!s.arrangeWindowsOnStartup, 'checked');
-    set(S.settingWindowsGeometryLocked, !!s.windowsGeometryLocked, 'checked');
+    settingsWindowsGeometryLocked = !!s.windowsGeometryLocked;
     const arrowPx = (s.arrowStepPx != null && Number(s.arrowStepPx) >= 1) ? Math.min(10, Number(s.arrowStepPx)) : 1;
     const arrowShiftPx = (s.arrowStepShiftPx != null && Number(s.arrowStepShiftPx) >= 10) ? Math.min(100, Number(s.arrowStepShiftPx)) : 10;
     set(S.settingArrowStepPx, String(arrowPx));
@@ -439,8 +437,6 @@ async function saveForm() {
     windowGridPermutation: gel(S.settingWindowGrid)?.value || '1,2,3,4,5,6',
     windowGridAutoOpenMask: gel(S.settingWindowGridMask)?.value || encodePanelMaskString(matrixPanelMask),
     arrangeAcrossAllDisplays: !!gel(S.settingArrangeAllDisplays)?.checked,
-    arrangeWindowsOnStartup: !!gel(S.settingArrangeOnStartup)?.checked,
-    windowsGeometryLocked: !!gel(S.settingWindowsGeometryLocked)?.checked,
     arrowStepPx: arrowPx,
     arrowStepShiftPx: arrowShiftPx,
     preserveGridOnScanNav: !!gel(S.settingPreserveGridOnScanNav)?.checked
@@ -470,7 +466,8 @@ function getWindowGridPrefsPayload() {
 
 async function onArrangeWindows() {
   if (!window.api?.arrangeWindows) return;
-  const locked = !!gel(S.settingWindowsGeometryLocked)?.checked;
+  const lockedEl = gel('f2f-setting-windows-geometry-locked');
+  const locked = lockedEl ? !!lockedEl.checked : settingsWindowsGeometryLocked;
   await window.api.arrangeWindows({
     windowsGeometryLocked: locked,
     ...getWindowGridPrefsPayload()
@@ -479,7 +476,8 @@ async function onArrangeWindows() {
 
 async function onAutoArrangeFromGrid() {
   if (!window.api?.autoArrangeWindowsFromGrid) return;
-  const locked = !!gel(S.settingWindowsGeometryLocked)?.checked;
+  const lockedEl = gel('f2f-setting-windows-geometry-locked');
+  const locked = lockedEl ? !!lockedEl.checked : settingsWindowsGeometryLocked;
   const grid = getWindowGridPrefsPayload();
   try {
     await window.api.autoArrangeWindowsFromGrid({

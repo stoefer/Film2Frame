@@ -169,6 +169,9 @@ const ids = {
   exportBatchRangeRun: 'f2f-export-batch-range-run',
   exportBatchRangePrev: 'f2f-export-batch-range-prev',
   exportBatchRangeNext: 'f2f-export-batch-range-next',
+  exportBatchRangeImport: 'f2f-export-batch-range-import',
+  exportBatchRangeOpenNotepad: 'f2f-export-batch-range-open-notepad',
+  exportBatchRangeReimport: 'f2f-export-batch-range-reimport',
   exportBatchRangeMode: 'f2f-export-batch-range-mode',
   exportBatchRangeSummary: 'f2f-export-batch-range-summary',
   exportBatchAutoMerge: 'f2f-export-batch-auto-merge',
@@ -914,6 +917,9 @@ function updateUI() {
   const insertBelowBtn = el(ids.exportBatchRangeInsertBelow);
   const clearBtn = el(ids.exportBatchRangeClear);
   const runBtn = el(ids.exportBatchRangeRun);
+  const importBtn = el(ids.exportBatchRangeImport);
+  const openNotepadBtn = el(ids.exportBatchRangeOpenNotepad);
+  const reimportBtn = el(ids.exportBatchRangeReimport);
   const prevBtn = el(ids.exportBatchRangePrev);
   const nextBtn = el(ids.exportBatchRangeNext);
   const autoMergeEl = el(ids.exportBatchAutoMerge);
@@ -925,6 +931,9 @@ function updateUI() {
   if (insertBelowBtn) insertBelowBtn.disabled = false;
   if (clearBtn) clearBtn.disabled = !hasRanges;
   if (runBtn) runBtn.disabled = !hasRanges;
+  if (importBtn) importBtn.disabled = false;
+  if (openNotepadBtn) openNotepadBtn.disabled = false;
+  if (reimportBtn) reimportBtn.disabled = false;
   if (prevBtn) prevBtn.disabled = !hasRanges || (!canWrapRangeNav && exportScanBatchSelectedIndex <= 0);
   if (nextBtn) nextBtn.disabled = !hasRanges || (!canWrapRangeNav && hasSelection && exportScanBatchSelectedIndex >= exportScanBatchRanges.length - 1);
   if (autoMergeEl) autoMergeEl.checked = exportScanBatchAutoMerge !== false;
@@ -8568,6 +8577,9 @@ function bind() {
   el(ids.exportBatchRangeRun)?.addEventListener('click', () => { onRunBatchRangeList().catch(() => {}); });
   el(ids.exportBatchRangePrev)?.addEventListener('click', () => { onGoToPreviousBatchRange().catch(() => {}); });
   el(ids.exportBatchRangeNext)?.addEventListener('click', () => { onGoToNextBatchRange().catch(() => {}); });
+  el(ids.exportBatchRangeImport)?.addEventListener('click', () => { onImportBatchRangeList().catch(() => {}); });
+  el(ids.exportBatchRangeOpenNotepad)?.addEventListener('click', () => { onOpenBatchRangeNotepadList().catch(() => {}); });
+  el(ids.exportBatchRangeReimport)?.addEventListener('click', () => { onReimportBatchRangeFromNotepad().catch(() => {}); });
   el(ids.exportBatchAutoMerge)?.addEventListener('change', onToggleBatchAutoMerge);
   el(ids.exportBatchWrapNav)?.addEventListener('change', onToggleBatchWrapNav);
   el(ids.exportCurrent)?.addEventListener('click', onExportCurrentScan);
@@ -9570,6 +9582,59 @@ function onToggleBatchWrapNav() {
   exportScanBatchWrapNav = el(ids.exportBatchWrapNav)?.checked === true;
   persistExportScanBatchRanges();
   updateUI();
+}
+
+function applyImportedBatchRanges(ranges, sourceLabel) {
+  exportScanBatchRanges = normalizeExportScanBatchRanges(
+    Array.isArray(ranges) ? ranges : [],
+    Number.POSITIVE_INFINITY
+  );
+  if (exportScanBatchAutoMerge !== false) {
+    exportScanBatchRanges = sortAndMergeExportScanBatchRanges(exportScanBatchRanges);
+  }
+  exportScanBatchSelectedIndex = exportScanBatchRanges.length ? 0 : -1;
+  exportScanBatchEditIndex = -1;
+  setExportBatchInsertMode('append');
+  saveExportScanBatchRangesAndRefresh();
+  if (exportScanBatchRanges.length) {
+    const first = exportScanBatchRanges[0];
+    setExportRangeInputs(first.from, first.to);
+    updateStatus(0, t('frameGenerator.batchRangeImportDone', { count: exportScanBatchRanges.length, source: sourceLabel || t('frameGenerator.batchRangeImportSourceFile') }));
+  } else {
+    updateStatus(0, t('frameExport.batchRangeListEmpty'));
+  }
+}
+
+async function onImportBatchRangeList() {
+  if (!window.api?.importBatchRangeListFile) return;
+  const result = await window.api.importBatchRangeListFile();
+  if (!result || result.canceled) return;
+  if (!result.ok) {
+    alert(result.error || t('frameGenerator.batchRangeImportFailed'));
+    return;
+  }
+  applyImportedBatchRanges(result.ranges, result.path || t('frameGenerator.batchRangeImportSourceFile'));
+}
+
+async function onOpenBatchRangeNotepadList() {
+  if (!window.api?.openBatchRangeListInNotepad) return;
+  const result = await window.api.openBatchRangeListInNotepad();
+  if (!result?.ok) {
+    alert(result?.error || t('frameGenerator.batchRangeNotepadOpenFailed'));
+    return;
+  }
+  updateStatus(0, t('frameGenerator.batchRangeNotepadOpened', { path: result.path || '' }));
+}
+
+async function onReimportBatchRangeFromNotepad() {
+  if (!window.api?.reimportBatchRangeListFromNotepad) return;
+  const result = await window.api.reimportBatchRangeListFromNotepad();
+  if (!result || result.canceled) return;
+  if (!result.ok) {
+    alert(result.error || t('frameGenerator.batchRangeReimportFailed'));
+    return;
+  }
+  applyImportedBatchRanges(result.ranges, result.path || t('frameGenerator.batchRangeImportSourceNotepad'));
 }
 
 async function onGoToPreviousBatchRange() {

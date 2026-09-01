@@ -5,6 +5,7 @@ const { ipcMain, dialog, app } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { spawn } = require('child_process');
 const windows = require('./windows');
 const project = require('./project');
 const prefs = require('./prefs');
@@ -14,6 +15,35 @@ const { applyAppMenu } = require('./app-menu');
 const { tr } = require('./main-i18n');
 
 const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp'];
+
+function getDefaultBatchRangeListPath() {
+  const projectPath = prefs.getLastProjectPath();
+  const baseDir = projectPath && fs.existsSync(projectPath)
+    ? projectPath
+    : path.join(app.getPath('documents'), 'Film2Frame');
+  return path.join(baseDir, 'batch-range-list.txt');
+}
+
+function parseBatchRangesFromAscii(raw) {
+  const text = String(raw || '').replace(/\uFEFF/g, '');
+  const out = [];
+  const lines = text.split(/\r?\n/);
+  for (const lineRaw of lines) {
+    const line = String(lineRaw || '').trim();
+    if (!line || line.startsWith('#') || line.startsWith('//')) continue;
+    const nums = line.match(/\d+/g);
+    if (!nums || !nums.length) continue;
+    let from = Math.floor(Number(nums[0]));
+    let to = from;
+    if (nums.length >= 2) {
+      from = Math.floor(Number(nums[nums.length - 2]));
+      to = Math.floor(Number(nums[nums.length - 1]));
+    }
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from < 1 || to < 1) continue;
+    out.push({ from: Math.min(from, to), to: Math.max(from, to) });
+  }
+  return out;
+}
 
 /** ArrayBuffer / Uint8Array / IPC-clone → Node Buffer. */
 function toNodeBuffer(buffer) {
@@ -725,6 +755,80 @@ function registerIPC() {
       return { ok: true, path: filePath, macro };
     } catch (err) {
       return { ok: false, error: err && err.message ? err.message : 'Macro laden mislukt.' };
+    }
+  });
+
+  ipcMain.handle('import-batch-range-list-file', async () => {
+    try {
+      const win = windows.getMainWindow();
+      const projectPath = prefs.getLastProjectPath();
+      const defaultDir = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath('documents');
+      const result = await dialog.showOpenDialog(win || null, {
+        title: 'Batchlijst importeren',
+        properties: ['openFile'],
+        defaultPath: defaultDir,
+        filters: [
+          { name: 'Text files', extensions: ['txt', 'csv', 'list', 'md'] },
+          { name: 'All files', extensions: ['*'] }
+        ]
+      });
+      if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
+      const filePath = result.filePaths[0];
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const ranges = parseBatchRangesFromAscii(raw);
+      if (!ranges.length) {
+        return { ok: false, error: 'Geen geldige bereiken gevonden in bestand.' };
+      }
+      return { ok: true, path: filePath, ranges };
+    } catch (err) {
+      return { ok: false, error: err && err.message ? err.message : 'Batchlijst importeren mislukt.' };
+    }
+  });
+
+  ipcMain.handle('open-batch-range-list-in-notepad', async () => {
+    try {
+      const filePath = getDefaultBatchRangeListPath();
+      const dir = path.dirname(filePath);
+      fs.mkdirSync(dir, { recursive: true });
+      if (!fs.existsSync(filePath)) {
+        const template = [
+          '# Film2Frame batch range list',
+          '# One range per line',
+          '# Examples:',
+          '1-300',
+          '301-600',
+          '# You can also use text like: frame 601 to 900'
+        ].join('\n');
+        fs.writeFileSync(filePath, template, 'utf8');
+      }
+      if (process.platform === 'win32') {
+        const child = spawn('notepad.exe', [filePath], {
+          detached: true,
+          stdio: 'ignore'
+        });
+        child.unref();
+        return { ok: true, path: filePath };
+      }
+      return { ok: false, error: 'Notepad is alleen beschikbaar op Windows.', path: filePath };
+    } catch (err) {
+      return { ok: false, error: err && err.message ? err.message : 'Notepad-lijst openen mislukt.' };
+    }
+  });
+
+  ipcMain.handle('reimport-batch-range-list-from-notepad', async () => {
+    try {
+      const filePath = getDefaultBatchRangeListPath();
+      if (!fs.existsSync(filePath)) {
+        return { ok: false, error: 'Notepad-lijst niet gevonden. Open eerst de Notepad-lijst.' };
+      }
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const ranges = parseBatchRangesFromAscii(raw);
+      if (!ranges.length) {
+        return { ok: false, error: 'Geen geldige bereiken gevonden in Notepad-bestand.' };
+      }
+      return { ok: true, path: filePath, ranges };
+    } catch (err) {
+      return { ok: false, error: err && err.message ? err.message : 'Opnieuw importeren uit Notepad mislukt.' };
     }
   });
 
