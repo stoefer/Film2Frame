@@ -891,13 +891,14 @@ function updateUI() {
   if (el(ids.exportBaseName)) el(ids.exportBaseName).value = s.exportBaseName || 'frame';
   const scanCountEl = el(ids.exportScanCount);
   const totalScans = getProjectScanCountEstimate();
+  const totalFrames = getProjectTotalFrameCountEstimate();
   if (scanCountEl) {
     scanCountEl.textContent = hasProject() && totalScans > 0 ? t('frameGenerator.scansInProject', { total: totalScans }) : t('frameGenerator.scanCountPlaceholder');
   }
   const fromEl = el(ids.exportScanFrom);
   const toEl = el(ids.exportScanTo);
-  if (fromEl && totalScans > 0) fromEl.max = String(totalScans);
-  if (toEl && totalScans > 0) toEl.max = String(totalScans);
+  if (fromEl && totalFrames > 0) fromEl.max = String(totalFrames);
+  if (toEl && totalFrames > 0) toEl.max = String(totalFrames);
   const hasSelection = exportScanBatchSelectedIndex >= 0 && exportScanBatchSelectedIndex < exportScanBatchRanges.length;
   const hasRanges = exportScanBatchRanges.length > 0;
   const editBtn = el(ids.exportBatchRangeEdit);
@@ -950,6 +951,62 @@ function getProjectScanCountEstimate() {
     ? meta.scanInfos.length
     : (Number(meta?.numberOfScans) || 0);
   return Math.max(0, Math.floor(count));
+}
+
+function getDefaultFramesPerScanEstimate() {
+  const meta = getProjectMeta();
+  const projectFrames = Math.floor(Number(meta?.framesPerLint));
+  if (Number.isFinite(projectFrames) && projectFrames > 0) return projectFrames;
+  const liveFrames = Math.floor(Number(getState().numFrames));
+  if (Number.isFinite(liveFrames) && liveFrames > 0) return liveFrames;
+  return 1;
+}
+
+function getScanFrameCountByPath(scanPath) {
+  if (!scanPath) return getDefaultFramesPerScanEstimate();
+  const lint = getLintStateForPath(scanPath);
+  const savedFrames = Math.floor(Number(lint?.numFrames));
+  if (Number.isFinite(savedFrames) && savedFrames > 0) return savedFrames;
+  return getDefaultFramesPerScanEstimate();
+}
+
+function getProjectTotalFrameCountEstimate() {
+  const meta = getProjectMeta();
+  const paths = Array.isArray(meta?.scanInfos) ? meta.scanInfos.map((s) => s.path).filter(Boolean) : [];
+  if (paths.length) {
+    let total = 0;
+    for (const p of paths) total += getScanFrameCountByPath(p);
+    return Math.max(0, total);
+  }
+  return getProjectScanCountEstimate() * getDefaultFramesPerScanEstimate();
+}
+
+function buildGlobalFrameMap(paths) {
+  const rows = [];
+  let cursor = 1;
+  for (let i = 0; i < paths.length; i++) {
+    const scanPath = paths[i];
+    const count = Math.max(1, getScanFrameCountByPath(scanPath));
+    const start = cursor;
+    const end = start + count - 1;
+    rows.push({ scanPath, scanIndex: i, count, start, end });
+    cursor = end + 1;
+  }
+  return { rows, totalFrames: Math.max(0, cursor - 1) };
+}
+
+function resolveGlobalFramePosition(frameNo, rows) {
+  const target = Math.max(1, Math.floor(Number(frameNo) || 1));
+  for (const row of rows) {
+    if (target >= row.start && target <= row.end) {
+      return {
+        scanPath: row.scanPath,
+        scanIndex: row.scanIndex,
+        frameInScan: (target - row.start) + 1
+      };
+    }
+  }
+  return null;
 }
 
 function setExportRangeInputs(from, to) {
@@ -6017,12 +6074,15 @@ async function loadAppSettings() {
     setArrowStepShiftPx(arrowShiftPx);
     setScanDpi(Number(s.scanDpi) || 4800);
     setOutputFormat('png');
-    const scanCount = getProjectScanCountEstimate();
-    exportScanBatchRanges = normalizeExportScanBatchRanges(s.exportScanBatchRanges, scanCount > 0 ? scanCount : Number.POSITIVE_INFINITY);
+    const frameCount = getProjectTotalFrameCountEstimate();
+    exportScanBatchRanges = normalizeExportScanBatchRanges(
+      s.exportScanBatchRanges,
+      frameCount > 0 ? frameCount : Number.POSITIVE_INFINITY
+    );
     exportScanBatchSelectedIndex = exportScanBatchRanges.length ? 0 : -1;
     exportScanBatchEditIndex = -1;
     setExportBatchInsertMode('append');
-    const defaultTo = scanCount > 0 ? scanCount : 1;
+    const defaultTo = frameCount > 0 ? frameCount : 1;
     setExportRangeInputs(1, defaultTo);
     updateUI();
     updateFloatingPreviewButtonUi().catch(() => {});
@@ -9344,14 +9404,14 @@ async function exportPaths(paths) {
 }
 
 function readExportScanRangeInputs() {
-  const maxScans = getProjectScanCountEstimate();
+  const maxFrames = getProjectTotalFrameCountEstimate();
   const fromVal = Math.floor(Number(el(ids.exportScanFrom)?.value));
   const toVal = Math.floor(Number(el(ids.exportScanTo)?.value));
   if (!Number.isFinite(fromVal) || fromVal < 1 || !Number.isFinite(toVal) || toVal < 1) {
     alert(t('frameExport.rangeInputInvalid'));
     return null;
   }
-  const max = maxScans > 0 ? maxScans : Number.POSITIVE_INFINITY;
+  const max = maxFrames > 0 ? maxFrames : Number.POSITIVE_INFINITY;
   const from = Math.min(max, fromVal);
   const to = Math.min(max, toVal);
   if (from > to) {
@@ -9368,12 +9428,15 @@ async function jumpToRangeStartScan(range) {
     alert(t('scanNav.noScans'));
     return false;
   }
-  const targetIndex = Math.max(0, Math.min(paths.length - 1, Math.floor(range.from) - 1));
-  const targetPath = paths[targetIndex];
-  if (!targetPath) return false;
-  const loaded = await loadScanByPath(targetPath, scanNavigationGridOptions());
+  const map = buildGlobalFrameMap(paths);
+  const targetPos = resolveGlobalFramePosition(range.from, map.rows);
+  if (!targetPos?.scanPath) {
+    alert(t('frameExport.batchRangeOutOfBounds'));
+    return false;
+  }
+  const loaded = await loadScanByPath(targetPos.scanPath, scanNavigationGridOptions());
   if (!loaded) return false;
-  setActiveFrameIndex(0);
+  setActiveFrameIndex(Math.max(0, targetPos.frameInScan - 1));
   setDirty();
   updateUI();
   refreshPreviews();
@@ -9395,7 +9458,7 @@ function computeRangeInsertIndex() {
 }
 
 function saveExportScanBatchRangesAndRefresh() {
-  const max = getProjectScanCountEstimate();
+  const max = getProjectTotalFrameCountEstimate();
   exportScanBatchRanges = normalizeExportScanBatchRanges(exportScanBatchRanges, max > 0 ? max : Number.POSITIVE_INFINITY);
   persistExportScanBatchRanges();
   renderExportScanBatchRangeList();
@@ -9481,17 +9544,28 @@ async function onRunBatchRangeList() {
     alert(t('frameExport.noScansInProject'));
     return;
   }
+  const map = buildGlobalFrameMap(paths);
+  if (map.totalFrames < 1) {
+    alert(t('frameExport.noScansInProject'));
+    return;
+  }
   let writtenTotal = 0;
   try {
     for (let i = 0; i < exportScanBatchRanges.length; i++) {
       const range = exportScanBatchRanges[i];
-      const from = Math.max(1, Math.min(paths.length, range.from));
-      const to = Math.max(1, Math.min(paths.length, range.to));
+      const from = Math.max(1, Math.min(map.totalFrames, range.from));
+      const to = Math.max(1, Math.min(map.totalFrames, range.to));
       if (from > to) continue;
-      const rangePaths = paths.slice(from - 1, to);
-      if (!rangePaths.length) continue;
-      updateStatus(5, t('frameGenerator.batchRangeRunningStatus', { current: i + 1, total: exportScanBatchRanges.length, from, to }));
-      const written = await exportPaths(rangePaths);
+      updateStatus(
+        5,
+        t('frameGenerator.batchRangeRunningStatus', {
+          current: i + 1,
+          total: exportScanBatchRanges.length,
+          from,
+          to
+        })
+      );
+      const written = await exportGlobalFrameRange(paths, map, from, to, i, exportScanBatchRanges.length);
       writtenTotal += Number(written) || 0;
     }
     if (writtenTotal > 0) {
@@ -9505,6 +9579,112 @@ async function onRunBatchRangeList() {
     setFrameGeneratorProgress({ visible: false });
     updateStatus(0, t('status.operationEmpty'));
   }
+}
+
+async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, rangeIdx, rangeTotal) {
+  const folder = getState().exportFolderPath;
+  const appSettings = await window.api?.getAppSettings?.().catch(() => null);
+  const outDims = getExportOutputDimensions(appSettings);
+  const startPos = resolveGlobalFramePosition(fromFrame, frameMap.rows);
+  const endPos = resolveGlobalFramePosition(toFrame, frameMap.rows);
+  if (!startPos || !endPos) return 0;
+  let writtenTotal = 0;
+  const spanFrames = Math.max(1, toFrame - fromFrame + 1);
+  let processedInRange = 0;
+
+  for (let scanIdx = startPos.scanIndex; scanIdx <= endPos.scanIndex; scanIdx++) {
+    const scanPath = paths[scanIdx];
+    if (!scanPath) continue;
+    const sameFolderErr = assertExportFolderNotInput(folder, scanPath);
+    if (sameFolderErr) throw new Error(sameFolderErr);
+    const ok = await loadScanByPath(scanPath);
+    if (!ok) continue;
+    const pair = getStripCanvasPairForExport();
+    if (!pair) continue;
+    try {
+      const { preview: previewStrip, export: exportStrip } = pair;
+      const n = Math.max(1, getState().numFrames);
+      const fileNames = getExportFileNamesForScan(scanPath, n);
+      const localStart = scanIdx === startPos.scanIndex ? startPos.frameInScan : 1;
+      const localEnd = scanIdx === endPos.scanIndex ? endPos.frameInScan : n;
+      for (let i = Math.max(1, localStart); i <= Math.min(n, localEnd); i++) {
+        let canvas = cropFrameAtIndexForExport(exportStrip, previewStrip, i - 1);
+        if (!canvas) {
+          processedInRange++;
+          continue;
+        }
+        if (outDims) {
+          const scaled = scaleCanvasToSize(canvas, outDims.w, outDims.h, outDims.allowUpscale !== false);
+          if (scaled !== canvas) disposeCanvas(canvas);
+          canvas = scaled;
+        }
+        let result = null;
+        try {
+          const pngBuffer = await new Promise((resolve, reject) => {
+            try {
+              canvas.toBlob(
+                (blob) => {
+                  if (!blob) {
+                    reject(new Error('no blob'));
+                    return;
+                  }
+                  blob.arrayBuffer().then(resolve).catch(reject);
+                },
+                'image/png'
+              );
+            } catch (err) {
+              reject(err);
+            }
+          });
+          disposeCanvas(canvas);
+          const fileName = fileNames[Math.max(0, i - 1)] || fileNames[0];
+          if (window.api?.writeFrameBuffer) {
+            result = await window.api.writeFrameBuffer(folder, fileName, pngBuffer, 'png');
+          } else if (window.api?.writeFrame) {
+            const bytes = new Uint8Array(pngBuffer);
+            let binary = '';
+            const chunk = 0x8000;
+            for (let bi = 0; bi < bytes.length; bi += chunk) {
+              binary += String.fromCharCode.apply(null, bytes.subarray(bi, bi + chunk));
+            }
+            result = await window.api.writeFrame(folder, 'frame', 1, 'data:image/png;base64,' + btoa(binary), 'png', fileName);
+          } else if (window.api?.writeFramePng) {
+            const bytes = new Uint8Array(pngBuffer);
+            let binary = '';
+            const chunk = 0x8000;
+            for (let bi = 0; bi < bytes.length; bi += chunk) {
+              binary += String.fromCharCode.apply(null, bytes.subarray(bi, bi + chunk));
+            }
+            result = await window.api.writeFramePng(folder, 'frame', 1, 'data:image/png;base64,' + btoa(binary), fileName);
+          } else {
+            throw new Error(t('errors.apiUnavailable'));
+          }
+        } catch (_) {
+          disposeCanvas(canvas);
+          result = { ok: false };
+        }
+        if (result?.ok) writtenTotal++;
+        processedInRange++;
+        const pct = Math.min(99, Math.round((processedInRange * 100) / spanFrames));
+        setFrameGeneratorProgress({
+          visible: true,
+          pct,
+          message: t('frameGenerator.batchRangeProgressFrame', {
+            currentRange: rangeIdx + 1,
+            totalRanges: rangeTotal,
+            frame: fromFrame + processedInRange - 1,
+            from: fromFrame,
+            to: toFrame
+          })
+        });
+        await yieldToEventLoop();
+      }
+    } finally {
+      releaseStripCanvasPair(pair);
+      assistSampleCache = null;
+    }
+  }
+  return writtenTotal;
 }
 
 /** Batch: alle scanlints laden, frames uitsnijden met originele bestandsnamen. */
