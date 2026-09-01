@@ -60,6 +60,7 @@ let exportScanBatchSelectedIndex = -1;
 let exportScanBatchEditIndex = -1;
 let exportScanBatchInsertMode = 'append';
 let exportScanBatchAutoMerge = true;
+let exportScanBatchWrapNav = false;
 
 const ids = {
   projectInfo: 'project-info',
@@ -171,6 +172,7 @@ const ids = {
   exportBatchRangeMode: 'f2f-export-batch-range-mode',
   exportBatchRangeSummary: 'f2f-export-batch-range-summary',
   exportBatchAutoMerge: 'f2f-export-batch-auto-merge',
+  exportBatchWrapNav: 'f2f-export-batch-wrap-nav',
   exportCurrent: 'f2f-export-current',
   exportBatch: 'f2f-export-batch',
   frameGeneratorProgressWrap: 'f2f-frame-generator-progress-wrap',
@@ -915,15 +917,18 @@ function updateUI() {
   const prevBtn = el(ids.exportBatchRangePrev);
   const nextBtn = el(ids.exportBatchRangeNext);
   const autoMergeEl = el(ids.exportBatchAutoMerge);
+  const wrapNavEl = el(ids.exportBatchWrapNav);
+  const canWrapRangeNav = exportScanBatchWrapNav === true && exportScanBatchRanges.length > 1;
   if (editBtn) editBtn.disabled = !hasSelection;
   if (removeBtn) removeBtn.disabled = !hasSelection;
   if (insertAboveBtn) insertAboveBtn.disabled = false;
   if (insertBelowBtn) insertBelowBtn.disabled = false;
   if (clearBtn) clearBtn.disabled = !hasRanges;
   if (runBtn) runBtn.disabled = !hasRanges;
-  if (prevBtn) prevBtn.disabled = !hasRanges || exportScanBatchSelectedIndex <= 0;
-  if (nextBtn) nextBtn.disabled = !hasRanges || (hasSelection && exportScanBatchSelectedIndex >= exportScanBatchRanges.length - 1);
+  if (prevBtn) prevBtn.disabled = !hasRanges || (!canWrapRangeNav && exportScanBatchSelectedIndex <= 0);
+  if (nextBtn) nextBtn.disabled = !hasRanges || (!canWrapRangeNav && hasSelection && exportScanBatchSelectedIndex >= exportScanBatchRanges.length - 1);
   if (autoMergeEl) autoMergeEl.checked = exportScanBatchAutoMerge !== false;
+  if (wrapNavEl) wrapNavEl.checked = exportScanBatchWrapNav === true;
   syncScanCountInputMode();
   const tiltPivotEl = el(ids.tiltPivot);
   if (tiltPivotEl && tiltPivotEl.value !== s.tiltPivot) tiltPivotEl.value = s.tiltPivot || 'center';
@@ -1064,7 +1069,8 @@ function persistExportScanBatchRanges() {
   if (!window.api?.setAppSettings) return;
   const payload = {
     exportScanBatchRanges: exportScanBatchRanges.map((r) => ({ from: r.from, to: r.to })),
-    exportScanBatchAutoMerge: exportScanBatchAutoMerge !== false
+    exportScanBatchAutoMerge: exportScanBatchAutoMerge !== false,
+    exportScanBatchWrapNav: exportScanBatchWrapNav === true
   };
   window.api.setAppSettings(payload).catch(() => {});
 }
@@ -6127,8 +6133,11 @@ async function loadAppSettings() {
     setOutputFormat('png');
     const frameCount = getProjectTotalFrameCountEstimate();
     exportScanBatchAutoMerge = s.exportScanBatchAutoMerge !== false;
+    exportScanBatchWrapNav = s.exportScanBatchWrapNav === true;
     const mergeToggleEl = el(ids.exportBatchAutoMerge);
     if (mergeToggleEl) mergeToggleEl.checked = exportScanBatchAutoMerge;
+    const wrapToggleEl = el(ids.exportBatchWrapNav);
+    if (wrapToggleEl) wrapToggleEl.checked = exportScanBatchWrapNav;
     exportScanBatchRanges = normalizeExportScanBatchRanges(
       s.exportScanBatchRanges,
       frameCount > 0 ? frameCount : Number.POSITIVE_INFINITY
@@ -8560,6 +8569,7 @@ function bind() {
   el(ids.exportBatchRangePrev)?.addEventListener('click', () => { onGoToPreviousBatchRange().catch(() => {}); });
   el(ids.exportBatchRangeNext)?.addEventListener('click', () => { onGoToNextBatchRange().catch(() => {}); });
   el(ids.exportBatchAutoMerge)?.addEventListener('change', onToggleBatchAutoMerge);
+  el(ids.exportBatchWrapNav)?.addEventListener('change', onToggleBatchWrapNav);
   el(ids.exportCurrent)?.addEventListener('click', onExportCurrentScan);
   el(ids.exportBatch)?.addEventListener('click', onExportBatch);
   el(ids.openStrip)?.addEventListener('click', onOpenStrip);
@@ -9556,16 +9566,31 @@ function onToggleBatchAutoMerge() {
   saveExportScanBatchRangesAndRefresh();
 }
 
+function onToggleBatchWrapNav() {
+  exportScanBatchWrapNav = el(ids.exportBatchWrapNav)?.checked === true;
+  persistExportScanBatchRanges();
+  updateUI();
+}
+
 async function onGoToPreviousBatchRange() {
   if (!exportScanBatchRanges.length) {
     alert(t('frameExport.batchRangeListEmpty'));
     return;
   }
-  if (exportScanBatchSelectedIndex <= 0) {
-    updateStatus(0, t('frameGenerator.noPreviousBatchRange'));
-    return;
+  if (exportScanBatchSelectedIndex < 0) {
+    exportScanBatchSelectedIndex = exportScanBatchWrapNav === true && exportScanBatchRanges.length > 1
+      ? exportScanBatchRanges.length - 1
+      : 0;
+  } else if (exportScanBatchSelectedIndex <= 0) {
+    if (exportScanBatchWrapNav === true && exportScanBatchRanges.length > 1) {
+      exportScanBatchSelectedIndex = exportScanBatchRanges.length - 1;
+    } else {
+      updateStatus(0, t('frameGenerator.noPreviousBatchRange'));
+      return;
+    }
+  } else {
+    exportScanBatchSelectedIndex -= 1;
   }
-  exportScanBatchSelectedIndex -= 1;
   renderExportScanBatchRangeList();
   await jumpToRangeStartScan(exportScanBatchRanges[exportScanBatchSelectedIndex]);
 }
@@ -9577,8 +9602,12 @@ async function onGoToNextBatchRange() {
   }
   if (exportScanBatchSelectedIndex < 0) exportScanBatchSelectedIndex = 0;
   else if (exportScanBatchSelectedIndex >= exportScanBatchRanges.length - 1) {
-    updateStatus(0, t('frameGenerator.noNextBatchRange'));
-    return;
+    if (exportScanBatchWrapNav === true && exportScanBatchRanges.length > 1) {
+      exportScanBatchSelectedIndex = 0;
+    } else {
+      updateStatus(0, t('frameGenerator.noNextBatchRange'));
+      return;
+    }
   } else {
     exportScanBatchSelectedIndex += 1;
   }

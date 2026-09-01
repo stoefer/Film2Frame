@@ -675,6 +675,7 @@
   "frameGenerator.batchAddRangeButton": "Bereik toevoegen",
   "frameGenerator.batchRangeListEmpty": "Nog geen bereiken toegevoegd.",
   "frameGenerator.batchAutoMergeLabel": "Automatisch sorteren + overlap mergen",
+  "frameGenerator.batchWrapNavLabel": "Wrap-around navigatie (eerste/laatste bereik)",
   "frameGenerator.batchRangeSummary": "Geselecteerd: {selected} / {total} frames",
   "frameGenerator.batchRangeItem": "#{index}: frame {from} t/m {to}",
   "frameGenerator.batchJumpHint": "klik om te selecteren",

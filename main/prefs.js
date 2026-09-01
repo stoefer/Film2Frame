@@ -36,6 +36,7 @@ const KEYS = {
   compactUi: 'compactUi',
   exportScanBatchRanges: 'exportScanBatchRanges',
   exportScanBatchAutoMerge: 'exportScanBatchAutoMerge',
+  exportScanBatchWrapNav: 'exportScanBatchWrapNav',
   eulaAcceptedVersion: 'eulaAcceptedVersion'
 };
 
@@ -62,6 +63,7 @@ const DEFAULTS = {
   compactUi: false,
   exportScanBatchRanges: [],
   exportScanBatchAutoMerge: true,
+  exportScanBatchWrapNav: false,
   windowGridAutoOpenMask: '000000'
 };
 
@@ -190,7 +192,9 @@ function getAllSettings() {
     exportScanBatchAutoMerge:
       data[KEYS.exportScanBatchAutoMerge] !== undefined
         ? data[KEYS.exportScanBatchAutoMerge] !== false
-        : DEFAULTS.exportScanBatchAutoMerge
+        : DEFAULTS.exportScanBatchAutoMerge,
+    exportScanBatchWrapNav:
+      data[KEYS.exportScanBatchWrapNav] === true
   };
 }
 
@@ -255,6 +259,9 @@ function setSettings(settings) {
   }
   if (settings.exportScanBatchAutoMerge !== undefined) {
     data[KEYS.exportScanBatchAutoMerge] = settings.exportScanBatchAutoMerge !== false;
+  }
+  if (settings.exportScanBatchWrapNav !== undefined) {
+    data[KEYS.exportScanBatchWrapNav] = settings.exportScanBatchWrapNav === true;
   }
   if (settings.stripPreviewShortcuts !== undefined && settings.stripPreviewShortcuts != null) {
     const sc = require('./strip-shortcuts');

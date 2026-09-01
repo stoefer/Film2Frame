@@ -675,6 +675,7 @@
   "frameGenerator.batchAddRangeButton": "Add range",
   "frameGenerator.batchRangeListEmpty": "No ranges added yet.",
   "frameGenerator.batchAutoMergeLabel": "Auto sort + merge overlaps",
+  "frameGenerator.batchWrapNavLabel": "Wrap-around navigation (first/last range)",
   "frameGenerator.batchRangeSummary": "Selected: {selected} / {total} frames",
   "frameGenerator.batchRangeItem": "#{index}: frame {from} to {to}",
   "frameGenerator.batchJumpHint": "click to select",
