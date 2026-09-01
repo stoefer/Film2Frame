@@ -55,6 +55,10 @@ function yieldToEventLoop() {
 /** Voorkomt gestapelde export/navigatie die RAM tot OS-freeze opbouwen. */
 let exportScanBusy = false;
 let stripNavigateBusy = false;
+let exportScanBatchRanges = [];
+let exportScanBatchSelectedIndex = -1;
+let exportScanBatchEditIndex = -1;
+let exportScanBatchInsertMode = 'append';
 
 const ids = {
   projectInfo: 'project-info',
@@ -153,6 +157,15 @@ const ids = {
   exportScanTo: 'f2f-export-scan-to',
   exportScanCount: 'f2f-export-scan-count',
   exportBatchRange: 'f2f-export-batch-range',
+  exportBatchRangeAdd: 'f2f-export-batch-range-add',
+  exportBatchRangeList: 'f2f-export-batch-range-list',
+  exportBatchRangeEdit: 'f2f-export-batch-range-edit',
+  exportBatchRangeInsertAbove: 'f2f-export-batch-range-insert-above',
+  exportBatchRangeInsertBelow: 'f2f-export-batch-range-insert-below',
+  exportBatchRangeRemove: 'f2f-export-batch-range-remove',
+  exportBatchRangeClear: 'f2f-export-batch-range-clear',
+  exportBatchRangeRun: 'f2f-export-batch-range-run',
+  exportBatchRangeMode: 'f2f-export-batch-range-mode',
   exportCurrent: 'f2f-export-current',
   exportBatch: 'f2f-export-batch',
   frameGeneratorProgressWrap: 'f2f-frame-generator-progress-wrap',
@@ -877,15 +890,136 @@ function updateUI() {
   if (el(ids.exportFolderPath)) el(ids.exportFolderPath).textContent = s.exportFolderPath ? (s.exportFolderPath.length > 50 ? '...' + s.exportFolderPath.slice(-47) : s.exportFolderPath) : '—';
   if (el(ids.exportBaseName)) el(ids.exportBaseName).value = s.exportBaseName || 'frame';
   const scanCountEl = el(ids.exportScanCount);
+  const totalScans = getProjectScanCountEstimate();
   if (scanCountEl) {
-    const meta = getProjectMeta();
-    const total = (Array.isArray(meta?.scanInfos) && meta.scanInfos.length) ? meta.scanInfos.length : (Number(meta?.numberOfScans) || 0);
-    scanCountEl.textContent = hasProject() && total > 0 ? t('frameGenerator.scansInProject', { total }) : t('frameGenerator.scanCountPlaceholder');
+    scanCountEl.textContent = hasProject() && totalScans > 0 ? t('frameGenerator.scansInProject', { total: totalScans }) : t('frameGenerator.scanCountPlaceholder');
   }
+  const fromEl = el(ids.exportScanFrom);
+  const toEl = el(ids.exportScanTo);
+  if (fromEl && totalScans > 0) fromEl.max = String(totalScans);
+  if (toEl && totalScans > 0) toEl.max = String(totalScans);
+  const hasSelection = exportScanBatchSelectedIndex >= 0 && exportScanBatchSelectedIndex < exportScanBatchRanges.length;
+  const hasRanges = exportScanBatchRanges.length > 0;
+  const editBtn = el(ids.exportBatchRangeEdit);
+  const removeBtn = el(ids.exportBatchRangeRemove);
+  const insertAboveBtn = el(ids.exportBatchRangeInsertAbove);
+  const insertBelowBtn = el(ids.exportBatchRangeInsertBelow);
+  const clearBtn = el(ids.exportBatchRangeClear);
+  const runBtn = el(ids.exportBatchRangeRun);
+  if (editBtn) editBtn.disabled = !hasSelection;
+  if (removeBtn) removeBtn.disabled = !hasSelection;
+  if (insertAboveBtn) insertAboveBtn.disabled = false;
+  if (insertBelowBtn) insertBelowBtn.disabled = false;
+  if (clearBtn) clearBtn.disabled = !hasRanges;
+  if (runBtn) runBtn.disabled = !hasRanges;
   syncScanCountInputMode();
   const tiltPivotEl = el(ids.tiltPivot);
   if (tiltPivotEl && tiltPivotEl.value !== s.tiltPivot) tiltPivotEl.value = s.tiltPivot || 'center';
   updateProjectUI();
+  renderExportScanBatchRangeList();
+}
+
+function normalizeExportScanBatchRanges(raw, maxScanCount = Number.POSITIVE_INFINITY) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  const max = Number.isFinite(maxScanCount) && maxScanCount > 0 ? Math.floor(maxScanCount) : Number.POSITIVE_INFINITY;
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const fromRaw = Math.floor(Number(item.from));
+    const toRaw = Math.floor(Number(item.to));
+    if (!Number.isFinite(fromRaw) || !Number.isFinite(toRaw)) continue;
+    let from = Math.max(1, fromRaw);
+    let to = Math.max(1, toRaw);
+    if (Number.isFinite(max)) {
+      from = Math.min(max, from);
+      to = Math.min(max, to);
+    }
+    if (from > to) {
+      const tmp = from;
+      from = to;
+      to = tmp;
+    }
+    out.push({ from, to });
+  }
+  return out;
+}
+
+function getProjectScanCountEstimate() {
+  const meta = getProjectMeta();
+  const count = (Array.isArray(meta?.scanInfos) && meta.scanInfos.length)
+    ? meta.scanInfos.length
+    : (Number(meta?.numberOfScans) || 0);
+  return Math.max(0, Math.floor(count));
+}
+
+function setExportRangeInputs(from, to) {
+  const fromEl = el(ids.exportScanFrom);
+  const toEl = el(ids.exportScanTo);
+  if (fromEl) fromEl.value = String(Math.max(1, Math.floor(Number(from) || 1)));
+  if (toEl) toEl.value = String(Math.max(1, Math.floor(Number(to) || 1)));
+}
+
+function setExportBatchInsertMode(mode) {
+  const valid = mode === 'edit' || mode === 'insert-above' || mode === 'insert-below' ? mode : 'append';
+  exportScanBatchInsertMode = valid;
+  const modeEl = el(ids.exportBatchRangeMode);
+  if (!modeEl) return;
+  if (valid === 'edit') {
+    modeEl.textContent = t('frameGenerator.batchRangeModeEdit');
+  } else if (valid === 'insert-above') {
+    modeEl.textContent = t('frameGenerator.batchRangeModeInsertAbove');
+  } else if (valid === 'insert-below') {
+    modeEl.textContent = t('frameGenerator.batchRangeModeInsertBelow');
+  } else {
+    modeEl.textContent = t('frameGenerator.batchRangeModeIdle');
+  }
+}
+
+function persistExportScanBatchRanges() {
+  if (!window.api?.setAppSettings) return;
+  const payload = { exportScanBatchRanges: exportScanBatchRanges.map((r) => ({ from: r.from, to: r.to })) };
+  window.api.setAppSettings(payload).catch(() => {});
+}
+
+function renderExportScanBatchRangeList() {
+  const listEl = el(ids.exportBatchRangeList);
+  if (!listEl) return;
+  if (exportScanBatchSelectedIndex >= exportScanBatchRanges.length) {
+    exportScanBatchSelectedIndex = exportScanBatchRanges.length - 1;
+  }
+  if (exportScanBatchSelectedIndex < -1) exportScanBatchSelectedIndex = -1;
+  listEl.innerHTML = '';
+  if (!exportScanBatchRanges.length) {
+    listEl.textContent = t('frameGenerator.batchRangeListEmpty');
+    setExportBatchInsertMode(exportScanBatchEditIndex >= 0 ? 'edit' : exportScanBatchInsertMode);
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < exportScanBatchRanges.length; i++) {
+    const item = exportScanBatchRanges[i];
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = `export-range-list-item${i === exportScanBatchSelectedIndex ? ' active' : ''}`;
+    row.addEventListener('click', () => {
+      exportScanBatchSelectedIndex = i;
+      renderExportScanBatchRangeList();
+    });
+    const label = document.createElement('span');
+    label.className = 'export-range-list-item-label';
+    label.textContent = t('frameGenerator.batchRangeItem', {
+      index: i + 1,
+      from: item.from,
+      to: item.to
+    });
+    const hint = document.createElement('span');
+    hint.className = 'export-range-list-item-jump';
+    hint.textContent = t('frameGenerator.batchJumpHint');
+    row.appendChild(label);
+    row.appendChild(hint);
+    frag.appendChild(row);
+  }
+  listEl.appendChild(frag);
+  setExportBatchInsertMode(exportScanBatchEditIndex >= 0 ? 'edit' : exportScanBatchInsertMode);
 }
 
 /** Geordende lijst scanpaden van het project (RASTER SETUP / scanlint) — niet de pixel-editor-bronmap. */
@@ -5883,6 +6017,13 @@ async function loadAppSettings() {
     setArrowStepShiftPx(arrowShiftPx);
     setScanDpi(Number(s.scanDpi) || 4800);
     setOutputFormat('png');
+    const scanCount = getProjectScanCountEstimate();
+    exportScanBatchRanges = normalizeExportScanBatchRanges(s.exportScanBatchRanges, scanCount > 0 ? scanCount : Number.POSITIVE_INFINITY);
+    exportScanBatchSelectedIndex = exportScanBatchRanges.length ? 0 : -1;
+    exportScanBatchEditIndex = -1;
+    setExportBatchInsertMode('append');
+    const defaultTo = scanCount > 0 ? scanCount : 1;
+    setExportRangeInputs(1, defaultTo);
     updateUI();
     updateFloatingPreviewButtonUi().catch(() => {});
     if (getState().image) refreshPreviews();
@@ -8292,6 +8433,13 @@ function bind() {
   el(ids.pickExportFolder)?.addEventListener('click', onPickExportFolder);
   el(ids.exportBaseName)?.addEventListener('change', function () { setExportBaseName(el(ids.exportBaseName)?.value); });
   el(ids.exportBaseName)?.addEventListener('input', function () { setExportBaseName(el(ids.exportBaseName)?.value); });
+  el(ids.exportBatchRangeAdd)?.addEventListener('click', () => { onAddOrUpdateBatchRange().catch(() => {}); });
+  el(ids.exportBatchRangeEdit)?.addEventListener('click', () => { onBatchRangeEditMode().catch(() => {}); });
+  el(ids.exportBatchRangeInsertAbove)?.addEventListener('click', onBatchRangeInsertAboveMode);
+  el(ids.exportBatchRangeInsertBelow)?.addEventListener('click', onBatchRangeInsertBelowMode);
+  el(ids.exportBatchRangeRemove)?.addEventListener('click', onBatchRangeRemoveSelected);
+  el(ids.exportBatchRangeClear)?.addEventListener('click', onBatchRangeClearAll);
+  el(ids.exportBatchRangeRun)?.addEventListener('click', () => { onRunBatchRangeList().catch(() => {}); });
   el(ids.exportCurrent)?.addEventListener('click', onExportCurrentScan);
   el(ids.exportBatch)?.addEventListener('click', onExportBatch);
   el(ids.openStrip)?.addEventListener('click', onOpenStrip);
@@ -9193,6 +9341,170 @@ async function exportPaths(paths) {
     }
   }
   return writtenTotal;
+}
+
+function readExportScanRangeInputs() {
+  const maxScans = getProjectScanCountEstimate();
+  const fromVal = Math.floor(Number(el(ids.exportScanFrom)?.value));
+  const toVal = Math.floor(Number(el(ids.exportScanTo)?.value));
+  if (!Number.isFinite(fromVal) || fromVal < 1 || !Number.isFinite(toVal) || toVal < 1) {
+    alert(t('frameExport.rangeInputInvalid'));
+    return null;
+  }
+  const max = maxScans > 0 ? maxScans : Number.POSITIVE_INFINITY;
+  const from = Math.min(max, fromVal);
+  const to = Math.min(max, toVal);
+  if (from > to) {
+    alert(t('frameExport.rangeInvalid'));
+    return null;
+  }
+  return { from, to };
+}
+
+async function jumpToRangeStartScan(range) {
+  if (!range) return false;
+  const paths = await getProjectScanPaths();
+  if (!paths.length) {
+    alert(t('scanNav.noScans'));
+    return false;
+  }
+  const targetIndex = Math.max(0, Math.min(paths.length - 1, Math.floor(range.from) - 1));
+  const targetPath = paths[targetIndex];
+  if (!targetPath) return false;
+  const loaded = await loadScanByPath(targetPath, scanNavigationGridOptions());
+  if (!loaded) return false;
+  setActiveFrameIndex(0);
+  setDirty();
+  updateUI();
+  refreshPreviews();
+  updateStatus(0, t('frameGenerator.batchRangeJumped', { from: range.from, to: range.to }));
+  return true;
+}
+
+function computeRangeInsertIndex() {
+  if (exportScanBatchEditIndex >= 0) return exportScanBatchEditIndex;
+  if (exportScanBatchInsertMode === 'insert-above') {
+    return exportScanBatchSelectedIndex >= 0 ? exportScanBatchSelectedIndex : 0;
+  }
+  if (exportScanBatchInsertMode === 'insert-below') {
+    return exportScanBatchSelectedIndex >= 0
+      ? Math.min(exportScanBatchRanges.length, exportScanBatchSelectedIndex + 1)
+      : exportScanBatchRanges.length;
+  }
+  return exportScanBatchRanges.length;
+}
+
+function saveExportScanBatchRangesAndRefresh() {
+  const max = getProjectScanCountEstimate();
+  exportScanBatchRanges = normalizeExportScanBatchRanges(exportScanBatchRanges, max > 0 ? max : Number.POSITIVE_INFINITY);
+  persistExportScanBatchRanges();
+  renderExportScanBatchRangeList();
+}
+
+async function onBatchRangeEditMode() {
+  if (exportScanBatchSelectedIndex < 0 || exportScanBatchSelectedIndex >= exportScanBatchRanges.length) {
+    alert(t('frameExport.batchRangeSelectFirst'));
+    return;
+  }
+  const picked = exportScanBatchRanges[exportScanBatchSelectedIndex];
+  exportScanBatchEditIndex = exportScanBatchSelectedIndex;
+  setExportBatchInsertMode('edit');
+  setExportRangeInputs(picked.from, picked.to);
+  await jumpToRangeStartScan(picked);
+}
+
+function onBatchRangeInsertAboveMode() {
+  exportScanBatchEditIndex = -1;
+  setExportBatchInsertMode('insert-above');
+  renderExportScanBatchRangeList();
+}
+
+function onBatchRangeInsertBelowMode() {
+  exportScanBatchEditIndex = -1;
+  setExportBatchInsertMode('insert-below');
+  renderExportScanBatchRangeList();
+}
+
+function onBatchRangeRemoveSelected() {
+  if (exportScanBatchSelectedIndex < 0 || exportScanBatchSelectedIndex >= exportScanBatchRanges.length) {
+    alert(t('frameExport.batchRangeSelectFirst'));
+    return;
+  }
+  exportScanBatchRanges.splice(exportScanBatchSelectedIndex, 1);
+  exportScanBatchEditIndex = -1;
+  if (exportScanBatchSelectedIndex >= exportScanBatchRanges.length) {
+    exportScanBatchSelectedIndex = exportScanBatchRanges.length - 1;
+  }
+  setExportBatchInsertMode('append');
+  saveExportScanBatchRangesAndRefresh();
+}
+
+function onBatchRangeClearAll() {
+  if (!exportScanBatchRanges.length) return;
+  if (!window.confirm(t('frameExport.batchRangeClearConfirm'))) return;
+  exportScanBatchRanges = [];
+  exportScanBatchSelectedIndex = -1;
+  exportScanBatchEditIndex = -1;
+  setExportBatchInsertMode('append');
+  saveExportScanBatchRangesAndRefresh();
+}
+
+async function onAddOrUpdateBatchRange() {
+  const range = readExportScanRangeInputs();
+  if (!range) return;
+  const insertAt = computeRangeInsertIndex();
+  if (exportScanBatchEditIndex >= 0) {
+    exportScanBatchRanges[insertAt] = range;
+    exportScanBatchSelectedIndex = insertAt;
+    exportScanBatchEditIndex = -1;
+    setExportBatchInsertMode('append');
+  } else {
+    exportScanBatchRanges.splice(insertAt, 0, range);
+    exportScanBatchSelectedIndex = insertAt;
+  }
+  saveExportScanBatchRangesAndRefresh();
+  await jumpToRangeStartScan(range);
+}
+
+async function onRunBatchRangeList() {
+  const folder = getState().exportFolderPath;
+  if (!folder) {
+    alert(t('frameExport.pickFolderFirst'));
+    return;
+  }
+  if (!exportScanBatchRanges.length) {
+    alert(t('frameExport.batchRangeListEmpty'));
+    return;
+  }
+  const paths = await getProjectScanPaths();
+  if (!paths.length) {
+    alert(t('frameExport.noScansInProject'));
+    return;
+  }
+  let writtenTotal = 0;
+  try {
+    for (let i = 0; i < exportScanBatchRanges.length; i++) {
+      const range = exportScanBatchRanges[i];
+      const from = Math.max(1, Math.min(paths.length, range.from));
+      const to = Math.max(1, Math.min(paths.length, range.to));
+      if (from > to) continue;
+      const rangePaths = paths.slice(from - 1, to);
+      if (!rangePaths.length) continue;
+      updateStatus(5, t('frameGenerator.batchRangeRunningStatus', { current: i + 1, total: exportScanBatchRanges.length, from, to }));
+      const written = await exportPaths(rangePaths);
+      writtenTotal += Number(written) || 0;
+    }
+    if (writtenTotal > 0) {
+      alert(t('frameExport.batchRangeListDone', { count: writtenTotal, ranges: exportScanBatchRanges.length, folder }));
+    } else {
+      alert(t('frameExport.nothingWritten'));
+    }
+  } catch (e) {
+    alert(t('frameExport.batchFailed', { message: e?.message || e }));
+  } finally {
+    setFrameGeneratorProgress({ visible: false });
+    updateStatus(0, t('status.operationEmpty'));
+  }
 }
 
 /** Batch: alle scanlints laden, frames uitsnijden met originele bestandsnamen. */

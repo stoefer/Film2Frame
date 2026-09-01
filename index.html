@@ -293,6 +293,27 @@
         <div class="row">
           <span id="f2f-export-scan-count" class="value">—</span>
         </div>
+        <div class="row row--export-range-builder">
+          <label for="f2f-export-scan-from" data-i18n="frameGenerator.batchRangeFromLabel">Van scan</label>
+          <input type="number" id="f2f-export-scan-from" class="input-num" min="1" step="1" value="1" />
+          <label for="f2f-export-scan-to" data-i18n="frameGenerator.batchRangeToLabel">Tot scan</label>
+          <input type="number" id="f2f-export-scan-to" class="input-num" min="1" step="1" value="1" />
+          <button type="button" id="f2f-export-batch-range-add" class="btn btn-secondary small" data-i18n="frameGenerator.batchAddRangeButton">Bereik toevoegen</button>
+        </div>
+        <div class="row row--export-range-list">
+          <div id="f2f-export-batch-range-list" class="export-range-list" data-i18n="frameGenerator.batchRangeListEmpty">Nog geen bereiken toegevoegd.</div>
+        </div>
+        <div class="row row--export-range-actions">
+          <button type="button" id="f2f-export-batch-range-edit" class="btn btn-secondary small" data-i18n="frameGenerator.batchEditButton">Bewerken</button>
+          <button type="button" id="f2f-export-batch-range-insert-above" class="btn btn-secondary small" data-i18n="frameGenerator.batchInsertAboveButton">Invoegen boven</button>
+          <button type="button" id="f2f-export-batch-range-insert-below" class="btn btn-secondary small" data-i18n="frameGenerator.batchInsertBelowButton">Invoegen onder</button>
+          <button type="button" id="f2f-export-batch-range-remove" class="btn btn-secondary small" data-i18n="frameGenerator.batchRemoveButton">Verwijderen</button>
+          <button type="button" id="f2f-export-batch-range-clear" class="btn btn-secondary small" data-i18n="frameGenerator.batchClearButton">Lijst leegmaken</button>
+          <button type="button" id="f2f-export-batch-range-run" class="btn btn-primary small" data-i18n="frameGenerator.batchRunListButton">Batchbereiken exporteren</button>
+        </div>
+        <div class="row">
+          <span id="f2f-export-batch-range-mode" class="export-range-mode" data-i18n="frameGenerator.batchRangeModeIdle">Modus: toevoegen onderaan</span>
+        </div>
         <div class="row">
           <button type="button" id="f2f-export-current" class="btn btn-primary" data-i18n="frameGenerator.saveCurrentButton">Huidige scan bewaren</button>
           <button type="button" id="f2f-export-batch" class="btn btn-secondary" data-i18n="frameGenerator.batchButton">Batch: alle scanlints</button>

@@ -34,6 +34,7 @@ const KEYS = {
   locale: 'locale',
   preserveGridOnScanNav: 'preserveGridOnScanNav',
   compactUi: 'compactUi',
+  exportScanBatchRanges: 'exportScanBatchRanges',
   eulaAcceptedVersion: 'eulaAcceptedVersion'
 };
 
@@ -58,8 +59,25 @@ const DEFAULTS = {
   arrowStepShiftPx: 10,
   preserveGridOnScanNav: true,
   compactUi: false,
+  exportScanBatchRanges: [],
   windowGridAutoOpenMask: '000000'
 };
+
+function normalizeExportScanBatchRanges(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const from = Math.floor(Number(item.from));
+    const to = Math.floor(Number(item.to));
+    if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+    if (from < 1 || to < 1) continue;
+    const lo = Math.min(from, to);
+    const hi = Math.max(from, to);
+    out.push({ from: lo, to: hi });
+  }
+  return out;
+}
 
 function getPrefsPath() {
   try {
@@ -165,7 +183,8 @@ function getAllSettings() {
     preserveGridOnScanNav:
       data[KEYS.preserveGridOnScanNav] === false ? false : DEFAULTS.preserveGridOnScanNav,
     compactUi:
-      data[KEYS.compactUi] === true
+      data[KEYS.compactUi] === true,
+    exportScanBatchRanges: normalizeExportScanBatchRanges(data[KEYS.exportScanBatchRanges])
   };
 }
 
@@ -224,6 +243,9 @@ function setSettings(settings) {
   }
   if (settings.compactUi !== undefined) {
     data[KEYS.compactUi] = !!settings.compactUi;
+  }
+  if (settings.exportScanBatchRanges !== undefined) {
+    data[KEYS.exportScanBatchRanges] = normalizeExportScanBatchRanges(settings.exportScanBatchRanges);
   }
   if (settings.stripPreviewShortcuts !== undefined && settings.stripPreviewShortcuts != null) {
     const sc = require('./strip-shortcuts');
