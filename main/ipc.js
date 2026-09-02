@@ -24,25 +24,44 @@ function getDefaultBatchRangeListPath() {
   return path.join(baseDir, 'batch-range-list.txt');
 }
 
+function parseBatchRangeLine(line) {
+  const compact = String(line || '')
+    .trim()
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ');
+  if (!compact) return null;
+  const nums = compact.match(/\d+/g);
+  if (!nums || !nums.length) return null;
+  let from = Math.floor(Number(nums[0]));
+  let to = from;
+  if (nums.length >= 2) {
+    // Gebruik laatste 2 getallen zodat ook regels als
+    // "Bereik 2: frame 101 t/m 240" correct blijven.
+    from = Math.floor(Number(nums[nums.length - 2]));
+    to = Math.floor(Number(nums[nums.length - 1]));
+  }
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from < 1 || to < 1) return null;
+  return { from: Math.min(from, to), to: Math.max(from, to) };
+}
+
 function parseBatchRangesFromAscii(raw) {
   const text = String(raw || '').replace(/\uFEFF/g, '');
-  const out = [];
+  const ranges = [];
+  const invalidLineNumbers = [];
+  let dataLineCount = 0;
   const lines = text.split(/\r?\n/);
-  for (const lineRaw of lines) {
-    const line = String(lineRaw || '').trim();
+  for (let i = 0; i < lines.length; i++) {
+    const line = String(lines[i] || '').trim();
     if (!line || line.startsWith('#') || line.startsWith('//')) continue;
-    const nums = line.match(/\d+/g);
-    if (!nums || !nums.length) continue;
-    let from = Math.floor(Number(nums[0]));
-    let to = from;
-    if (nums.length >= 2) {
-      from = Math.floor(Number(nums[nums.length - 2]));
-      to = Math.floor(Number(nums[nums.length - 1]));
+    dataLineCount += 1;
+    const parsed = parseBatchRangeLine(line);
+    if (!parsed) {
+      invalidLineNumbers.push(i + 1);
+      continue;
     }
-    if (!Number.isFinite(from) || !Number.isFinite(to) || from < 1 || to < 1) continue;
-    out.push({ from: Math.min(from, to), to: Math.max(from, to) });
+    ranges.push(parsed);
   }
-  return out;
+  return { ranges, invalidLineNumbers, dataLineCount };
 }
 
 /** ArrayBuffer / Uint8Array / IPC-clone → Node Buffer. */
@@ -768,6 +787,7 @@ function registerIPC() {
         properties: ['openFile'],
         defaultPath: defaultDir,
         filters: [
+          { name: 'Batch TXT', extensions: ['txt'] },
           { name: 'Text files', extensions: ['txt', 'csv', 'list', 'md'] },
           { name: 'All files', extensions: ['*'] }
         ]
@@ -775,11 +795,21 @@ function registerIPC() {
       if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
       const filePath = result.filePaths[0];
       const raw = fs.readFileSync(filePath, 'utf8');
-      const ranges = parseBatchRangesFromAscii(raw);
+      const parsed = parseBatchRangesFromAscii(raw);
+      const ranges = parsed.ranges;
       if (!ranges.length) {
-        return { ok: false, error: 'Geen geldige bereiken gevonden in bestand.' };
+        return {
+          ok: false,
+          error: 'Geen geldige bereiken gevonden. Gebruik per regel bijv. "1-300" of "301 600".'
+        };
       }
-      return { ok: true, path: filePath, ranges };
+      return {
+        ok: true,
+        path: filePath,
+        ranges,
+        invalidLineNumbers: parsed.invalidLineNumbers,
+        dataLineCount: parsed.dataLineCount
+      };
     } catch (err) {
       return { ok: false, error: err && err.message ? err.message : 'Batchlijst importeren mislukt.' };
     }
@@ -822,11 +852,21 @@ function registerIPC() {
         return { ok: false, error: 'Notepad-lijst niet gevonden. Open eerst de Notepad-lijst.' };
       }
       const raw = fs.readFileSync(filePath, 'utf8');
-      const ranges = parseBatchRangesFromAscii(raw);
+      const parsed = parseBatchRangesFromAscii(raw);
+      const ranges = parsed.ranges;
       if (!ranges.length) {
-        return { ok: false, error: 'Geen geldige bereiken gevonden in Notepad-bestand.' };
+        return {
+          ok: false,
+          error: 'Geen geldige bereiken gevonden. Gebruik per regel bijv. "1-300" of "301 600".'
+        };
       }
-      return { ok: true, path: filePath, ranges };
+      return {
+        ok: true,
+        path: filePath,
+        ranges,
+        invalidLineNumbers: parsed.invalidLineNumbers,
+        dataLineCount: parsed.dataLineCount
+      };
     } catch (err) {
       return { ok: false, error: err && err.message ? err.message : 'Opnieuw importeren uit Notepad mislukt.' };
     }

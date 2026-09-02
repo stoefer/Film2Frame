@@ -9584,7 +9584,7 @@ function onToggleBatchWrapNav() {
   updateUI();
 }
 
-function applyImportedBatchRanges(ranges, sourceLabel) {
+function applyImportedBatchRanges(ranges, sourceLabel, invalidLineNumbers = [], dataLineCount = 0) {
   exportScanBatchRanges = normalizeExportScanBatchRanges(
     Array.isArray(ranges) ? ranges : [],
     Number.POSITIVE_INFINITY
@@ -9600,6 +9600,17 @@ function applyImportedBatchRanges(ranges, sourceLabel) {
     const first = exportScanBatchRanges[0];
     setExportRangeInputs(first.from, first.to);
     updateStatus(0, t('frameGenerator.batchRangeImportDone', { count: exportScanBatchRanges.length, source: sourceLabel || t('frameGenerator.batchRangeImportSourceFile') }));
+    const invalidCount = Array.isArray(invalidLineNumbers) ? invalidLineNumbers.length : 0;
+    if (invalidCount > 0) {
+      const linesShort = invalidLineNumbers.slice(0, 8).join(', ');
+      const more = invalidCount > 8 ? ` +${invalidCount - 8}` : '';
+      alert(t('frameGenerator.batchRangeImportPartialWarning', {
+        loaded: exportScanBatchRanges.length,
+        invalid: invalidCount,
+        lines: `${linesShort}${more}`,
+        total: Math.max(0, Math.floor(Number(dataLineCount) || 0))
+      }));
+    }
   } else {
     updateStatus(0, t('frameExport.batchRangeListEmpty'));
   }
@@ -9613,7 +9624,12 @@ async function onImportBatchRangeList() {
     alert(result.error || t('frameGenerator.batchRangeImportFailed'));
     return;
   }
-  applyImportedBatchRanges(result.ranges, result.path || t('frameGenerator.batchRangeImportSourceFile'));
+  applyImportedBatchRanges(
+    result.ranges,
+    result.path || t('frameGenerator.batchRangeImportSourceFile'),
+    result.invalidLineNumbers,
+    result.dataLineCount
+  );
 }
 
 async function onOpenBatchRangeNotepadList() {
@@ -9634,7 +9650,12 @@ async function onReimportBatchRangeFromNotepad() {
     alert(result.error || t('frameGenerator.batchRangeReimportFailed'));
     return;
   }
-  applyImportedBatchRanges(result.ranges, result.path || t('frameGenerator.batchRangeImportSourceNotepad'));
+  applyImportedBatchRanges(
+    result.ranges,
+    result.path || t('frameGenerator.batchRangeImportSourceNotepad'),
+    result.invalidLineNumbers,
+    result.dataLineCount
+  );
 }
 
 async function onGoToPreviousBatchRange() {
