@@ -61,6 +61,7 @@ let exportScanBatchEditIndex = -1;
 let exportScanBatchInsertMode = 'append';
 let exportScanBatchAutoMerge = true;
 let exportScanBatchWrapNav = false;
+let exportBatchDisablePreview = false;
 let exportScanBatchRangeRefs = {};
 let exportBatchResumeState = null;
 let transientStatusTimer = null;
@@ -186,6 +187,7 @@ const ids = {
   exportBatchRangeSummary: 'f2f-export-batch-range-summary',
   exportBatchAutoMerge: 'f2f-export-batch-auto-merge',
   exportBatchWrapNav: 'f2f-export-batch-wrap-nav',
+  exportBatchDisablePreview: 'f2f-export-batch-disable-preview',
   exportBatchPause: 'f2f-export-batch-pause',
   exportBatchStop: 'f2f-export-batch-stop',
   exportBatchResume: 'f2f-export-batch-resume',
@@ -938,6 +940,7 @@ function updateUI() {
   const nextBtn = el(ids.exportBatchRangeNext);
   const autoMergeEl = el(ids.exportBatchAutoMerge);
   const wrapNavEl = el(ids.exportBatchWrapNav);
+  const disablePreviewEl = el(ids.exportBatchDisablePreview);
   const pauseBtn = el(ids.exportBatchPause);
   const stopBtn = el(ids.exportBatchStop);
   const resumeBtn = el(ids.exportBatchResume);
@@ -956,6 +959,7 @@ function updateUI() {
   if (nextBtn) nextBtn.disabled = !hasRanges || (!canWrapRangeNav && hasSelection && exportScanBatchSelectedIndex >= exportScanBatchRanges.length - 1);
   if (autoMergeEl) autoMergeEl.checked = exportScanBatchAutoMerge !== false;
   if (wrapNavEl) wrapNavEl.checked = exportScanBatchWrapNav === true;
+  if (disablePreviewEl) disablePreviewEl.checked = exportBatchDisablePreview === true;
   if (pauseBtn) {
     pauseBtn.disabled = !exportBatchRunState.running;
     pauseBtn.textContent = exportBatchRunState.paused
@@ -1147,6 +1151,7 @@ function persistExportScanBatchRanges() {
     exportScanBatchRanges: exportScanBatchRanges.map((r) => ({ from: r.from, to: r.to })),
     exportScanBatchAutoMerge: exportScanBatchAutoMerge !== false,
     exportScanBatchWrapNav: exportScanBatchWrapNav === true,
+    exportBatchDisablePreview: exportBatchDisablePreview === true,
     exportScanBatchRangeRefs: exportScanBatchRangeRefs
   };
   window.api.setAppSettings(payload).catch(() => {});
@@ -1625,7 +1630,9 @@ async function loadScanByPath(lintPath, opts = {}) {
     setDirty();
   }
   updateUI();
-  refreshPreviews();
+  if (!opts.skipPreviewRefresh) {
+    refreshPreviews();
+  }
   if (paths.length) prefetch(paths, idx, lintPath, (p) => window.api.getFileUrl(p), getState);
   if (!opts.skipPersistAfterLoad) {
     await persistProjectAfterLintLoad();
@@ -6428,12 +6435,15 @@ async function loadAppSettings() {
     const frameCount = getProjectTotalFrameCountEstimate();
     exportScanBatchAutoMerge = s.exportScanBatchAutoMerge !== false;
     exportScanBatchWrapNav = s.exportScanBatchWrapNav === true;
+    exportBatchDisablePreview = s.exportBatchDisablePreview === true;
     exportScanBatchRangeRefs = normalizeExportScanBatchRangeRefs(s.exportScanBatchRangeRefs);
     exportBatchResumeState = normalizeExportBatchResumeState(s.exportBatchResumeState);
     const mergeToggleEl = el(ids.exportBatchAutoMerge);
     if (mergeToggleEl) mergeToggleEl.checked = exportScanBatchAutoMerge;
     const wrapToggleEl = el(ids.exportBatchWrapNav);
     if (wrapToggleEl) wrapToggleEl.checked = exportScanBatchWrapNav;
+    const disablePreviewToggleEl = el(ids.exportBatchDisablePreview);
+    if (disablePreviewToggleEl) disablePreviewToggleEl.checked = exportBatchDisablePreview;
     exportScanBatchRanges = normalizeExportScanBatchRanges(
       s.exportScanBatchRanges,
       frameCount > 0 ? frameCount : Number.POSITIVE_INFINITY
@@ -8891,6 +8901,7 @@ function bind() {
   el(ids.exportBatchRangeReimport)?.addEventListener('click', () => { onReimportBatchRangeFromNotepad().catch(() => {}); });
   el(ids.exportBatchAutoMerge)?.addEventListener('change', onToggleBatchAutoMerge);
   el(ids.exportBatchWrapNav)?.addEventListener('change', onToggleBatchWrapNav);
+  el(ids.exportBatchDisablePreview)?.addEventListener('change', onToggleBatchDisablePreview);
   el(ids.exportBatchPause)?.addEventListener('click', togglePauseBatchRun);
   el(ids.exportBatchStop)?.addEventListener('click', requestStopBatchRun);
   el(ids.exportBatchResume)?.addEventListener('click', () => { onResumeStoppedBatchRun().catch(() => {}); });
@@ -9718,6 +9729,7 @@ function rememberExportRangeForCurrentScan(folder, baseName, startIndex, frameCo
 /** Voert frame-export uit voor een lijst scanpaden. Bestandsnaam = originele scanstam. */
 async function exportPaths(paths, options = null) {
   const opts = options && typeof options === 'object' ? options : {};
+  const suppressPreview = opts.suppressPreview === true;
   const folder = getState().exportFolderPath;
   const pauseSec = 0;
   const appSettings = await window.api?.getAppSettings?.().catch(() => null);
@@ -9772,7 +9784,7 @@ async function exportPaths(paths, options = null) {
       5 + Math.round((70 * scanIdx) / total),
       t('status.scanLoadProject', { current: scanIdx + 1, total })
     );
-    const ok = await loadScanByPath(scanPath);
+    const ok = await loadScanByPath(scanPath, { skipPreviewRefresh: suppressPreview });
     if (!ok) continue;
     const pair = getStripCanvasPairForExport();
     if (!pair) continue;
@@ -10009,6 +10021,12 @@ function onToggleBatchWrapNav() {
   updateUI();
 }
 
+function onToggleBatchDisablePreview() {
+  exportBatchDisablePreview = el(ids.exportBatchDisablePreview)?.checked === true;
+  persistExportScanBatchRanges();
+  updateUI();
+}
+
 function applyImportedBatchRanges(ranges, sourceLabel, invalidLineNumbers = [], dataLineCount = 0, templateDetected = false) {
   exportScanBatchRanges = normalizeExportScanBatchRanges(
     Array.isArray(ranges) ? ranges : [],
@@ -10197,6 +10215,7 @@ async function onRunBatchRangeList(options = null) {
     return;
   }
   const opts = options && typeof options === 'object' ? options : {};
+  const suppressPreview = opts.suppressPreview === true || exportBatchDisablePreview === true;
   const resume = normalizeExportBatchResumeState(opts.resumeState);
   const folder = getState().exportFolderPath;
   if (!folder) {
@@ -10283,6 +10302,7 @@ async function onRunBatchRangeList(options = null) {
         i,
         exportScanBatchRanges.length,
         fixedReferenceSnapshot,
+        suppressPreview,
         { startedAtMs: runStartedAtMs, totalFrames: totalFramesToProcess, processedBefore: processedFrames }
       );
       writtenTotal += Number(rangeResult?.written) || 0;
@@ -10308,7 +10328,7 @@ async function onRunBatchRangeList(options = null) {
   }
 }
 
-async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, rangeIdx, rangeTotal, fixedReferenceSnapshot = null, progressCtx = null) {
+async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, rangeIdx, rangeTotal, fixedReferenceSnapshot = null, suppressPreview = false, progressCtx = null) {
   const folder = getState().exportFolderPath;
   const appSettings = await window.api?.getAppSettings?.().catch(() => null);
   const outDims = getExportOutputDimensions(appSettings);
@@ -10324,7 +10344,7 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
     if (!scanPath) continue;
     const sameFolderErr = assertExportFolderNotInput(folder, scanPath);
     if (sameFolderErr) throw new Error(sameFolderErr);
-    const ok = await loadScanByPath(scanPath, { ...scanNavigationGridOptions(), preserveGrid: true });
+    const ok = await loadScanByPath(scanPath, { ...scanNavigationGridOptions(), preserveGrid: true, skipPreviewRefresh: suppressPreview });
     if (!ok) continue;
     if (fixedReferenceSnapshot) {
       applyLintState(fixedReferenceSnapshot);
@@ -10451,6 +10471,7 @@ async function onExportBatch(options = null) {
   }
   const opts = options && typeof options === 'object' ? options : {};
   const resume = normalizeExportBatchResumeState(opts.resumeState);
+  const suppressPreview = opts.suppressPreview === true || exportBatchDisablePreview === true;
   const folder = getState().exportFolderPath;
   if (!folder) {
     endBatchRun();
@@ -10471,7 +10492,7 @@ async function onExportBatch(options = null) {
   updateStatus(5, t('status.batchStart'));
   let stopped = false;
   try {
-    const result = await exportPaths(paths, { resumeState: resume });
+    const result = await exportPaths(paths, { resumeState: resume, suppressPreview });
     const written = Number(result?.written) || 0;
     stopped = !!result?.stopped;
     if (stopped) {

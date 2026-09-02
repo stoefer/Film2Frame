@@ -43,6 +43,7 @@ const KEYS = {
   exportScanBatchRanges: 'exportScanBatchRanges',
   exportScanBatchAutoMerge: 'exportScanBatchAutoMerge',
   exportScanBatchWrapNav: 'exportScanBatchWrapNav',
+  exportBatchDisablePreview: 'exportBatchDisablePreview',
   exportScanBatchListFilePath: 'exportScanBatchListFilePath',
   exportBatchResumeState: 'exportBatchResumeState',
   eulaAcceptedVersion: 'eulaAcceptedVersion'
@@ -78,6 +79,7 @@ const DEFAULTS = {
   exportScanBatchRanges: [],
   exportScanBatchAutoMerge: true,
   exportScanBatchWrapNav: false,
+  exportBatchDisablePreview: false,
   windowGridAutoOpenMask: '000000'
 };
 
@@ -251,6 +253,8 @@ function getAllSettings() {
         : DEFAULTS.exportScanBatchAutoMerge,
     exportScanBatchWrapNav:
       data[KEYS.exportScanBatchWrapNav] === true,
+    exportBatchDisablePreview:
+      data[KEYS.exportBatchDisablePreview] === true,
     exportScanBatchListFilePath:
       typeof data[KEYS.exportScanBatchListFilePath] === 'string' && data[KEYS.exportScanBatchListFilePath].trim()
         ? data[KEYS.exportScanBatchListFilePath].trim()
@@ -344,6 +348,9 @@ function setSettings(settings) {
   }
   if (settings.exportScanBatchWrapNav !== undefined) {
     data[KEYS.exportScanBatchWrapNav] = settings.exportScanBatchWrapNav === true;
+  }
+  if (settings.exportBatchDisablePreview !== undefined) {
+    data[KEYS.exportBatchDisablePreview] = settings.exportBatchDisablePreview === true;
   }
   if (settings.exportScanBatchListFilePath !== undefined) {
     const p = String(settings.exportScanBatchListFilePath || '').trim();

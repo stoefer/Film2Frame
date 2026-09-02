@@ -678,6 +678,7 @@
   "frameGenerator.batchRangeListEmpty": "Nog geen bereiken toegevoegd.",
   "frameGenerator.batchAutoMergeLabel": "Automatisch sorteren + overlap mergen",
   "frameGenerator.batchWrapNavLabel": "Wrap-around navigatie (eerste/laatste bereik)",
+  "frameGenerator.batchDisablePreviewLabel": "Preview uitschakelen tijdens batch-export (sneller)",
   "frameGenerator.batchRangeSummary": "Geselecteerd: {selected} / {total} frames",
   "frameGenerator.batchRangeItem": "#{index}: frame {from} t/m {to}",
   "frameGenerator.batchJumpHint": "klik om te selecteren",
