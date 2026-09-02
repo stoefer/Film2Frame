@@ -1,0 +1,4 @@
+{
+  "name": "Film2Frame",
+  "install": "npm ci"
+}
