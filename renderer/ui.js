@@ -1197,7 +1197,6 @@ function getRangeReferenceSnapshotForRange(range, targetScanPath = '') {
   if (targetKey && refKey && targetKey !== refKey) return null;
   return ref.snapshot;
 }
-
 function normalizeExportBatchResumeState(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const mode = raw.mode === 'all-scans' || raw.mode === 'range-list' ? raw.mode : '';
