@@ -1175,7 +1175,9 @@ function applyRangeReferenceSnapshotForRange(range, targetScanPath = '') {
   if (!key) return false;
   const ref = exportScanBatchRangeRefs && exportScanBatchRangeRefs[key];
   if (!ref || !ref.snapshot || typeof ref.snapshot !== 'object') return false;
-  if (targetScanPath && ref.scanPath && ref.scanPath !== targetScanPath) return false;
+  const targetKey = normPathKey(targetScanPath || '');
+  const refKey = normPathKey(ref.scanPath || '');
+  if (targetKey && refKey && targetKey !== refKey) return false;
   applyLintState(ref.snapshot);
   return true;
 }
@@ -1185,7 +1187,9 @@ function getRangeReferenceSnapshotForRange(range, targetScanPath = '') {
   if (!key) return null;
   const ref = exportScanBatchRangeRefs && exportScanBatchRangeRefs[key];
   if (!ref || !ref.snapshot || typeof ref.snapshot !== 'object') return null;
-  if (targetScanPath && ref.scanPath && ref.scanPath !== targetScanPath) return null;
+  const targetKey = normPathKey(targetScanPath || '');
+  const refKey = normPathKey(ref.scanPath || '');
+  if (targetKey && refKey && targetKey !== refKey) return null;
   return ref.snapshot;
 }
 
@@ -10221,7 +10225,7 @@ async function onRunBatchRangeList(options = null) {
   let stopped = false;
   try {
     // Als gebruiker direct exporteert na kalibreren (zonder range-switch), snapshot toch bewaren.
-    persistCurrentRangeReferenceSnapshot(exportScanBatchSelectedIndex);
+    persistCurrentRangeReferenceSnapshot(exportScanBatchSelectedIndex >= 0 ? exportScanBatchSelectedIndex : 0);
     let startRangeIndex = 0;
     let startGlobalFrame = 1;
     if (resume && resume.mode === 'range-list') {
