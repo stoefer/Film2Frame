@@ -37,6 +37,7 @@ const KEYS = {
   exportScanBatchRanges: 'exportScanBatchRanges',
   exportScanBatchAutoMerge: 'exportScanBatchAutoMerge',
   exportScanBatchWrapNav: 'exportScanBatchWrapNav',
+  exportScanBatchListFilePath: 'exportScanBatchListFilePath',
   eulaAcceptedVersion: 'eulaAcceptedVersion'
 };
 
@@ -194,7 +195,11 @@ function getAllSettings() {
         ? data[KEYS.exportScanBatchAutoMerge] !== false
         : DEFAULTS.exportScanBatchAutoMerge,
     exportScanBatchWrapNav:
-      data[KEYS.exportScanBatchWrapNav] === true
+      data[KEYS.exportScanBatchWrapNav] === true,
+    exportScanBatchListFilePath:
+      typeof data[KEYS.exportScanBatchListFilePath] === 'string' && data[KEYS.exportScanBatchListFilePath].trim()
+        ? data[KEYS.exportScanBatchListFilePath].trim()
+        : ''
   };
 }
 
@@ -262,6 +267,10 @@ function setSettings(settings) {
   }
   if (settings.exportScanBatchWrapNav !== undefined) {
     data[KEYS.exportScanBatchWrapNav] = settings.exportScanBatchWrapNav === true;
+  }
+  if (settings.exportScanBatchListFilePath !== undefined) {
+    const p = String(settings.exportScanBatchListFilePath || '').trim();
+    data[KEYS.exportScanBatchListFilePath] = p;
   }
   if (settings.stripPreviewShortcuts !== undefined && settings.stripPreviewShortcuts != null) {
     const sc = require('./strip-shortcuts');

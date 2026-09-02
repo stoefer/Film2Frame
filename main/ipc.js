@@ -17,11 +17,20 @@ const { tr } = require('./main-i18n');
 const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp'];
 
 function getDefaultBatchRangeListPath() {
+  const appSettings = prefs.getAllSettings();
+  const remembered = String(appSettings?.exportScanBatchListFilePath || '').trim();
+  if (remembered) return remembered;
   const projectPath = prefs.getLastProjectPath();
   const baseDir = projectPath && fs.existsSync(projectPath)
     ? projectPath
     : path.join(app.getPath('documents'), 'Film2Frame');
   return path.join(baseDir, 'batch-range-list.txt');
+}
+
+function rememberBatchRangeListPath(filePath) {
+  const p = String(filePath || '').trim();
+  if (!p) return;
+  prefs.setSettings({ exportScanBatchListFilePath: p });
 }
 
 function parseBatchRangeLine(line) {
@@ -780,12 +789,14 @@ function registerIPC() {
   ipcMain.handle('import-batch-range-list-file', async () => {
     try {
       const win = windows.getMainWindow();
+      const suggestedFile = getDefaultBatchRangeListPath();
       const projectPath = prefs.getLastProjectPath();
-      const defaultDir = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath('documents');
+      const fallbackDir = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath('documents');
+      const defaultPath = fs.existsSync(suggestedFile) ? suggestedFile : fallbackDir;
       const result = await dialog.showOpenDialog(win || null, {
         title: 'Batchlijst importeren',
         properties: ['openFile'],
-        defaultPath: defaultDir,
+        defaultPath,
         filters: [
           { name: 'Batch TXT', extensions: ['txt'] },
           { name: 'Text files', extensions: ['txt', 'csv', 'list', 'md'] },
@@ -803,6 +814,7 @@ function registerIPC() {
           error: 'Geen geldige bereiken gevonden. Gebruik per regel bijv. "1-300" of "301 600".'
         };
       }
+      rememberBatchRangeListPath(filePath);
       return {
         ok: true,
         path: filePath,
@@ -837,6 +849,7 @@ function registerIPC() {
           stdio: 'ignore'
         });
         child.unref();
+        rememberBatchRangeListPath(filePath);
         return { ok: true, path: filePath };
       }
       return { ok: false, error: 'Notepad is alleen beschikbaar op Windows.', path: filePath };
@@ -849,7 +862,10 @@ function registerIPC() {
     try {
       const filePath = getDefaultBatchRangeListPath();
       if (!fs.existsSync(filePath)) {
-        return { ok: false, error: 'Notepad-lijst niet gevonden. Open eerst de Notepad-lijst.' };
+        return {
+          ok: false,
+          error: `Notepad-lijst niet gevonden op: ${filePath}. Open eerst de Notepad-lijst.`
+        };
       }
       const raw = fs.readFileSync(filePath, 'utf8');
       const parsed = parseBatchRangesFromAscii(raw);
