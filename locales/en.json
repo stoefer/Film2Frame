@@ -713,6 +713,7 @@
   "frameGenerator.batchRangeRefSaved": "ref saved",
   "frameGenerator.batchRangeRefMissing": "ref missing",
   "frameGenerator.batchRangeRefMissingTooltip": "Click to calibrate range",
+  "frameGenerator.batchRangeOpenedForCalibration": "Range opened for calibration ({from}–{to}).",
   "frameGenerator.saveCurrentButton": "Export current scan",
   "frameGenerator.batchButton": "Batch: all scans",
   "frameGenerator.batchPauseButton": "Pause",

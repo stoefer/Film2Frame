@@ -63,6 +63,8 @@ let exportScanBatchAutoMerge = true;
 let exportScanBatchWrapNav = false;
 let exportScanBatchRangeRefs = {};
 let exportBatchResumeState = null;
+let transientStatusTimer = null;
+let transientStatusToken = 0;
 const exportBatchRunState = {
   running: false,
   paused: false,
@@ -1398,7 +1400,15 @@ async function onBatchRangeRowClick(index, range, event) {
   if (!missingBadgeClicked) return;
   if (event && typeof event.preventDefault === 'function') event.preventDefault();
   if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-  await jumpToRangeStartScan(range);
+  const jumped = await jumpToRangeStartScan(range);
+  if (jumped) {
+    showTransientStatusMessage(
+      t('frameGenerator.batchRangeOpenedForCalibration', {
+        from: Math.max(1, Math.floor(Number(range?.from) || 1)),
+        to: Math.max(1, Math.floor(Number(range?.to) || 1))
+      })
+    );
+  }
 }
 
 /** Geordende lijst scanpaden van het project (RASTER SETUP / scanlint) — niet de pixel-editor-bronmap. */
@@ -9355,6 +9365,22 @@ function withBatchProgressStats(baseMessage, ctx) {
   const stats = formatBatchProgressStats(ctx);
   if (!stats) return baseMessage || '';
   return baseMessage ? `${baseMessage} · ${stats}` : stats;
+}
+
+function showTransientStatusMessage(message, timeoutMs = 1800) {
+  if (!message) return;
+  transientStatusToken += 1;
+  const token = transientStatusToken;
+  if (transientStatusTimer) {
+    clearTimeout(transientStatusTimer);
+    transientStatusTimer = null;
+  }
+  updateStatus(0, message);
+  transientStatusTimer = setTimeout(() => {
+    if (token !== transientStatusToken) return;
+    updateStatus(0, t('status.operationEmpty'));
+    transientStatusTimer = null;
+  }, Math.max(400, Math.floor(Number(timeoutMs) || 1800)));
 }
 
 function pathBasename(p) {
