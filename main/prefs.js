@@ -37,6 +37,8 @@ const KEYS = {
   overlayGridRefPxWidth: 'overlayGridRefPxWidth',
   overlayGridRefPxHeight: 'overlayGridRefPxHeight',
   overlayGridRefPxFrames: 'overlayGridRefPxFrames',
+  exportScanRangeDraftFrom: 'exportScanRangeDraftFrom',
+  exportScanRangeDraftTo: 'exportScanRangeDraftTo',
   exportScanBatchRanges: 'exportScanBatchRanges',
   exportScanBatchAutoMerge: 'exportScanBatchAutoMerge',
   exportScanBatchWrapNav: 'exportScanBatchWrapNav',
@@ -69,6 +71,8 @@ const DEFAULTS = {
   overlayGridRefPxWidth: 103,
   overlayGridRefPxHeight: 75,
   overlayGridRefPxFrames: 30,
+  exportScanRangeDraftFrom: 1,
+  exportScanRangeDraftTo: 1,
   exportScanBatchRanges: [],
   exportScanBatchAutoMerge: true,
   exportScanBatchWrapNav: false,
@@ -211,6 +215,14 @@ function getAllSettings() {
       typeof data[KEYS.overlayGridRefPxFrames] === 'number'
         ? Math.max(1, Math.min(99, Math.round(data[KEYS.overlayGridRefPxFrames])))
         : DEFAULTS.overlayGridRefPxFrames,
+    exportScanRangeDraftFrom:
+      typeof data[KEYS.exportScanRangeDraftFrom] === 'number'
+        ? Math.max(1, Math.min(999999999, Math.round(data[KEYS.exportScanRangeDraftFrom])))
+        : DEFAULTS.exportScanRangeDraftFrom,
+    exportScanRangeDraftTo:
+      typeof data[KEYS.exportScanRangeDraftTo] === 'number'
+        ? Math.max(1, Math.min(999999999, Math.round(data[KEYS.exportScanRangeDraftTo])))
+        : DEFAULTS.exportScanRangeDraftTo,
     exportScanBatchRanges: normalizeExportScanBatchRanges(data[KEYS.exportScanBatchRanges]),
     exportScanBatchAutoMerge:
       data[KEYS.exportScanBatchAutoMerge] !== undefined
@@ -293,6 +305,12 @@ function setSettings(settings) {
   }
   if (settings.overlayGridRefPxFrames !== undefined) {
     data[KEYS.overlayGridRefPxFrames] = Math.max(1, Math.min(99, Math.round(Number(settings.overlayGridRefPxFrames) || DEFAULTS.overlayGridRefPxFrames)));
+  }
+  if (settings.exportScanRangeDraftFrom !== undefined) {
+    data[KEYS.exportScanRangeDraftFrom] = Math.max(1, Math.min(999999999, Math.round(Number(settings.exportScanRangeDraftFrom) || DEFAULTS.exportScanRangeDraftFrom)));
+  }
+  if (settings.exportScanRangeDraftTo !== undefined) {
+    data[KEYS.exportScanRangeDraftTo] = Math.max(1, Math.min(999999999, Math.round(Number(settings.exportScanRangeDraftTo) || DEFAULTS.exportScanRangeDraftTo)));
   }
   if (settings.exportScanBatchRanges !== undefined) {
     data[KEYS.exportScanBatchRanges] = normalizeExportScanBatchRanges(settings.exportScanBatchRanges);

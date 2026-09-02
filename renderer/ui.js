@@ -1078,8 +1078,11 @@ function resolveGlobalFramePosition(frameNo, rows) {
 function setExportRangeInputs(from, to) {
   const fromEl = el(ids.exportScanFrom);
   const toEl = el(ids.exportScanTo);
-  if (fromEl) fromEl.value = String(Math.max(1, Math.floor(Number(from) || 1)));
-  if (toEl) toEl.value = String(Math.max(1, Math.floor(Number(to) || 1)));
+  const nextFrom = Math.max(1, Math.floor(Number(from) || 1));
+  const nextTo = Math.max(1, Math.floor(Number(to) || 1));
+  if (fromEl) fromEl.value = String(nextFrom);
+  if (toEl) toEl.value = String(nextTo);
+  persistExportRangeDraftInputs();
 }
 
 function setExportBatchInsertMode(mode) {
@@ -1156,6 +1159,18 @@ function persistOverlayGridRefPxValues() {
       overlayGridRefPxWidth: v.width,
       overlayGridRefPxHeight: v.height,
       overlayGridRefPxFrames: v.frames
+    })
+    .catch(() => {});
+}
+
+function persistExportRangeDraftInputs() {
+  if (!window.api?.setAppSettings) return;
+  const fromVal = Math.max(1, Math.floor(Number(el(ids.exportScanFrom)?.value) || 1));
+  const toVal = Math.max(1, Math.floor(Number(el(ids.exportScanTo)?.value) || 1));
+  window.api
+    .setAppSettings({
+      exportScanRangeDraftFrom: fromVal,
+      exportScanRangeDraftTo: toVal
     })
     .catch(() => {});
 }
@@ -6313,8 +6328,12 @@ async function loadAppSettings() {
     exportScanBatchSelectedIndex = exportScanBatchRanges.length ? 0 : -1;
     exportScanBatchEditIndex = -1;
     setExportBatchInsertMode('append');
-    const defaultTo = frameCount > 0 ? frameCount : 1;
-    setExportRangeInputs(1, defaultTo);
+    const maxFrameForDraft = frameCount > 0 ? frameCount : Number.POSITIVE_INFINITY;
+    const savedDraftFrom = Math.max(1, Math.floor(Number(s.exportScanRangeDraftFrom) || 1));
+    const savedDraftToRaw = Math.max(1, Math.floor(Number(s.exportScanRangeDraftTo) || (frameCount > 0 ? frameCount : 1)));
+    const savedDraftTo = Math.min(maxFrameForDraft, savedDraftToRaw);
+    const savedDraftFromClamped = Math.min(savedDraftFrom, savedDraftTo);
+    setExportRangeInputs(savedDraftFromClamped, savedDraftTo);
     updateUI();
     updateFloatingPreviewButtonUi().catch(() => {});
     if (getState().image) refreshPreviews();
@@ -8720,6 +8739,13 @@ function bind() {
   overlayRefHeightEl?.addEventListener('input', onOverlayRefPxInputChanged);
   overlayRefFramesEl?.addEventListener('change', onOverlayRefPxInputChanged);
   overlayRefFramesEl?.addEventListener('input', onOverlayRefPxInputChanged);
+  const rangeFromEl = el(ids.exportScanFrom);
+  const rangeToEl = el(ids.exportScanTo);
+  const onExportRangeDraftChanged = () => persistExportRangeDraftInputs();
+  rangeFromEl?.addEventListener('change', onExportRangeDraftChanged);
+  rangeFromEl?.addEventListener('input', onExportRangeDraftChanged);
+  rangeToEl?.addEventListener('change', onExportRangeDraftChanged);
+  rangeToEl?.addEventListener('input', onExportRangeDraftChanged);
   el(ids.workflowSingleFrame)?.addEventListener('click', onWorkflowSingleFrameClick);
   const stripResEl = el(ids.stripPreviewRes);
   if (stripResEl) {
