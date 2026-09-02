@@ -712,6 +712,7 @@
   "frameGenerator.batchRangeProgressFrame": "Range {currentRange}/{totalRanges} · frame {frame} (from {from} to {to})",
   "frameGenerator.batchRangeRefSaved": "ref saved",
   "frameGenerator.batchRangeRefMissing": "ref missing",
+  "frameGenerator.batchRangeRefMissingTooltip": "Click to calibrate range",
   "frameGenerator.saveCurrentButton": "Export current scan",
   "frameGenerator.batchButton": "Batch: all scans",
   "frameGenerator.batchPauseButton": "Pause",

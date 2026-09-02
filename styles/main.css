@@ -1434,6 +1434,9 @@ body.theme-light .frame-generator-progress-pct {
   background: #713f12;
   border-color: #f59e0b;
   color: #fef3c7;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .export-range-mode {
@@ -1480,6 +1483,7 @@ body.theme-light .export-range-ref-badge--missing {
   background: #fef3c7;
   border-color: #d97706;
   color: #7c2d12;
+  cursor: pointer;
 }
 
 /* Zelfstandig instellingen-venster */

@@ -1348,12 +1348,8 @@ function renderExportScanBatchRangeList() {
     const row = document.createElement('button');
     row.type = 'button';
     row.className = `export-range-list-item${i === exportScanBatchSelectedIndex ? ' active' : ''}`;
-    row.addEventListener('click', () => {
-      if (exportScanBatchSelectedIndex !== i) {
-        persistCurrentRangeReferenceSnapshot(exportScanBatchSelectedIndex);
-      }
-      exportScanBatchSelectedIndex = i;
-      renderExportScanBatchRangeList();
+    row.addEventListener('click', (event) => {
+      void onBatchRangeRowClick(i, item, event);
     });
     const label = document.createElement('span');
     label.className = 'export-range-list-item-label';
@@ -1372,6 +1368,10 @@ function renderExportScanBatchRangeList() {
     refBadge.textContent = hasRef
       ? t('frameGenerator.batchRangeRefSaved')
       : t('frameGenerator.batchRangeRefMissing');
+    if (!hasRef) {
+      refBadge.title = t('frameGenerator.batchRangeRefMissingTooltip');
+      refBadge.setAttribute('aria-label', t('frameGenerator.batchRangeRefMissingTooltip'));
+    }
     row.appendChild(label);
     row.appendChild(hint);
     row.appendChild(refBadge);
@@ -1385,6 +1385,20 @@ function renderExportScanBatchRangeList() {
     });
   }
   setExportBatchInsertMode(exportScanBatchEditIndex >= 0 ? 'edit' : exportScanBatchInsertMode);
+}
+
+async function onBatchRangeRowClick(index, range, event) {
+  if (index < 0 || index >= exportScanBatchRanges.length) return;
+  const missingBadgeClicked = !!event?.target?.closest?.('.export-range-ref-badge--missing');
+  if (exportScanBatchSelectedIndex !== index) {
+    persistCurrentRangeReferenceSnapshot(exportScanBatchSelectedIndex);
+  }
+  exportScanBatchSelectedIndex = index;
+  renderExportScanBatchRangeList();
+  if (!missingBadgeClicked) return;
+  if (event && typeof event.preventDefault === 'function') event.preventDefault();
+  if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+  await jumpToRangeStartScan(range);
 }
 
 /** Geordende lijst scanpaden van het project (RASTER SETUP / scanlint) — niet de pixel-editor-bronmap. */

@@ -712,6 +712,7 @@
   "frameGenerator.batchRangeProgressFrame": "Bereik {currentRange}/{totalRanges} · frame {frame} (van {from} tot {to})",
   "frameGenerator.batchRangeRefSaved": "ref opgeslagen",
   "frameGenerator.batchRangeRefMissing": "ref ontbreekt",
+  "frameGenerator.batchRangeRefMissingTooltip": "Klik om range te kalibreren",
   "frameGenerator.saveCurrentButton": "Huidige scan exporteren",
   "frameGenerator.batchButton": "Batch: alle scans",
   "frameGenerator.batchPauseButton": "Pauze",
