@@ -9367,6 +9367,12 @@ function withBatchProgressStats(baseMessage, ctx) {
   return baseMessage ? `${baseMessage} · ${stats}` : stats;
 }
 
+function setCalibrationStatusAccent(enabled) {
+  const opEl = document.getElementById('status-operation');
+  if (!opEl) return;
+  opEl.classList.toggle('toolbar-status-operation--calibration-success', enabled === true);
+}
+
 function showTransientStatusMessage(message, timeoutMs = 1800) {
   if (!message) return;
   transientStatusToken += 1;
@@ -9375,9 +9381,11 @@ function showTransientStatusMessage(message, timeoutMs = 1800) {
     clearTimeout(transientStatusTimer);
     transientStatusTimer = null;
   }
+  setCalibrationStatusAccent(true);
   updateStatus(0, message);
   transientStatusTimer = setTimeout(() => {
     if (token !== transientStatusToken) return;
+    setCalibrationStatusAccent(false);
     updateStatus(0, t('status.operationEmpty'));
     transientStatusTimer = null;
   }, Math.max(400, Math.floor(Number(timeoutMs) || 1800)));
