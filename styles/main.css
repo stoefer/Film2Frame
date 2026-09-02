@@ -727,6 +727,37 @@ body.theme-light .btn-floating-preview-toggle.pressed {
 }
 .btn-preview-pixel:hover { background: #6d28d9; border-color: #8b5cf6; }
 .btn-secondary { }
+
+/* PNG batchlijst-knopaccenten */
+#f2f-export-batch-range-remove {
+  background: #7f1d1d;
+  border-color: #b91c1c;
+  color: #fee2e2;
+}
+#f2f-export-batch-range-remove:hover {
+  background: #991b1b;
+  border-color: #ef4444;
+}
+
+#f2f-export-batch-range-clear {
+  background: #450a0a;
+  border-color: #7f1d1d;
+  color: #fecaca;
+}
+#f2f-export-batch-range-clear:hover {
+  background: #5f1212;
+  border-color: #991b1b;
+}
+
+#f2f-export-batch-range-import {
+  background: #166534;
+  border-color: #22c55e;
+  color: #ecfdf5;
+}
+#f2f-export-batch-range-import:hover {
+  background: #15803d;
+  border-color: #4ade80;
+}
 /* Projectbalk: laden (blauwe rand), bewaren en wissen (rode rand) */
 .btn-project-open {
   border: 2px solid #3b82f6;
