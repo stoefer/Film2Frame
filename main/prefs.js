@@ -39,6 +39,7 @@ const KEYS = {
   overlayGridRefPxFrames: 'overlayGridRefPxFrames',
   exportScanRangeDraftFrom: 'exportScanRangeDraftFrom',
   exportScanRangeDraftTo: 'exportScanRangeDraftTo',
+  exportScanBatchRangeRefs: 'exportScanBatchRangeRefs',
   exportScanBatchRanges: 'exportScanBatchRanges',
   exportScanBatchAutoMerge: 'exportScanBatchAutoMerge',
   exportScanBatchWrapNav: 'exportScanBatchWrapNav',
@@ -73,6 +74,7 @@ const DEFAULTS = {
   overlayGridRefPxFrames: 30,
   exportScanRangeDraftFrom: 1,
   exportScanRangeDraftTo: 1,
+  exportScanBatchRangeRefs: {},
   exportScanBatchRanges: [],
   exportScanBatchAutoMerge: true,
   exportScanBatchWrapNav: false,
@@ -91,6 +93,23 @@ function normalizeExportScanBatchRanges(raw) {
     const lo = Math.min(from, to);
     const hi = Math.max(from, to);
     out.push({ from: lo, to: hi });
+  }
+  return out;
+}
+
+function normalizeExportScanBatchRangeRefs(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+  const out = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!/^\d+-\d+$/.test(String(key))) continue;
+    if (!value || typeof value !== 'object') continue;
+    if (!value.snapshot || typeof value.snapshot !== 'object') continue;
+    out[key] = {
+      snapshot: value.snapshot,
+      savedAt: Number.isFinite(Number(value.savedAt)) ? Number(value.savedAt) : Date.now(),
+      scanPath: typeof value.scanPath === 'string' ? value.scanPath : '',
+      activeFrameIndex: Number.isFinite(Number(value.activeFrameIndex)) ? Math.max(0, Math.floor(Number(value.activeFrameIndex))) : 0
+    };
   }
   return out;
 }
@@ -223,6 +242,8 @@ function getAllSettings() {
       typeof data[KEYS.exportScanRangeDraftTo] === 'number'
         ? Math.max(1, Math.min(999999999, Math.round(data[KEYS.exportScanRangeDraftTo])))
         : DEFAULTS.exportScanRangeDraftTo,
+    exportScanBatchRangeRefs:
+      normalizeExportScanBatchRangeRefs(data[KEYS.exportScanBatchRangeRefs]),
     exportScanBatchRanges: normalizeExportScanBatchRanges(data[KEYS.exportScanBatchRanges]),
     exportScanBatchAutoMerge:
       data[KEYS.exportScanBatchAutoMerge] !== undefined
@@ -311,6 +332,9 @@ function setSettings(settings) {
   }
   if (settings.exportScanRangeDraftTo !== undefined) {
     data[KEYS.exportScanRangeDraftTo] = Math.max(1, Math.min(999999999, Math.round(Number(settings.exportScanRangeDraftTo) || DEFAULTS.exportScanRangeDraftTo)));
+  }
+  if (settings.exportScanBatchRangeRefs !== undefined) {
+    data[KEYS.exportScanBatchRangeRefs] = normalizeExportScanBatchRangeRefs(settings.exportScanBatchRangeRefs);
   }
   if (settings.exportScanBatchRanges !== undefined) {
     data[KEYS.exportScanBatchRanges] = normalizeExportScanBatchRanges(settings.exportScanBatchRanges);

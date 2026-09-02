@@ -61,6 +61,7 @@ let exportScanBatchEditIndex = -1;
 let exportScanBatchInsertMode = 'append';
 let exportScanBatchAutoMerge = true;
 let exportScanBatchWrapNav = false;
+let exportScanBatchRangeRefs = {};
 let exportBatchResumeState = null;
 const exportBatchRunState = {
   running: false,
@@ -994,6 +995,42 @@ function normalizeExportScanBatchRanges(raw, maxScanCount = Number.POSITIVE_INFI
   return out;
 }
 
+function getExportScanBatchRangeKey(range) {
+  if (!range || typeof range !== 'object') return '';
+  const from = Math.max(1, Math.floor(Number(range.from) || 0));
+  const to = Math.max(1, Math.floor(Number(range.to) || 0));
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return '';
+  const lo = Math.min(from, to);
+  const hi = Math.max(from, to);
+  return `${lo}-${hi}`;
+}
+
+function normalizeExportScanBatchRangeRefs(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+  const out = {};
+  for (const [key, entry] of Object.entries(raw)) {
+    if (!/^\d+-\d+$/.test(String(key))) continue;
+    if (!entry || typeof entry !== 'object') continue;
+    if (!entry.snapshot || typeof entry.snapshot !== 'object') continue;
+    out[key] = {
+      snapshot: entry.snapshot,
+      savedAt: Number.isFinite(Number(entry.savedAt)) ? Number(entry.savedAt) : Date.now(),
+      scanPath: typeof entry.scanPath === 'string' ? entry.scanPath : '',
+      activeFrameIndex: Number.isFinite(Number(entry.activeFrameIndex)) ? Math.max(0, Math.floor(Number(entry.activeFrameIndex))) : 0
+    };
+  }
+  return out;
+}
+
+function pruneExportScanBatchRangeRefsToCurrentRanges() {
+  const allowed = new Set(exportScanBatchRanges.map((r) => getExportScanBatchRangeKey(r)).filter(Boolean));
+  const next = {};
+  for (const [key, entry] of Object.entries(exportScanBatchRangeRefs || {})) {
+    if (allowed.has(key) && entry && typeof entry === 'object') next[key] = entry;
+  }
+  exportScanBatchRangeRefs = next;
+}
+
 function sortAndMergeExportScanBatchRanges(ranges) {
   const rows = Array.isArray(ranges) ? ranges.map((r) => ({ from: r.from, to: r.to })) : [];
   rows.sort((a, b) => (a.from - b.from) || (a.to - b.to));
@@ -1103,12 +1140,42 @@ function setExportBatchInsertMode(mode) {
 
 function persistExportScanBatchRanges() {
   if (!window.api?.setAppSettings) return;
+  pruneExportScanBatchRangeRefsToCurrentRanges();
   const payload = {
     exportScanBatchRanges: exportScanBatchRanges.map((r) => ({ from: r.from, to: r.to })),
     exportScanBatchAutoMerge: exportScanBatchAutoMerge !== false,
-    exportScanBatchWrapNav: exportScanBatchWrapNav === true
+    exportScanBatchWrapNav: exportScanBatchWrapNav === true,
+    exportScanBatchRangeRefs: exportScanBatchRangeRefs
   };
   window.api.setAppSettings(payload).catch(() => {});
+}
+
+function persistCurrentRangeReferenceSnapshot(index = exportScanBatchSelectedIndex) {
+  if (index < 0 || index >= exportScanBatchRanges.length) return;
+  const range = exportScanBatchRanges[index];
+  const key = getExportScanBatchRangeKey(range);
+  if (!key) return;
+  const s = getState();
+  if (!s.path) return;
+  const snapshot = getLintStateSnapshot();
+  if (!snapshot) return;
+  exportScanBatchRangeRefs[key] = {
+    snapshot,
+    savedAt: Date.now(),
+    scanPath: s.path,
+    activeFrameIndex: Math.max(0, Math.floor(Number(s.activeFrameIndex) || 0))
+  };
+  persistExportScanBatchRanges();
+}
+
+function applyRangeReferenceSnapshotForRange(range, targetScanPath = '') {
+  const key = getExportScanBatchRangeKey(range);
+  if (!key) return false;
+  const ref = exportScanBatchRangeRefs && exportScanBatchRangeRefs[key];
+  if (!ref || !ref.snapshot || typeof ref.snapshot !== 'object') return false;
+  if (targetScanPath && ref.scanPath && ref.scanPath !== targetScanPath) return false;
+  applyLintState(ref.snapshot);
+  return true;
 }
 
 function normalizeExportBatchResumeState(raw) {
@@ -6313,6 +6380,7 @@ async function loadAppSettings() {
     const frameCount = getProjectTotalFrameCountEstimate();
     exportScanBatchAutoMerge = s.exportScanBatchAutoMerge !== false;
     exportScanBatchWrapNav = s.exportScanBatchWrapNav === true;
+    exportScanBatchRangeRefs = normalizeExportScanBatchRangeRefs(s.exportScanBatchRangeRefs);
     exportBatchResumeState = normalizeExportBatchResumeState(s.exportBatchResumeState);
     const mergeToggleEl = el(ids.exportBatchAutoMerge);
     if (mergeToggleEl) mergeToggleEl.checked = exportScanBatchAutoMerge;
@@ -6325,6 +6393,7 @@ async function loadAppSettings() {
     if (exportScanBatchAutoMerge) {
       exportScanBatchRanges = sortAndMergeExportScanBatchRanges(exportScanBatchRanges);
     }
+    pruneExportScanBatchRangeRefsToCurrentRanges();
     exportScanBatchSelectedIndex = exportScanBatchRanges.length ? 0 : -1;
     exportScanBatchEditIndex = -1;
     setExportBatchInsertMode('append');
@@ -9753,6 +9822,10 @@ async function jumpToRangeStartScan(range) {
   const loaded = await loadScanByPath(targetPos.scanPath, scanNavigationGridOptions());
   if (!loaded) return false;
   setActiveFrameIndex(Math.max(0, targetPos.frameInScan - 1));
+  if (applyRangeReferenceSnapshotForRange(range, targetPos.scanPath)) {
+    // Bij een opgeslagen referentie blijft de startframe-positie leidend.
+    setActiveFrameIndex(Math.max(0, targetPos.frameInScan - 1));
+  }
   setDirty();
   updateUI();
   refreshPreviews();
@@ -9915,6 +9988,7 @@ async function onResumeStoppedBatchRun() {
 }
 
 async function onGoToPreviousBatchRange() {
+  persistCurrentRangeReferenceSnapshot();
   if (!exportScanBatchRanges.length) {
     alert(t('frameExport.batchRangeListEmpty'));
     return;
@@ -9938,6 +10012,7 @@ async function onGoToPreviousBatchRange() {
 }
 
 async function onGoToNextBatchRange() {
+  persistCurrentRangeReferenceSnapshot();
   if (!exportScanBatchRanges.length) {
     alert(t('frameExport.batchRangeListEmpty'));
     return;
