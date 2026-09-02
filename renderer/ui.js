@@ -59,6 +59,7 @@ let exportScanBatchRanges = [];
 let exportScanBatchSelectedIndex = -1;
 let exportScanBatchEditIndex = -1;
 let exportScanBatchInsertMode = 'append';
+let cachedProjectScanPaths = [];
 let exportScanBatchAutoMerge = true;
 let exportScanBatchWrapNav = false;
 let exportBatchDisablePreview = false;
@@ -1130,8 +1131,9 @@ function resolveGlobalFramePosition(frameNo, rows) {
 function resolveCurrentGlobalFrameContext() {
   const meta = getProjectMeta();
   const s = getState();
-  if (!meta || !s?.path) return null;
-  const paths = Array.isArray(meta.scanInfos) ? meta.scanInfos.map((row) => row.path).filter(Boolean) : [];
+  if (!s?.path) return null;
+  const pathsFromMeta = Array.isArray(meta?.scanInfos) ? meta.scanInfos.map((row) => row.path).filter(Boolean) : [];
+  const paths = pathsFromMeta.length ? pathsFromMeta : (Array.isArray(cachedProjectScanPaths) ? cachedProjectScanPaths : []);
   if (!paths.length) return null;
   const map = buildGlobalFrameMap(paths);
   const currentPathKey = normPathKey(s.path);
@@ -1543,11 +1545,14 @@ async function getProjectScanPaths() {
   const meta = getProjectMeta();
   if (!meta) return [];
   if (Array.isArray(meta.scanInfos) && meta.scanInfos.length) {
-    return meta.scanInfos.map(s => s.path);
+    cachedProjectScanPaths = meta.scanInfos.map(s => s.path).filter(Boolean);
+    return cachedProjectScanPaths;
   }
   const location = meta.location;
   if (!location || !window.api?.listFolderImages) return [];
-  return await window.api.listFolderImages(location);
+  const listed = await window.api.listFolderImages(location);
+  cachedProjectScanPaths = Array.isArray(listed) ? listed.filter(Boolean) : [];
+  return cachedProjectScanPaths;
 }
 
 /** Na succesvol laden: project.json bijwerken (lintStates + huidige scan) zodat rasterwijzigingen niet verloren gaan. */
