@@ -61,6 +61,13 @@ let exportScanBatchEditIndex = -1;
 let exportScanBatchInsertMode = 'append';
 let exportScanBatchAutoMerge = true;
 let exportScanBatchWrapNav = false;
+let exportBatchResumeState = null;
+const exportBatchRunState = {
+  running: false,
+  paused: false,
+  stopRequested: false,
+  mode: null // 'all-scans' | 'range-list'
+};
 
 const ids = {
   projectInfo: 'project-info',
@@ -176,6 +183,10 @@ const ids = {
   exportBatchRangeSummary: 'f2f-export-batch-range-summary',
   exportBatchAutoMerge: 'f2f-export-batch-auto-merge',
   exportBatchWrapNav: 'f2f-export-batch-wrap-nav',
+  exportBatchPause: 'f2f-export-batch-pause',
+  exportBatchStop: 'f2f-export-batch-stop',
+  exportBatchResume: 'f2f-export-batch-resume',
+  exportBatchResumeHint: 'f2f-export-batch-resume-hint',
   exportCurrent: 'f2f-export-current',
   exportBatch: 'f2f-export-batch',
   frameGeneratorProgressWrap: 'f2f-frame-generator-progress-wrap',
@@ -924,6 +935,10 @@ function updateUI() {
   const nextBtn = el(ids.exportBatchRangeNext);
   const autoMergeEl = el(ids.exportBatchAutoMerge);
   const wrapNavEl = el(ids.exportBatchWrapNav);
+  const pauseBtn = el(ids.exportBatchPause);
+  const stopBtn = el(ids.exportBatchStop);
+  const resumeBtn = el(ids.exportBatchResume);
+  const resumeHintEl = el(ids.exportBatchResumeHint);
   const canWrapRangeNav = exportScanBatchWrapNav === true && exportScanBatchRanges.length > 1;
   if (editBtn) editBtn.disabled = !hasSelection;
   if (removeBtn) removeBtn.disabled = !hasSelection;
@@ -938,6 +953,15 @@ function updateUI() {
   if (nextBtn) nextBtn.disabled = !hasRanges || (!canWrapRangeNav && hasSelection && exportScanBatchSelectedIndex >= exportScanBatchRanges.length - 1);
   if (autoMergeEl) autoMergeEl.checked = exportScanBatchAutoMerge !== false;
   if (wrapNavEl) wrapNavEl.checked = exportScanBatchWrapNav === true;
+  if (pauseBtn) {
+    pauseBtn.disabled = !exportBatchRunState.running;
+    pauseBtn.textContent = exportBatchRunState.paused
+      ? t('frameGenerator.batchResumeButton')
+      : t('frameGenerator.batchPauseButton');
+  }
+  if (stopBtn) stopBtn.disabled = !exportBatchRunState.running;
+  if (resumeBtn) resumeBtn.disabled = exportBatchRunState.running || !normalizeExportBatchResumeState(exportBatchResumeState);
+  if (resumeHintEl) resumeHintEl.textContent = getExportBatchResumeHintText();
   syncScanCountInputMode();
   const tiltPivotEl = el(ids.tiltPivot);
   if (tiltPivotEl && tiltPivotEl.value !== s.tiltPivot) tiltPivotEl.value = s.tiltPivot || 'center';
@@ -1082,6 +1106,108 @@ function persistExportScanBatchRanges() {
     exportScanBatchWrapNav: exportScanBatchWrapNav === true
   };
   window.api.setAppSettings(payload).catch(() => {});
+}
+
+function normalizeExportBatchResumeState(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const mode = raw.mode === 'all-scans' || raw.mode === 'range-list' ? raw.mode : '';
+  if (!mode) return null;
+  const out = { mode };
+  if (mode === 'all-scans') {
+    const scanIndex = Math.max(0, Math.floor(Number(raw.scanIndex) || 0));
+    const frameIndex = Math.max(1, Math.floor(Number(raw.frameIndex) || 1));
+    out.scanIndex = scanIndex;
+    out.frameIndex = frameIndex;
+    if (typeof raw.scanPath === 'string' && raw.scanPath) out.scanPath = raw.scanPath;
+  } else {
+    const rangeIndex = Math.max(0, Math.floor(Number(raw.rangeIndex) || 0));
+    const nextGlobalFrame = Math.max(1, Math.floor(Number(raw.nextGlobalFrame) || 1));
+    out.rangeIndex = rangeIndex;
+    out.nextGlobalFrame = nextGlobalFrame;
+  }
+  out.savedAt = Date.now();
+  return out;
+}
+
+function persistExportBatchResumeState(state) {
+  exportBatchResumeState = normalizeExportBatchResumeState(state);
+  if (!window.api?.setAppSettings) return;
+  window.api
+    .setAppSettings({ exportBatchResumeState: exportBatchResumeState || null })
+    .catch(() => {});
+}
+
+function clearExportBatchResumeState() {
+  exportBatchResumeState = null;
+  if (!window.api?.setAppSettings) return;
+  window.api.setAppSettings({ exportBatchResumeState: null }).catch(() => {});
+}
+
+function getExportBatchResumeHintText() {
+  const state = normalizeExportBatchResumeState(exportBatchResumeState);
+  if (!state) return t('frameGenerator.batchResumeHintNone');
+  if (state.mode === 'all-scans') {
+    return t('frameGenerator.batchResumeHintAllScans', {
+      scan: Math.max(1, state.scanIndex + 1),
+      frame: Math.max(1, state.frameIndex)
+    });
+  }
+  return t('frameGenerator.batchResumeHintRangeList', {
+    range: Math.max(1, state.rangeIndex + 1),
+    frame: Math.max(1, state.nextGlobalFrame)
+  });
+}
+
+function setExportBatchRunState(patch) {
+  if (!patch || typeof patch !== 'object') return;
+  if (patch.running !== undefined) exportBatchRunState.running = !!patch.running;
+  if (patch.paused !== undefined) exportBatchRunState.paused = !!patch.paused;
+  if (patch.stopRequested !== undefined) exportBatchRunState.stopRequested = !!patch.stopRequested;
+  if (patch.mode !== undefined) exportBatchRunState.mode = patch.mode || null;
+}
+
+function beginBatchRun(mode) {
+  if (exportBatchRunState.running) return false;
+  setExportBatchRunState({ running: true, paused: false, stopRequested: false, mode });
+  updateUI();
+  return true;
+}
+
+function endBatchRun() {
+  setExportBatchRunState({ running: false, paused: false, stopRequested: false, mode: null });
+  updateUI();
+}
+
+function requestStopBatchRun() {
+  if (!exportBatchRunState.running) return;
+  setExportBatchRunState({ stopRequested: true, paused: false });
+  updateStatus(0, t('frameGenerator.batchStopRequested'));
+  updateUI();
+}
+
+function togglePauseBatchRun() {
+  if (!exportBatchRunState.running) return;
+  setExportBatchRunState({ paused: !exportBatchRunState.paused });
+  updateUI();
+}
+
+async function waitForBatchRunGate(checkpointFactory, progressMessage) {
+  while (exportBatchRunState.paused && !exportBatchRunState.stopRequested) {
+    setFrameGeneratorProgress({
+      visible: true,
+      pct: Number(el(ids.frameGeneratorProgressPct)?.textContent?.replace('%', '')) || 0,
+      message: progressMessage || t('frameGenerator.batchPausedStatus')
+    });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+  if (exportBatchRunState.stopRequested) {
+    if (typeof checkpointFactory === 'function') {
+      const checkpoint = checkpointFactory();
+      if (checkpoint) persistExportBatchResumeState(checkpoint);
+    }
+    return true;
+  }
+  return false;
 }
 
 function getSelectedGlobalFramesCount(ranges) {
@@ -6143,6 +6269,7 @@ async function loadAppSettings() {
     const frameCount = getProjectTotalFrameCountEstimate();
     exportScanBatchAutoMerge = s.exportScanBatchAutoMerge !== false;
     exportScanBatchWrapNav = s.exportScanBatchWrapNav === true;
+    exportBatchResumeState = normalizeExportBatchResumeState(s.exportBatchResumeState);
     const mergeToggleEl = el(ids.exportBatchAutoMerge);
     if (mergeToggleEl) mergeToggleEl.checked = exportScanBatchAutoMerge;
     const wrapToggleEl = el(ids.exportBatchWrapNav);
@@ -8582,6 +8709,9 @@ function bind() {
   el(ids.exportBatchRangeReimport)?.addEventListener('click', () => { onReimportBatchRangeFromNotepad().catch(() => {}); });
   el(ids.exportBatchAutoMerge)?.addEventListener('change', onToggleBatchAutoMerge);
   el(ids.exportBatchWrapNav)?.addEventListener('change', onToggleBatchWrapNav);
+  el(ids.exportBatchPause)?.addEventListener('click', togglePauseBatchRun);
+  el(ids.exportBatchStop)?.addEventListener('click', requestStopBatchRun);
+  el(ids.exportBatchResume)?.addEventListener('click', () => { onResumeStoppedBatchRun().catch(() => {}); });
   el(ids.exportCurrent)?.addEventListener('click', onExportCurrentScan);
   el(ids.exportBatch)?.addEventListener('click', onExportBatch);
   el(ids.openStrip)?.addEventListener('click', onOpenStrip);
@@ -9353,17 +9483,40 @@ function rememberExportRangeForCurrentScan(folder, baseName, startIndex, frameCo
 }
 
 /** Voert frame-export uit voor een lijst scanpaden. Bestandsnaam = originele scanstam. */
-async function exportPaths(paths) {
+async function exportPaths(paths, options = null) {
+  const opts = options && typeof options === 'object' ? options : {};
   const folder = getState().exportFolderPath;
   const pauseSec = 0;
   const appSettings = await window.api?.getAppSettings?.().catch(() => null);
   const outDims = getExportOutputDimensions(appSettings);
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const total = paths.length;
+  const resume = normalizeExportBatchResumeState(opts.resumeState);
+  let scanStart = 0;
+  let frameStart = 1;
+  if (resume && resume.mode === 'all-scans') {
+    if (typeof resume.scanPath === 'string' && resume.scanPath) {
+      const byPath = paths.indexOf(resume.scanPath);
+      scanStart = byPath >= 0 ? byPath : Math.max(0, Math.min(total - 1, resume.scanIndex || 0));
+    } else {
+      scanStart = Math.max(0, Math.min(total - 1, resume.scanIndex || 0));
+    }
+    frameStart = Math.max(1, resume.frameIndex || 1);
+  }
   let writtenTotal = 0;
   setFrameGeneratorProgress({ visible: true, pct: 1, message: t('frameGenerator.progressNextNumber') });
-  for (let scanIdx = 0; scanIdx < total; scanIdx++) {
+  for (let scanIdx = scanStart; scanIdx < total; scanIdx++) {
     const scanPath = paths[scanIdx];
+    const stopBeforeScan = await waitForBatchRunGate(
+      () => ({
+        mode: 'all-scans',
+        scanIndex: scanIdx,
+        scanPath,
+        frameIndex: 1
+      }),
+      t('frameGenerator.batchPausedStatus')
+    );
+    if (stopBeforeScan) return { written: writtenTotal, stopped: true };
     const sameFolderErr = assertExportFolderNotInput(folder, scanPath);
     if (sameFolderErr) throw new Error(sameFolderErr);
     setFrameGeneratorProgress({
@@ -9385,7 +9538,20 @@ async function exportPaths(paths) {
       const fileNames = getExportFileNamesForScan(scanPath, n);
       const remainingScans = total - scanIdx - 1;
       const estimatedTotalFrames = writtenTotal + n + remainingScans * n;
-      for (let i = 0; i < n; i++) {
+      const frameFromThisScan = scanIdx === scanStart ? Math.max(1, frameStart) : 1;
+      for (let i = frameFromThisScan - 1; i < n; i++) {
+        const shouldStop = await waitForBatchRunGate(
+          () => ({
+            mode: 'all-scans',
+            scanIndex: scanIdx,
+            scanPath,
+            frameIndex: i + 1
+          }),
+          t('frameGenerator.batchPausedStatus')
+        );
+        if (shouldStop) {
+          return { written: writtenTotal, stopped: true };
+        }
         let canvas = cropFrameAtIndexForExport(exportStrip, previewStrip, i);
         if (!canvas) continue;
         if (outDims) {
@@ -9467,6 +9633,7 @@ async function exportPaths(paths) {
         await yieldToEventLoop();
       }
       rememberExportRangeForCurrentScan(folder, pathStem(pathBasename(scanPath)), 1, n);
+      if (scanIdx === scanStart) frameStart = 1;
     } finally {
       releaseStripCanvasPair(pair);
       assistSampleCache = null;
@@ -9482,7 +9649,7 @@ async function exportPaths(paths) {
       await delay(pauseSec * 1000);
     }
   }
-  return writtenTotal;
+  return { written: writtenTotal, stopped: false };
 }
 
 function readExportScanRangeInputs() {
@@ -9663,6 +9830,23 @@ async function onReimportBatchRangeFromNotepad() {
   );
 }
 
+async function onResumeStoppedBatchRun() {
+  const resume = normalizeExportBatchResumeState(exportBatchResumeState);
+  if (!resume) {
+    alert(t('frameGenerator.batchResumeHintNone'));
+    return;
+  }
+  if (resume.mode === 'all-scans') {
+    await onExportBatch({ resumeState: resume });
+    return;
+  }
+  if (resume.mode === 'range-list') {
+    await onRunBatchRangeList({ resumeState: resume });
+    return;
+  }
+  alert(t('frameGenerator.batchResumeHintNone'));
+}
+
 async function onGoToPreviousBatchRange() {
   if (!exportScanBatchRanges.length) {
     alert(t('frameExport.batchRangeListEmpty'));
@@ -9747,33 +9931,67 @@ async function onAddOrUpdateBatchRange() {
   await jumpToRangeStartScan(range);
 }
 
-async function onRunBatchRangeList() {
+async function onRunBatchRangeList(options = null) {
+  if (!beginBatchRun('range-list')) {
+    alert(t('frameGenerator.batchAlreadyRunning'));
+    return;
+  }
+  const opts = options && typeof options === 'object' ? options : {};
+  const resume = normalizeExportBatchResumeState(opts.resumeState);
   const folder = getState().exportFolderPath;
   if (!folder) {
+    endBatchRun();
     alert(t('frameExport.pickFolderFirst'));
     return;
   }
   if (!exportScanBatchRanges.length) {
+    endBatchRun();
     alert(t('frameExport.batchRangeListEmpty'));
     return;
   }
   const paths = await getProjectScanPaths();
   if (!paths.length) {
+    endBatchRun();
     alert(t('frameExport.noScansInProject'));
     return;
   }
   const map = buildGlobalFrameMap(paths);
   if (map.totalFrames < 1) {
+    endBatchRun();
     alert(t('frameExport.noScansInProject'));
     return;
   }
   let writtenTotal = 0;
+  let stopped = false;
   try {
-    for (let i = 0; i < exportScanBatchRanges.length; i++) {
+    let startRangeIndex = 0;
+    let startGlobalFrame = 1;
+    if (resume && resume.mode === 'range-list') {
+      startRangeIndex = Math.max(0, Math.min(exportScanBatchRanges.length - 1, resume.rangeIndex || 0));
+      startGlobalFrame = Math.max(1, resume.nextGlobalFrame || 1);
+      updateStatus(0, t('frameGenerator.batchResumedStatus'));
+    } else {
+      clearExportBatchResumeState();
+    }
+    for (let i = startRangeIndex; i < exportScanBatchRanges.length; i++) {
       const range = exportScanBatchRanges[i];
-      const from = Math.max(1, Math.min(map.totalFrames, range.from));
+      const rawFrom = i === startRangeIndex ? Math.max(range.from, startGlobalFrame) : range.from;
+      const from = Math.max(1, Math.min(map.totalFrames, rawFrom));
       const to = Math.max(1, Math.min(map.totalFrames, range.to));
       if (from > to) continue;
+      const stopBeforeRange = await waitForBatchRunGate(
+        () => ({
+          mode: 'range-list',
+          rangeIndex: i,
+          nextGlobalFrame: from
+        }),
+        t('frameGenerator.batchPausedStatus')
+      );
+      if (stopBeforeRange) {
+        stopped = true;
+        updateStatus(0, t('frameGenerator.batchStoppedStatus'));
+        return;
+      }
       updateStatus(
         5,
         t('frameGenerator.batchRangeRunningStatus', {
@@ -9783,9 +10001,15 @@ async function onRunBatchRangeList() {
           to
         })
       );
-      const written = await exportGlobalFrameRange(paths, map, from, to, i, exportScanBatchRanges.length);
-      writtenTotal += Number(written) || 0;
+      const rangeResult = await exportGlobalFrameRange(paths, map, from, to, i, exportScanBatchRanges.length);
+      writtenTotal += Number(rangeResult?.written) || 0;
+      if (rangeResult?.stopped) {
+        stopped = true;
+        updateStatus(0, t('frameGenerator.batchStoppedStatus'));
+        return;
+      }
     }
+    clearExportBatchResumeState();
     if (writtenTotal > 0) {
       alert(t('frameExport.batchRangeListDone', { count: writtenTotal, ranges: exportScanBatchRanges.length, folder }));
     } else {
@@ -9794,8 +10018,9 @@ async function onRunBatchRangeList() {
   } catch (e) {
     alert(t('frameExport.batchFailed', { message: e?.message || e }));
   } finally {
+    endBatchRun();
     setFrameGeneratorProgress({ visible: false });
-    updateStatus(0, t('status.operationEmpty'));
+    if (!stopped) updateStatus(0, t('status.operationEmpty'));
   }
 }
 
@@ -9826,6 +10051,20 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
       const localStart = scanIdx === startPos.scanIndex ? startPos.frameInScan : 1;
       const localEnd = scanIdx === endPos.scanIndex ? endPos.frameInScan : n;
       for (let i = Math.max(1, localStart); i <= Math.min(n, localEnd); i++) {
+        const currentGlobalFrame = frameMap.rows[scanIdx]
+          ? frameMap.rows[scanIdx].start + (i - 1)
+          : (fromFrame + processedInRange);
+        const shouldStop = await waitForBatchRunGate(
+          () => ({
+            mode: 'range-list',
+            rangeIndex: rangeIdx,
+            nextGlobalFrame: currentGlobalFrame
+          }),
+          t('frameGenerator.batchPausedStatus')
+        );
+        if (shouldStop) {
+          return { written: writtenTotal, stopped: true, nextGlobalFrame: currentGlobalFrame };
+        }
         let canvas = cropFrameAtIndexForExport(exportStrip, previewStrip, i - 1);
         if (!canvas) {
           processedInRange++;
@@ -9902,31 +10141,53 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
       assistSampleCache = null;
     }
   }
-  return writtenTotal;
+  return { written: writtenTotal, stopped: false, nextGlobalFrame: toFrame + 1 };
 }
 
 /** Batch: alle scanlints laden, frames uitsnijden met originele bestandsnamen. */
-async function onExportBatch() {
+async function onExportBatch(options = null) {
+  if (!beginBatchRun('all-scans')) {
+    alert(t('frameGenerator.batchAlreadyRunning'));
+    return;
+  }
+  const opts = options && typeof options === 'object' ? options : {};
+  const resume = normalizeExportBatchResumeState(opts.resumeState);
   const folder = getState().exportFolderPath;
   if (!folder) {
+    endBatchRun();
     alert(t('frameExport.pickFolderFirst'));
     return;
   }
   const paths = await getProjectScanPaths();
   if (!paths.length) {
+    endBatchRun();
     alert(t('frameExport.noScansInProject'));
     return;
   }
+  if (resume && resume.mode === 'all-scans') {
+    updateStatus(0, t('frameGenerator.batchResumedStatus'));
+  } else {
+    clearExportBatchResumeState();
+  }
   updateStatus(5, t('status.batchStart'));
+  let stopped = false;
   try {
-    const written = await exportPaths(paths);
+    const result = await exportPaths(paths, { resumeState: resume });
+    const written = Number(result?.written) || 0;
+    stopped = !!result?.stopped;
+    if (stopped) {
+      updateStatus(0, t('frameGenerator.batchStoppedStatus'));
+      return;
+    }
+    clearExportBatchResumeState();
     if (written > 0) alert(t('frameExport.batchDone', { count: written, folder }));
     else alert(t('frameExport.nothingWritten'));
   } catch (e) {
     alert(t('frameExport.batchFailed', { message: e?.message || e }));
   } finally {
+    endBatchRun();
     setFrameGeneratorProgress({ visible: false });
-    updateStatus(0, t('status.operationEmpty'));
+    if (!stopped) updateStatus(0, t('status.operationEmpty'));
   }
 }
 

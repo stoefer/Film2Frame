@@ -38,6 +38,7 @@ const KEYS = {
   exportScanBatchAutoMerge: 'exportScanBatchAutoMerge',
   exportScanBatchWrapNav: 'exportScanBatchWrapNav',
   exportScanBatchListFilePath: 'exportScanBatchListFilePath',
+  exportBatchResumeState: 'exportBatchResumeState',
   eulaAcceptedVersion: 'eulaAcceptedVersion'
 };
 
@@ -202,7 +203,11 @@ function getAllSettings() {
     exportScanBatchListFilePath:
       typeof data[KEYS.exportScanBatchListFilePath] === 'string' && data[KEYS.exportScanBatchListFilePath].trim()
         ? data[KEYS.exportScanBatchListFilePath].trim()
-        : ''
+        : '',
+    exportBatchResumeState:
+      data[KEYS.exportBatchResumeState] && typeof data[KEYS.exportBatchResumeState] === 'object'
+        ? data[KEYS.exportBatchResumeState]
+        : null
   };
 }
 
@@ -274,6 +279,12 @@ function setSettings(settings) {
   if (settings.exportScanBatchListFilePath !== undefined) {
     const p = String(settings.exportScanBatchListFilePath || '').trim();
     data[KEYS.exportScanBatchListFilePath] = p;
+  }
+  if (settings.exportBatchResumeState !== undefined) {
+    data[KEYS.exportBatchResumeState] =
+      settings.exportBatchResumeState && typeof settings.exportBatchResumeState === 'object'
+        ? settings.exportBatchResumeState
+        : null;
   }
   if (settings.stripPreviewShortcuts !== undefined && settings.stripPreviewShortcuts != null) {
     const sc = require('./strip-shortcuts');
