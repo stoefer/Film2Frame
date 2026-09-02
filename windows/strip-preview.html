@@ -4986,7 +4986,7 @@
           Number.isFinite(Number(lastBatchRangeContext.range.to))
         ) {
           rangeText =
-            ' · R' +
+            ' | R' +
             String(Math.max(1, Math.floor(Number(lastBatchRangeContext.rangeIndex) || 0) + 1)) +
             ':' +
             String(Math.floor(Number(lastBatchRangeContext.range.from))) +
@@ -4996,19 +4996,19 @@
         if (!Number.isFinite(globalFrame) || globalFrame < 1) globalFrame = NaN;
         if (Number.isFinite(activeFrame) && Number.isFinite(totalFrames)) {
           inlineFrameEl.textContent = Number.isFinite(globalFrame)
-            ? (String(activeFrame) + ' / ' + String(totalFrames) + ' · G' + String(globalFrame) + rangeText)
+            ? (String(activeFrame) + '/' + String(totalFrames) + ' | G' + String(globalFrame) + rangeText)
             : (String(activeFrame) + ' / ' + String(totalFrames));
           inlineFrameEl.title = Number.isFinite(globalFrame)
-            ? (String(activeFrame) + ' / ' + String(totalFrames) + ' (global ' + String(globalFrame) + ')' + rangeText)
+            ? ('Frame ' + String(activeFrame) + '/' + String(totalFrames) + ' | Global ' + String(globalFrame) + rangeText)
             : (String(activeFrame) + ' / ' + String(totalFrames));
           return;
         }
         if (Number.isFinite(activeFrame)) {
           inlineFrameEl.textContent = Number.isFinite(globalFrame)
-            ? (String(activeFrame) + ' · G' + String(globalFrame) + rangeText)
+            ? (String(activeFrame) + ' | G' + String(globalFrame) + rangeText)
             : String(activeFrame);
           inlineFrameEl.title = Number.isFinite(globalFrame)
-            ? (String(activeFrame) + ' (global ' + String(globalFrame) + ')' + rangeText)
+            ? ('Frame ' + String(activeFrame) + ' | Global ' + String(globalFrame) + rangeText)
             : String(activeFrame);
           return;
         }
