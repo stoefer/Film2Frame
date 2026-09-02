@@ -66,6 +66,8 @@ let exportScanBatchRangeRefs = {};
 let exportBatchResumeState = null;
 let transientStatusTimer = null;
 let transientStatusToken = 0;
+let autoRangeReferencePersistTimer = null;
+let autoRangeReferenceSignatures = {};
 const exportBatchRunState = {
   running: false,
   paused: false,
@@ -312,6 +314,9 @@ async function runAutoSaveNow() {
 
 function setupInlineStripBridge() {
   window.__f2fInlineStripPushUpdate = emitInlineStripUpdate;
+  window.__f2fOnRasterPreviewRefreshed = () => {
+    queueAutoPersistCurrentRangeReference();
+  };
   window.__f2fInvokeStripApi = (method, args) => {
     const api = window.__f2fEmbeddedStripApi;
     if (!api || typeof method !== 'string') return null;
@@ -1175,6 +1180,30 @@ function getBatchRangeContextForCurrentFrame() {
   };
 }
 
+function queueAutoPersistCurrentRangeReference() {
+  if (exportBatchRunState.running) return;
+  if (autoRangeReferencePersistTimer) clearTimeout(autoRangeReferencePersistTimer);
+  autoRangeReferencePersistTimer = setTimeout(() => {
+    autoRangeReferencePersistTimer = null;
+    const ctx = getBatchRangeContextForCurrentFrame();
+    if (!ctx || ctx.rangeIndex < 0 || !ctx.range) return;
+    const snapshot = getLintStateSnapshot();
+    if (!snapshot || typeof snapshot !== 'object') return;
+    const key = getExportScanBatchRangeKey(ctx.range);
+    if (!key) return;
+    let signature = '';
+    try {
+      signature = JSON.stringify(snapshot);
+    } catch (_) {
+      signature = '';
+    }
+    if (!signature || autoRangeReferenceSignatures[key] === signature) return;
+    persistCurrentRangeReferenceSnapshot(ctx.rangeIndex);
+    autoRangeReferenceSignatures[key] = signature;
+    renderExportScanBatchRangeList();
+  }, 120);
+}
+
 function setExportRangeInputs(from, to) {
   const fromEl = el(ids.exportScanFrom);
   const toEl = el(ids.exportScanTo);
@@ -1259,6 +1288,15 @@ function setCurrentFrameAsRangeReference() {
   if (!ctx || ctx.rangeIndex < 0 || !ctx.range) return { ok: false, reason: 'no-range' };
   exportScanBatchSelectedIndex = ctx.rangeIndex;
   persistCurrentRangeReferenceSnapshot(ctx.rangeIndex);
+  const key = getExportScanBatchRangeKey(ctx.range);
+  if (key) {
+    const snap = getLintStateSnapshot();
+    if (snap && typeof snap === 'object') {
+      try {
+        autoRangeReferenceSignatures[key] = JSON.stringify(snap);
+      } catch (_) {}
+    }
+  }
   renderExportScanBatchRangeList();
   showTransientStatusMessage(
     t('frameGenerator.batchRangeRefSetFromFrame', {
@@ -10054,6 +10092,7 @@ function saveExportScanBatchRangesAndRefresh() {
     exportScanBatchRanges = sortAndMergeExportScanBatchRanges(exportScanBatchRanges);
   }
   persistExportScanBatchRanges();
+  autoRangeReferenceSignatures = {};
   renderExportScanBatchRangeList();
 }
 
