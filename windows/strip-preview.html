@@ -2503,6 +2503,8 @@
       let lastPayload = null;
       let lastBatchRangeContext = null;
       let rangeContextRequestToken = 0;
+      let lastRangeContextFrameKey = '';
+      let lastRangeContextRefreshAt = 0;
       const ASSIST_HELP_STORAGE_KEY = 'f2f.strip.assistHelp.v1';
       var assistHelpState = { open: false, left: null, top: null };
       var assistHelpDragState = null;
@@ -3154,8 +3156,8 @@
         // Alleen Volgende mag exporteren; Vorige nooit (ook niet via macro/flag).
         var doExport = dir === 'next' && !!exportCurrent;
         api.navigateProjectScan({ direction: dir, exportCurrent: doExport });
-        setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 40);
-        setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 180);
+        setTimeout(function () { refreshRangeContextUiFromMain(lastPayload, true); }, 40);
+        setTimeout(function () { refreshRangeContextUiFromMain(lastPayload, true); }, 180);
         if (recordMacro !== false) {
           macroRecordStep({
             type: 'scanNav',
@@ -5054,11 +5056,23 @@
         currentRangeDisplayEl.title = '';
       }
 
-      function refreshRangeContextUiFromMain(payloadForFrame) {
+      function refreshRangeContextUiFromMain(payloadForFrame, force) {
+        var payload = payloadForFrame || lastPayload;
+        var frameNo = payload && payload.activeFrameNumber != null
+          ? Math.floor(Number(payload.activeFrameNumber))
+          : (payload && payload.activeFrameIndex != null ? Math.floor(Number(payload.activeFrameIndex)) + 1 : 0);
+        var scanNo = payload && payload.projectScanIndex != null ? Math.floor(Number(payload.projectScanIndex)) : 0;
+        var frameKey = String(scanNo) + ':' + String(frameNo);
+        var now = Date.now();
+        if (force !== true && frameKey === lastRangeContextFrameKey && now - lastRangeContextRefreshAt < 350) {
+          return;
+        }
+        lastRangeContextFrameKey = frameKey;
+        lastRangeContextRefreshAt = now;
         if (!api || !api.getBatchRangeContext) {
           lastBatchRangeContext = null;
           updateCurrentRangeDisplay(null);
-          updateCurrentFrameDisplay(payloadForFrame || lastPayload);
+          updateCurrentFrameDisplay(payload);
           return;
         }
         rangeContextRequestToken += 1;
@@ -5068,13 +5082,13 @@
             if (token !== rangeContextRequestToken) return;
             lastBatchRangeContext = ctx && typeof ctx === 'object' ? ctx : null;
             updateCurrentRangeDisplay(lastBatchRangeContext);
-            updateCurrentFrameDisplay(payloadForFrame || lastPayload);
+            updateCurrentFrameDisplay(payload);
           })
           .catch(function () {
             if (token !== rangeContextRequestToken) return;
             lastBatchRangeContext = null;
             updateCurrentRangeDisplay(null);
-            updateCurrentFrameDisplay(payloadForFrame || lastPayload);
+            updateCurrentFrameDisplay(payload);
           });
       }
 
@@ -5136,7 +5150,7 @@
         }
         updateScanGotoHints(payload);
         updateCurrentFrameDisplay(payload);
-        refreshRangeContextUiFromMain(payload);
+        refreshRangeContextUiFromMain(payload, false);
         updateHeaderFilename(payload);
         syncVerticalAnchorFromPayload(payload);
         syncPanelLinkFromPayload(payload);
@@ -6175,8 +6189,8 @@
             .catch(function () {})
             .finally(function () {
               setBusy(false);
-              setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 30);
-              setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 160);
+              setTimeout(function () { refreshRangeContextUiFromMain(lastPayload, true); }, 30);
+              setTimeout(function () { refreshRangeContextUiFromMain(lastPayload, true); }, 160);
             });
         });
       }
@@ -6188,8 +6202,8 @@
             .catch(function () {})
             .finally(function () {
               setBusy(false);
-              setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 30);
-              setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 160);
+              setTimeout(function () { refreshRangeContextUiFromMain(lastPayload, true); }, 30);
+              setTimeout(function () { refreshRangeContextUiFromMain(lastPayload, true); }, 160);
             });
         });
       }

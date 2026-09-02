@@ -68,6 +68,7 @@ let exportBatchResumeState = null;
 let transientStatusTimer = null;
 let transientStatusToken = 0;
 let autoRangeReferencePersistTimer = null;
+let autoRangeReferenceFlushTimer = null;
 let autoRangeReferenceSignatures = {};
 const exportBatchRunState = {
   running: false,
@@ -1182,6 +1183,59 @@ function getBatchRangeContextForCurrentFrame() {
   };
 }
 
+function buildRangeReferenceSnapshotSignature(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return '';
+  const splitMap = snapshot.gridSplitLowerPanByPivotK && typeof snapshot.gridSplitLowerPanByPivotK === 'object'
+    ? JSON.stringify(snapshot.gridSplitLowerPanByPivotK)
+    : '';
+  return [
+    snapshot.rotation90,
+    snapshot.fineRotationDeg,
+    snapshot.numFrames,
+    snapshot.gridOffsetX,
+    snapshot.gridOffsetXAsymmetric,
+    snapshot.gridOffsetXLeft,
+    snapshot.gridOffsetXRight,
+    snapshot.gridOffsetY,
+    snapshot.gridOffsetYBottom,
+    snapshot.gridVerticalAnchorMode,
+    snapshot.gridVerticalPivotCustomK,
+    snapshot.gridSplitLowerPanCanvas,
+    splitMap,
+    snapshot.gridFrozenLowerCellHeightPx,
+    snapshot.gridPanelLinkVerticalAnchor,
+    snapshot.fixResolutionLocked,
+    snapshot.flipHorizontal,
+    snapshot.flipVertical,
+    snapshot.autoRasterAssistMode,
+    snapshot.autoRasterAssistXRef,
+    snapshot.autoRasterAssistYRef,
+    snapshot.autoRasterAssistPreset,
+    snapshot.autoRasterAssistExtraLeftPx,
+    snapshot.autoRasterAssistExtraRightPx,
+    snapshot.autoRasterAssistExtraTopPx,
+    snapshot.autoRasterAssistExtraBottomPx,
+    snapshot.autoRasterCenterBeforeDetect,
+    snapshot.autoRasterDetectOnScanNav,
+    snapshot.autoRasterLeftWhiteMinMarginPx,
+    snapshot.autoRasterDarkLineLeftBiasPx,
+    snapshot.autoRasterDarkLineStrongScale,
+    snapshot.autoRasterDarkLineStrongScaleAuto,
+    snapshot.autoRasterDarkBottomBiasPx,
+    snapshot.autoRasterDarkLineThickness,
+    snapshot.autoRasterDarkLineSearchRangePx
+  ].join('|');
+}
+
+function scheduleAutoRangeReferenceFlush() {
+  if (!window.api?.setAppSettings) return;
+  if (autoRangeReferenceFlushTimer) clearTimeout(autoRangeReferenceFlushTimer);
+  autoRangeReferenceFlushTimer = setTimeout(() => {
+    autoRangeReferenceFlushTimer = null;
+    persistExportScanBatchRanges();
+  }, 450);
+}
+
 function queueAutoPersistCurrentRangeReference() {
   if (exportBatchRunState.running) return;
   if (autoRangeReferencePersistTimer) clearTimeout(autoRangeReferencePersistTimer);
@@ -1193,17 +1247,22 @@ function queueAutoPersistCurrentRangeReference() {
     if (!snapshot || typeof snapshot !== 'object') return;
     const key = getExportScanBatchRangeKey(ctx.range);
     if (!key) return;
-    let signature = '';
-    try {
-      signature = JSON.stringify(snapshot);
-    } catch (_) {
-      signature = '';
-    }
+    const signature = buildRangeReferenceSnapshotSignature(snapshot);
     if (!signature || autoRangeReferenceSignatures[key] === signature) return;
-    persistCurrentRangeReferenceSnapshot(ctx.rangeIndex);
+    const s = getState();
+    if (!s.path) return;
+    const hadRef = !!(exportScanBatchRangeRefs && exportScanBatchRangeRefs[key]);
+    exportScanBatchRangeRefs[key] = {
+      snapshot,
+      savedAt: Date.now(),
+      scanPath: s.path,
+      activeFrameIndex: Math.max(0, Math.floor(Number(s.activeFrameIndex) || 0)),
+      globalFrameNumber: Number.isFinite(Number(ctx.globalFrameNumber)) ? Number(ctx.globalFrameNumber) : null
+    };
     autoRangeReferenceSignatures[key] = signature;
-    renderExportScanBatchRangeList();
-  }, 120);
+    scheduleAutoRangeReferenceFlush();
+    if (!hadRef) renderExportScanBatchRangeList();
+  }, 240);
 }
 
 function setExportRangeInputs(from, to) {
@@ -1264,6 +1323,8 @@ function persistCurrentRangeReferenceSnapshot(index = exportScanBatchSelectedInd
       return Number.isFinite(Number(ctx?.globalFrameNumber)) ? Number(ctx.globalFrameNumber) : null;
     })()
   };
+  const sig = buildRangeReferenceSnapshotSignature(snapshot);
+  if (sig) autoRangeReferenceSignatures[key] = sig;
   persistExportScanBatchRanges();
 }
 
@@ -10097,6 +10158,10 @@ function saveExportScanBatchRangesAndRefresh() {
     exportScanBatchRanges = sortAndMergeExportScanBatchRanges(exportScanBatchRanges);
   }
   persistExportScanBatchRanges();
+  if (autoRangeReferenceFlushTimer) {
+    clearTimeout(autoRangeReferenceFlushTimer);
+    autoRangeReferenceFlushTimer = null;
+  }
   autoRangeReferenceSignatures = {};
   renderExportScanBatchRangeList();
 }
