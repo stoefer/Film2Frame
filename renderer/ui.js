@@ -1180,6 +1180,15 @@ function applyRangeReferenceSnapshotForRange(range, targetScanPath = '') {
   return true;
 }
 
+function getRangeReferenceSnapshotForRange(range, targetScanPath = '') {
+  const key = getExportScanBatchRangeKey(range);
+  if (!key) return null;
+  const ref = exportScanBatchRangeRefs && exportScanBatchRangeRefs[key];
+  if (!ref || !ref.snapshot || typeof ref.snapshot !== 'object') return null;
+  if (targetScanPath && ref.scanPath && ref.scanPath !== targetScanPath) return null;
+  return ref.snapshot;
+}
+
 function normalizeExportBatchResumeState(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const mode = raw.mode === 'all-scans' || raw.mode === 'range-list' ? raw.mode : '';
@@ -10211,6 +10220,8 @@ async function onRunBatchRangeList(options = null) {
   let writtenTotal = 0;
   let stopped = false;
   try {
+    // Als gebruiker direct exporteert na kalibreren (zonder range-switch), snapshot toch bewaren.
+    persistCurrentRangeReferenceSnapshot(exportScanBatchSelectedIndex);
     let startRangeIndex = 0;
     let startGlobalFrame = 1;
     if (resume && resume.mode === 'range-list') {
@@ -10258,6 +10269,8 @@ async function onRunBatchRangeList(options = null) {
           to
         })
       );
+      const startPos = resolveGlobalFramePosition(from, map.rows);
+      const fixedReferenceSnapshot = getRangeReferenceSnapshotForRange(range, startPos?.scanPath || '');
       const rangeResult = await exportGlobalFrameRange(
         paths,
         map,
@@ -10265,6 +10278,7 @@ async function onRunBatchRangeList(options = null) {
         to,
         i,
         exportScanBatchRanges.length,
+        fixedReferenceSnapshot,
         { startedAtMs: runStartedAtMs, totalFrames: totalFramesToProcess, processedBefore: processedFrames }
       );
       writtenTotal += Number(rangeResult?.written) || 0;
@@ -10290,7 +10304,7 @@ async function onRunBatchRangeList(options = null) {
   }
 }
 
-async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, rangeIdx, rangeTotal, progressCtx = null) {
+async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, rangeIdx, rangeTotal, fixedReferenceSnapshot = null, progressCtx = null) {
   const folder = getState().exportFolderPath;
   const appSettings = await window.api?.getAppSettings?.().catch(() => null);
   const outDims = getExportOutputDimensions(appSettings);
@@ -10306,8 +10320,11 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
     if (!scanPath) continue;
     const sameFolderErr = assertExportFolderNotInput(folder, scanPath);
     if (sameFolderErr) throw new Error(sameFolderErr);
-    const ok = await loadScanByPath(scanPath);
+    const ok = await loadScanByPath(scanPath, { ...scanNavigationGridOptions(), preserveGrid: true });
     if (!ok) continue;
+    if (fixedReferenceSnapshot) {
+      applyLintState(fixedReferenceSnapshot);
+    }
     const pair = getStripCanvasPairForExport();
     if (!pair) continue;
     try {
