@@ -3154,6 +3154,8 @@
         // Alleen Volgende mag exporteren; Vorige nooit (ook niet via macro/flag).
         var doExport = dir === 'next' && !!exportCurrent;
         api.navigateProjectScan({ direction: dir, exportCurrent: doExport });
+        setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 40);
+        setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 180);
         if (recordMacro !== false) {
           macroRecordStep({
             type: 'scanNav',
@@ -4976,22 +4978,37 @@
         var globalFrame = lastBatchRangeContext && lastBatchRangeContext.globalFrameNumber != null
           ? Math.floor(Number(lastBatchRangeContext.globalFrameNumber))
           : NaN;
+        var rangeText = '';
+        if (
+          lastBatchRangeContext &&
+          lastBatchRangeContext.range &&
+          Number.isFinite(Number(lastBatchRangeContext.range.from)) &&
+          Number.isFinite(Number(lastBatchRangeContext.range.to))
+        ) {
+          rangeText =
+            ' | R' +
+            String(Math.max(1, Math.floor(Number(lastBatchRangeContext.rangeIndex) || 0) + 1)) +
+            ':' +
+            String(Math.floor(Number(lastBatchRangeContext.range.from))) +
+            '-' +
+            String(Math.floor(Number(lastBatchRangeContext.range.to)));
+        }
         if (!Number.isFinite(globalFrame) || globalFrame < 1) globalFrame = NaN;
         if (Number.isFinite(activeFrame) && Number.isFinite(totalFrames)) {
           inlineFrameEl.textContent = Number.isFinite(globalFrame)
-            ? (String(activeFrame) + ' / ' + String(totalFrames) + ' · G' + String(globalFrame))
+            ? (String(activeFrame) + '/' + String(totalFrames) + ' | G' + String(globalFrame) + rangeText)
             : (String(activeFrame) + ' / ' + String(totalFrames));
           inlineFrameEl.title = Number.isFinite(globalFrame)
-            ? (String(activeFrame) + ' / ' + String(totalFrames) + ' (global ' + String(globalFrame) + ')')
+            ? ('Frame ' + String(activeFrame) + '/' + String(totalFrames) + ' | Global ' + String(globalFrame) + rangeText)
             : (String(activeFrame) + ' / ' + String(totalFrames));
           return;
         }
         if (Number.isFinite(activeFrame)) {
           inlineFrameEl.textContent = Number.isFinite(globalFrame)
-            ? (String(activeFrame) + ' · G' + String(globalFrame))
+            ? (String(activeFrame) + ' | G' + String(globalFrame) + rangeText)
             : String(activeFrame);
           inlineFrameEl.title = Number.isFinite(globalFrame)
-            ? (String(activeFrame) + ' (global ' + String(globalFrame) + ')')
+            ? ('Frame ' + String(activeFrame) + ' | Global ' + String(globalFrame) + rangeText)
             : String(activeFrame);
           return;
         }
@@ -6156,7 +6173,11 @@
           setBusy(true);
           Promise.resolve(api.goToPreviousBatchRange())
             .catch(function () {})
-            .finally(function () { setBusy(false); });
+            .finally(function () {
+              setBusy(false);
+              setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 30);
+              setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 160);
+            });
         });
       }
       if (btnRangeNext) {
@@ -6165,7 +6186,11 @@
           setBusy(true);
           Promise.resolve(api.goToNextBatchRange())
             .catch(function () {})
-            .finally(function () { setBusy(false); });
+            .finally(function () {
+              setBusy(false);
+              setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 30);
+              setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 160);
+            });
         });
       }
       if (btnRangeUseCurrentRef) {
