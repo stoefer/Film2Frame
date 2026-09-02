@@ -1137,6 +1137,29 @@ function persistExportBatchResumeState(state) {
     .catch(() => {});
 }
 
+function getNormalizedOverlayGridRefPxValues() {
+  const widthRaw = Number(el(ids.gridRefPxWidth)?.value);
+  const heightRaw = Number(el(ids.gridRefPxHeight)?.value);
+  const framesRaw = parseInt(el(ids.gridRefPxFrames)?.value, 10);
+  return {
+    width: Math.max(1, Math.min(20000, Number.isFinite(widthRaw) ? Math.round(widthRaw) : 103)),
+    height: Math.max(1, Math.min(20000, Number.isFinite(heightRaw) ? Math.round(heightRaw) : 75)),
+    frames: Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, Number.isFinite(framesRaw) ? Math.round(framesRaw) : 30))
+  };
+}
+
+function persistOverlayGridRefPxValues() {
+  if (!window.api?.setAppSettings) return;
+  const v = getNormalizedOverlayGridRefPxValues();
+  window.api
+    .setAppSettings({
+      overlayGridRefPxWidth: v.width,
+      overlayGridRefPxHeight: v.height,
+      overlayGridRefPxFrames: v.frames
+    })
+    .catch(() => {});
+}
+
 function clearExportBatchResumeState() {
   exportBatchResumeState = null;
   if (!window.api?.setAppSettings) return;
@@ -6264,6 +6287,12 @@ async function loadAppSettings() {
     const arrowShiftPx = (s.arrowStepShiftPx != null && Number(s.arrowStepShiftPx) >= 10) ? Math.min(100, Number(s.arrowStepShiftPx)) : 10;
     setArrowStepPx(arrowPx);
     setArrowStepShiftPx(arrowShiftPx);
+    const overlayWidth = Math.max(1, Math.min(20000, Number(s.overlayGridRefPxWidth) || 103));
+    const overlayHeight = Math.max(1, Math.min(20000, Number(s.overlayGridRefPxHeight) || 75));
+    const overlayFrames = Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, Number(s.overlayGridRefPxFrames) || 30));
+    if (el(ids.gridRefPxWidth)) el(ids.gridRefPxWidth).value = String(Math.round(overlayWidth));
+    if (el(ids.gridRefPxHeight)) el(ids.gridRefPxHeight).value = String(Math.round(overlayHeight));
+    if (el(ids.gridRefPxFrames)) el(ids.gridRefPxFrames).value = String(Math.round(overlayFrames));
     setScanDpi(Number(s.scanDpi) || 4800);
     setOutputFormat('png');
     const frameCount = getProjectTotalFrameCountEstimate();
@@ -8681,6 +8710,16 @@ function bind() {
   el(ids.zoom)?.addEventListener('input', onZoom);
   el(ids.applyGridFromPx)?.addEventListener('click', applyGridFromPxInputs);
   el(ids.captureGridRefPx)?.addEventListener('click', fillGridPxFieldsFromCurrentCell);
+  const overlayRefWidthEl = el(ids.gridRefPxWidth);
+  const overlayRefHeightEl = el(ids.gridRefPxHeight);
+  const overlayRefFramesEl = el(ids.gridRefPxFrames);
+  const onOverlayRefPxInputChanged = () => persistOverlayGridRefPxValues();
+  overlayRefWidthEl?.addEventListener('change', onOverlayRefPxInputChanged);
+  overlayRefWidthEl?.addEventListener('input', onOverlayRefPxInputChanged);
+  overlayRefHeightEl?.addEventListener('change', onOverlayRefPxInputChanged);
+  overlayRefHeightEl?.addEventListener('input', onOverlayRefPxInputChanged);
+  overlayRefFramesEl?.addEventListener('change', onOverlayRefPxInputChanged);
+  overlayRefFramesEl?.addEventListener('input', onOverlayRefPxInputChanged);
   el(ids.workflowSingleFrame)?.addEventListener('click', onWorkflowSingleFrameClick);
   const stripResEl = el(ids.stripPreviewRes);
   if (stripResEl) {
@@ -9102,6 +9141,7 @@ function applyGridFromPxInputs() {
   if (!Number.isFinite(w) || w < 1 || !Number.isFinite(h) || h < 1) return;
   numFrames = Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, Number.isFinite(numFrames) ? numFrames : MIN_FRAMES));
   if (!applyGridFromReferenceCellPx(w, h, numFrames)) return;
+  persistOverlayGridRefPxValues();
   setDirty();
   updateUI();
   refreshPreviewsGridOnly();
@@ -9122,6 +9162,7 @@ function fillGridPxFieldsFromCurrentCell() {
   if (el(ids.gridRefPxWidth)) el(ids.gridRefPxWidth).value = String(wPx);
   if (el(ids.gridRefPxHeight)) el(ids.gridRefPxHeight).value = String(hPx);
   if (el(ids.gridRefPxFrames)) el(ids.gridRefPxFrames).value = String(n);
+  persistOverlayGridRefPxValues();
 }
 
 function onFramePreviewJump(position) {

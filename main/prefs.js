@@ -34,6 +34,9 @@ const KEYS = {
   locale: 'locale',
   preserveGridOnScanNav: 'preserveGridOnScanNav',
   compactUi: 'compactUi',
+  overlayGridRefPxWidth: 'overlayGridRefPxWidth',
+  overlayGridRefPxHeight: 'overlayGridRefPxHeight',
+  overlayGridRefPxFrames: 'overlayGridRefPxFrames',
   exportScanBatchRanges: 'exportScanBatchRanges',
   exportScanBatchAutoMerge: 'exportScanBatchAutoMerge',
   exportScanBatchWrapNav: 'exportScanBatchWrapNav',
@@ -63,6 +66,9 @@ const DEFAULTS = {
   arrowStepShiftPx: 10,
   preserveGridOnScanNav: true,
   compactUi: false,
+  overlayGridRefPxWidth: 103,
+  overlayGridRefPxHeight: 75,
+  overlayGridRefPxFrames: 30,
   exportScanBatchRanges: [],
   exportScanBatchAutoMerge: true,
   exportScanBatchWrapNav: false,
@@ -193,6 +199,18 @@ function getAllSettings() {
       data[KEYS.preserveGridOnScanNav] === false ? false : DEFAULTS.preserveGridOnScanNav,
     compactUi:
       data[KEYS.compactUi] === true,
+    overlayGridRefPxWidth:
+      typeof data[KEYS.overlayGridRefPxWidth] === 'number'
+        ? Math.max(1, Math.min(20000, Math.round(data[KEYS.overlayGridRefPxWidth])))
+        : DEFAULTS.overlayGridRefPxWidth,
+    overlayGridRefPxHeight:
+      typeof data[KEYS.overlayGridRefPxHeight] === 'number'
+        ? Math.max(1, Math.min(20000, Math.round(data[KEYS.overlayGridRefPxHeight])))
+        : DEFAULTS.overlayGridRefPxHeight,
+    overlayGridRefPxFrames:
+      typeof data[KEYS.overlayGridRefPxFrames] === 'number'
+        ? Math.max(1, Math.min(99, Math.round(data[KEYS.overlayGridRefPxFrames])))
+        : DEFAULTS.overlayGridRefPxFrames,
     exportScanBatchRanges: normalizeExportScanBatchRanges(data[KEYS.exportScanBatchRanges]),
     exportScanBatchAutoMerge:
       data[KEYS.exportScanBatchAutoMerge] !== undefined
@@ -266,6 +284,15 @@ function setSettings(settings) {
   }
   if (settings.compactUi !== undefined) {
     data[KEYS.compactUi] = !!settings.compactUi;
+  }
+  if (settings.overlayGridRefPxWidth !== undefined) {
+    data[KEYS.overlayGridRefPxWidth] = Math.max(1, Math.min(20000, Math.round(Number(settings.overlayGridRefPxWidth) || DEFAULTS.overlayGridRefPxWidth)));
+  }
+  if (settings.overlayGridRefPxHeight !== undefined) {
+    data[KEYS.overlayGridRefPxHeight] = Math.max(1, Math.min(20000, Math.round(Number(settings.overlayGridRefPxHeight) || DEFAULTS.overlayGridRefPxHeight)));
+  }
+  if (settings.overlayGridRefPxFrames !== undefined) {
+    data[KEYS.overlayGridRefPxFrames] = Math.max(1, Math.min(99, Math.round(Number(settings.overlayGridRefPxFrames) || DEFAULTS.overlayGridRefPxFrames)));
   }
   if (settings.exportScanBatchRanges !== undefined) {
     data[KEYS.exportScanBatchRanges] = normalizeExportScanBatchRanges(settings.exportScanBatchRanges);
