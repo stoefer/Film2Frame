@@ -163,6 +163,9 @@ body.theme-light .f2f-scan-folder-bar-wrap {
   white-space: nowrap;
   color: #e0e0e0;
 }
+.toolbar-status-operation--calibration-success {
+  color: #86efac;
+}
 .content {
   flex: 1;
   padding: 16px;
@@ -757,6 +760,20 @@ body.theme-light .btn-floating-preview-toggle.pressed {
 #f2f-export-batch-range-import:hover {
   background: #15803d;
   border-color: #4ade80;
+}
+
+/* Navigatieknoppen in batch-bereik duidelijker zichtbaar */
+#f2f-export-batch-range-prev,
+#f2f-export-batch-range-next {
+  background: #334155;
+  border-color: #7dd3fc;
+  color: #e0f2fe;
+}
+#f2f-export-batch-range-prev:hover,
+#f2f-export-batch-range-next:hover {
+  background: #475569;
+  border-color: #bae6fd;
+  color: #f0f9ff;
 }
 /* Projectbalk: laden (blauwe rand), bewaren en wissen (rode rand) */
 .btn-project-open {
@@ -1401,6 +1418,30 @@ body.theme-light .frame-generator-progress-pct {
   color: #9ecbff;
 }
 
+.export-range-ref-badge {
+  font-size: 0.68rem;
+  line-height: 1.1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.export-range-ref-badge--saved {
+  background: #14532d;
+  border-color: #22c55e;
+  color: #dcfce7;
+}
+
+.export-range-ref-badge--missing {
+  background: #713f12;
+  border-color: #f59e0b;
+  color: #fef3c7;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .export-range-mode {
   font-size: 0.78rem;
   color: #9fb0c4;
@@ -1433,6 +1474,19 @@ body.theme-light .export-range-mode {
 
 body.theme-light .export-range-summary {
   color: #475569;
+}
+
+body.theme-light .export-range-ref-badge--saved {
+  background: #dcfce7;
+  border-color: #16a34a;
+  color: #14532d;
+}
+
+body.theme-light .export-range-ref-badge--missing {
+  background: #fef3c7;
+  border-color: #d97706;
+  color: #7c2d12;
+  cursor: pointer;
 }
 
 /* Zelfstandig instellingen-venster */
@@ -1619,6 +1673,9 @@ body.theme-light .toolbar { background: #e4e6e9; border-bottom-color: #d0d4d8; }
 body.theme-light .toolbar-title { color: #1a1a1a; }
 body.theme-light .toolbar-status-label,
 body.theme-light .toolbar-status-operation { color: #4b5563; }
+body.theme-light .toolbar-status-operation.toolbar-status-operation--calibration-success {
+  color: #15803d;
+}
 body.theme-light .panel h2,
 body.theme-light .settings-accordion-toggle { color: #4b5563; }
 body.theme-light .settings-accordion-toggle:hover { color: #1a1a1a; }

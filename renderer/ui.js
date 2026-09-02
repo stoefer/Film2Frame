@@ -61,7 +61,10 @@ let exportScanBatchEditIndex = -1;
 let exportScanBatchInsertMode = 'append';
 let exportScanBatchAutoMerge = true;
 let exportScanBatchWrapNav = false;
+let exportScanBatchRangeRefs = {};
 let exportBatchResumeState = null;
+let transientStatusTimer = null;
+let transientStatusToken = 0;
 const exportBatchRunState = {
   running: false,
   paused: false,
@@ -994,6 +997,42 @@ function normalizeExportScanBatchRanges(raw, maxScanCount = Number.POSITIVE_INFI
   return out;
 }
 
+function getExportScanBatchRangeKey(range) {
+  if (!range || typeof range !== 'object') return '';
+  const from = Math.max(1, Math.floor(Number(range.from) || 0));
+  const to = Math.max(1, Math.floor(Number(range.to) || 0));
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return '';
+  const lo = Math.min(from, to);
+  const hi = Math.max(from, to);
+  return `${lo}-${hi}`;
+}
+
+function normalizeExportScanBatchRangeRefs(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+  const out = {};
+  for (const [key, entry] of Object.entries(raw)) {
+    if (!/^\d+-\d+$/.test(String(key))) continue;
+    if (!entry || typeof entry !== 'object') continue;
+    if (!entry.snapshot || typeof entry.snapshot !== 'object') continue;
+    out[key] = {
+      snapshot: entry.snapshot,
+      savedAt: Number.isFinite(Number(entry.savedAt)) ? Number(entry.savedAt) : Date.now(),
+      scanPath: typeof entry.scanPath === 'string' ? entry.scanPath : '',
+      activeFrameIndex: Number.isFinite(Number(entry.activeFrameIndex)) ? Math.max(0, Math.floor(Number(entry.activeFrameIndex))) : 0
+    };
+  }
+  return out;
+}
+
+function pruneExportScanBatchRangeRefsToCurrentRanges() {
+  const allowed = new Set(exportScanBatchRanges.map((r) => getExportScanBatchRangeKey(r)).filter(Boolean));
+  const next = {};
+  for (const [key, entry] of Object.entries(exportScanBatchRangeRefs || {})) {
+    if (allowed.has(key) && entry && typeof entry === 'object') next[key] = entry;
+  }
+  exportScanBatchRangeRefs = next;
+}
+
 function sortAndMergeExportScanBatchRanges(ranges) {
   const rows = Array.isArray(ranges) ? ranges.map((r) => ({ from: r.from, to: r.to })) : [];
   rows.sort((a, b) => (a.from - b.from) || (a.to - b.to));
@@ -1078,8 +1117,11 @@ function resolveGlobalFramePosition(frameNo, rows) {
 function setExportRangeInputs(from, to) {
   const fromEl = el(ids.exportScanFrom);
   const toEl = el(ids.exportScanTo);
-  if (fromEl) fromEl.value = String(Math.max(1, Math.floor(Number(from) || 1)));
-  if (toEl) toEl.value = String(Math.max(1, Math.floor(Number(to) || 1)));
+  const nextFrom = Math.max(1, Math.floor(Number(from) || 1));
+  const nextTo = Math.max(1, Math.floor(Number(to) || 1));
+  if (fromEl) fromEl.value = String(nextFrom);
+  if (toEl) toEl.value = String(nextTo);
+  persistExportRangeDraftInputs();
 }
 
 function setExportBatchInsertMode(mode) {
@@ -1100,12 +1142,42 @@ function setExportBatchInsertMode(mode) {
 
 function persistExportScanBatchRanges() {
   if (!window.api?.setAppSettings) return;
+  pruneExportScanBatchRangeRefsToCurrentRanges();
   const payload = {
     exportScanBatchRanges: exportScanBatchRanges.map((r) => ({ from: r.from, to: r.to })),
     exportScanBatchAutoMerge: exportScanBatchAutoMerge !== false,
-    exportScanBatchWrapNav: exportScanBatchWrapNav === true
+    exportScanBatchWrapNav: exportScanBatchWrapNav === true,
+    exportScanBatchRangeRefs: exportScanBatchRangeRefs
   };
   window.api.setAppSettings(payload).catch(() => {});
+}
+
+function persistCurrentRangeReferenceSnapshot(index = exportScanBatchSelectedIndex) {
+  if (index < 0 || index >= exportScanBatchRanges.length) return;
+  const range = exportScanBatchRanges[index];
+  const key = getExportScanBatchRangeKey(range);
+  if (!key) return;
+  const s = getState();
+  if (!s.path) return;
+  const snapshot = getLintStateSnapshot();
+  if (!snapshot) return;
+  exportScanBatchRangeRefs[key] = {
+    snapshot,
+    savedAt: Date.now(),
+    scanPath: s.path,
+    activeFrameIndex: Math.max(0, Math.floor(Number(s.activeFrameIndex) || 0))
+  };
+  persistExportScanBatchRanges();
+}
+
+function applyRangeReferenceSnapshotForRange(range, targetScanPath = '') {
+  const key = getExportScanBatchRangeKey(range);
+  if (!key) return false;
+  const ref = exportScanBatchRangeRefs && exportScanBatchRangeRefs[key];
+  if (!ref || !ref.snapshot || typeof ref.snapshot !== 'object') return false;
+  if (targetScanPath && ref.scanPath && ref.scanPath !== targetScanPath) return false;
+  applyLintState(ref.snapshot);
+  return true;
 }
 
 function normalizeExportBatchResumeState(raw) {
@@ -1134,6 +1206,41 @@ function persistExportBatchResumeState(state) {
   if (!window.api?.setAppSettings) return;
   window.api
     .setAppSettings({ exportBatchResumeState: exportBatchResumeState || null })
+    .catch(() => {});
+}
+
+function getNormalizedOverlayGridRefPxValues() {
+  const widthRaw = Number(el(ids.gridRefPxWidth)?.value);
+  const heightRaw = Number(el(ids.gridRefPxHeight)?.value);
+  const framesRaw = parseInt(el(ids.gridRefPxFrames)?.value, 10);
+  return {
+    width: Math.max(1, Math.min(20000, Number.isFinite(widthRaw) ? Math.round(widthRaw) : 103)),
+    height: Math.max(1, Math.min(20000, Number.isFinite(heightRaw) ? Math.round(heightRaw) : 75)),
+    frames: Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, Number.isFinite(framesRaw) ? Math.round(framesRaw) : 30))
+  };
+}
+
+function persistOverlayGridRefPxValues() {
+  if (!window.api?.setAppSettings) return;
+  const v = getNormalizedOverlayGridRefPxValues();
+  window.api
+    .setAppSettings({
+      overlayGridRefPxWidth: v.width,
+      overlayGridRefPxHeight: v.height,
+      overlayGridRefPxFrames: v.frames
+    })
+    .catch(() => {});
+}
+
+function persistExportRangeDraftInputs() {
+  if (!window.api?.setAppSettings) return;
+  const fromVal = Math.max(1, Math.floor(Number(el(ids.exportScanFrom)?.value) || 1));
+  const toVal = Math.max(1, Math.floor(Number(el(ids.exportScanTo)?.value) || 1));
+  window.api
+    .setAppSettings({
+      exportScanRangeDraftFrom: fromVal,
+      exportScanRangeDraftTo: toVal
+    })
     .catch(() => {});
 }
 
@@ -1243,9 +1350,8 @@ function renderExportScanBatchRangeList() {
     const row = document.createElement('button');
     row.type = 'button';
     row.className = `export-range-list-item${i === exportScanBatchSelectedIndex ? ' active' : ''}`;
-    row.addEventListener('click', () => {
-      exportScanBatchSelectedIndex = i;
-      renderExportScanBatchRangeList();
+    row.addEventListener('click', (event) => {
+      void onBatchRangeRowClick(i, item, event);
     });
     const label = document.createElement('span');
     label.className = 'export-range-list-item-label';
@@ -1257,8 +1363,20 @@ function renderExportScanBatchRangeList() {
     const hint = document.createElement('span');
     hint.className = 'export-range-list-item-jump';
     hint.textContent = t('frameGenerator.batchJumpHint');
+    const refBadge = document.createElement('span');
+    const rangeKey = getExportScanBatchRangeKey(item);
+    const hasRef = !!(rangeKey && exportScanBatchRangeRefs && exportScanBatchRangeRefs[rangeKey]);
+    refBadge.className = `export-range-ref-badge ${hasRef ? 'export-range-ref-badge--saved' : 'export-range-ref-badge--missing'}`;
+    refBadge.textContent = hasRef
+      ? t('frameGenerator.batchRangeRefSaved')
+      : t('frameGenerator.batchRangeRefMissing');
+    if (!hasRef) {
+      refBadge.title = t('frameGenerator.batchRangeRefMissingTooltip');
+      refBadge.setAttribute('aria-label', t('frameGenerator.batchRangeRefMissingTooltip'));
+    }
     row.appendChild(label);
     row.appendChild(hint);
+    row.appendChild(refBadge);
     frag.appendChild(row);
   }
   listEl.appendChild(frag);
@@ -1269,6 +1387,28 @@ function renderExportScanBatchRangeList() {
     });
   }
   setExportBatchInsertMode(exportScanBatchEditIndex >= 0 ? 'edit' : exportScanBatchInsertMode);
+}
+
+async function onBatchRangeRowClick(index, range, event) {
+  if (index < 0 || index >= exportScanBatchRanges.length) return;
+  const missingBadgeClicked = !!event?.target?.closest?.('.export-range-ref-badge--missing');
+  if (exportScanBatchSelectedIndex !== index) {
+    persistCurrentRangeReferenceSnapshot(exportScanBatchSelectedIndex);
+  }
+  exportScanBatchSelectedIndex = index;
+  renderExportScanBatchRangeList();
+  if (!missingBadgeClicked) return;
+  if (event && typeof event.preventDefault === 'function') event.preventDefault();
+  if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+  const jumped = await jumpToRangeStartScan(range);
+  if (jumped) {
+    showTransientStatusMessage(
+      t('frameGenerator.batchRangeOpenedForCalibration', {
+        from: Math.max(1, Math.floor(Number(range?.from) || 1)),
+        to: Math.max(1, Math.floor(Number(range?.to) || 1))
+      })
+    );
+  }
 }
 
 /** Geordende lijst scanpaden van het project (RASTER SETUP / scanlint) — niet de pixel-editor-bronmap. */
@@ -6264,11 +6404,18 @@ async function loadAppSettings() {
     const arrowShiftPx = (s.arrowStepShiftPx != null && Number(s.arrowStepShiftPx) >= 10) ? Math.min(100, Number(s.arrowStepShiftPx)) : 10;
     setArrowStepPx(arrowPx);
     setArrowStepShiftPx(arrowShiftPx);
+    const overlayWidth = Math.max(1, Math.min(20000, Number(s.overlayGridRefPxWidth) || 103));
+    const overlayHeight = Math.max(1, Math.min(20000, Number(s.overlayGridRefPxHeight) || 75));
+    const overlayFrames = Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, Number(s.overlayGridRefPxFrames) || 30));
+    if (el(ids.gridRefPxWidth)) el(ids.gridRefPxWidth).value = String(Math.round(overlayWidth));
+    if (el(ids.gridRefPxHeight)) el(ids.gridRefPxHeight).value = String(Math.round(overlayHeight));
+    if (el(ids.gridRefPxFrames)) el(ids.gridRefPxFrames).value = String(Math.round(overlayFrames));
     setScanDpi(Number(s.scanDpi) || 4800);
     setOutputFormat('png');
     const frameCount = getProjectTotalFrameCountEstimate();
     exportScanBatchAutoMerge = s.exportScanBatchAutoMerge !== false;
     exportScanBatchWrapNav = s.exportScanBatchWrapNav === true;
+    exportScanBatchRangeRefs = normalizeExportScanBatchRangeRefs(s.exportScanBatchRangeRefs);
     exportBatchResumeState = normalizeExportBatchResumeState(s.exportBatchResumeState);
     const mergeToggleEl = el(ids.exportBatchAutoMerge);
     if (mergeToggleEl) mergeToggleEl.checked = exportScanBatchAutoMerge;
@@ -6281,11 +6428,16 @@ async function loadAppSettings() {
     if (exportScanBatchAutoMerge) {
       exportScanBatchRanges = sortAndMergeExportScanBatchRanges(exportScanBatchRanges);
     }
+    pruneExportScanBatchRangeRefsToCurrentRanges();
     exportScanBatchSelectedIndex = exportScanBatchRanges.length ? 0 : -1;
     exportScanBatchEditIndex = -1;
     setExportBatchInsertMode('append');
-    const defaultTo = frameCount > 0 ? frameCount : 1;
-    setExportRangeInputs(1, defaultTo);
+    const maxFrameForDraft = frameCount > 0 ? frameCount : Number.POSITIVE_INFINITY;
+    const savedDraftFrom = Math.max(1, Math.floor(Number(s.exportScanRangeDraftFrom) || 1));
+    const savedDraftToRaw = Math.max(1, Math.floor(Number(s.exportScanRangeDraftTo) || (frameCount > 0 ? frameCount : 1)));
+    const savedDraftTo = Math.min(maxFrameForDraft, savedDraftToRaw);
+    const savedDraftFromClamped = Math.min(savedDraftFrom, savedDraftTo);
+    setExportRangeInputs(savedDraftFromClamped, savedDraftTo);
     updateUI();
     updateFloatingPreviewButtonUi().catch(() => {});
     if (getState().image) refreshPreviews();
@@ -8681,6 +8833,23 @@ function bind() {
   el(ids.zoom)?.addEventListener('input', onZoom);
   el(ids.applyGridFromPx)?.addEventListener('click', applyGridFromPxInputs);
   el(ids.captureGridRefPx)?.addEventListener('click', fillGridPxFieldsFromCurrentCell);
+  const overlayRefWidthEl = el(ids.gridRefPxWidth);
+  const overlayRefHeightEl = el(ids.gridRefPxHeight);
+  const overlayRefFramesEl = el(ids.gridRefPxFrames);
+  const onOverlayRefPxInputChanged = () => persistOverlayGridRefPxValues();
+  overlayRefWidthEl?.addEventListener('change', onOverlayRefPxInputChanged);
+  overlayRefWidthEl?.addEventListener('input', onOverlayRefPxInputChanged);
+  overlayRefHeightEl?.addEventListener('change', onOverlayRefPxInputChanged);
+  overlayRefHeightEl?.addEventListener('input', onOverlayRefPxInputChanged);
+  overlayRefFramesEl?.addEventListener('change', onOverlayRefPxInputChanged);
+  overlayRefFramesEl?.addEventListener('input', onOverlayRefPxInputChanged);
+  const rangeFromEl = el(ids.exportScanFrom);
+  const rangeToEl = el(ids.exportScanTo);
+  const onExportRangeDraftChanged = () => persistExportRangeDraftInputs();
+  rangeFromEl?.addEventListener('change', onExportRangeDraftChanged);
+  rangeFromEl?.addEventListener('input', onExportRangeDraftChanged);
+  rangeToEl?.addEventListener('change', onExportRangeDraftChanged);
+  rangeToEl?.addEventListener('input', onExportRangeDraftChanged);
   el(ids.workflowSingleFrame)?.addEventListener('click', onWorkflowSingleFrameClick);
   const stripResEl = el(ids.stripPreviewRes);
   if (stripResEl) {
@@ -9102,6 +9271,7 @@ function applyGridFromPxInputs() {
   if (!Number.isFinite(w) || w < 1 || !Number.isFinite(h) || h < 1) return;
   numFrames = Math.max(MIN_FRAMES, Math.min(MAX_FRAMES, Number.isFinite(numFrames) ? numFrames : MIN_FRAMES));
   if (!applyGridFromReferenceCellPx(w, h, numFrames)) return;
+  persistOverlayGridRefPxValues();
   setDirty();
   updateUI();
   refreshPreviewsGridOnly();
@@ -9122,6 +9292,7 @@ function fillGridPxFieldsFromCurrentCell() {
   if (el(ids.gridRefPxWidth)) el(ids.gridRefPxWidth).value = String(wPx);
   if (el(ids.gridRefPxHeight)) el(ids.gridRefPxHeight).value = String(hPx);
   if (el(ids.gridRefPxFrames)) el(ids.gridRefPxFrames).value = String(n);
+  persistOverlayGridRefPxValues();
 }
 
 function onFramePreviewJump(position) {
@@ -9169,6 +9340,55 @@ function setFrameGeneratorProgress(opts) {
   if (host) host.setAttribute('aria-valuenow', String(p));
   if (pctEl) pctEl.textContent = `${p}%`;
   if (labelEl) labelEl.textContent = message || '';
+}
+
+function formatBatchProgressStats(ctx) {
+  if (!ctx || typeof ctx !== 'object') return '';
+  const startedAtMs = Number(ctx.startedAtMs);
+  const processedFrames = Math.max(0, Math.floor(Number(ctx.processedFrames) || 0));
+  const totalFrames = Math.max(0, Math.floor(Number(ctx.totalFrames) || 0));
+  if (!Number.isFinite(startedAtMs) || startedAtMs <= 0 || totalFrames < 1) return '';
+  const elapsedMs = Math.max(0, Date.now() - startedAtMs);
+  const elapsedSec = elapsedMs / 1000;
+  const fps = elapsedSec > 0 ? (processedFrames / elapsedSec) : 0;
+  const remainingFrames = Math.max(0, totalFrames - processedFrames);
+  const etaMs = fps > 0 ? Math.round((remainingFrames / fps) * 1000) : NaN;
+  const etaLabel = Number.isFinite(etaMs) ? formatProgressDuration(etaMs) : t('scanFolderOverlay.timeUnknown');
+  return t('frameGenerator.progressStats', {
+    elapsed: formatProgressDuration(elapsedMs),
+    eta: etaLabel,
+    fps: (Math.round(fps * 10) / 10).toFixed(1)
+  });
+}
+
+function withBatchProgressStats(baseMessage, ctx) {
+  const stats = formatBatchProgressStats(ctx);
+  if (!stats) return baseMessage || '';
+  return baseMessage ? `${baseMessage} · ${stats}` : stats;
+}
+
+function setCalibrationStatusAccent(enabled) {
+  const opEl = document.getElementById('status-operation');
+  if (!opEl) return;
+  opEl.classList.toggle('toolbar-status-operation--calibration-success', enabled === true);
+}
+
+function showTransientStatusMessage(message, timeoutMs = 1800) {
+  if (!message) return;
+  transientStatusToken += 1;
+  const token = transientStatusToken;
+  if (transientStatusTimer) {
+    clearTimeout(transientStatusTimer);
+    transientStatusTimer = null;
+  }
+  setCalibrationStatusAccent(true);
+  updateStatus(0, message);
+  transientStatusTimer = setTimeout(() => {
+    if (token !== transientStatusToken) return;
+    setCalibrationStatusAccent(false);
+    updateStatus(0, t('status.operationEmpty'));
+    transientStatusTimer = null;
+  }, Math.max(400, Math.floor(Number(timeoutMs) || 1800)));
 }
 
 function pathBasename(p) {
@@ -9504,6 +9724,14 @@ async function exportPaths(paths, options = null) {
     frameStart = Math.max(1, resume.frameIndex || 1);
   }
   let writtenTotal = 0;
+  let processedFrames = 0;
+  const runStartedAtMs = Date.now();
+  let totalFramesToProcess = 0;
+  for (let i = scanStart; i < total; i++) {
+    const frameCount = Math.max(1, getScanFrameCountByPath(paths[i]));
+    const startFrame = i === scanStart ? Math.max(1, frameStart) : 1;
+    totalFramesToProcess += Math.max(0, frameCount - startFrame + 1);
+  }
   setFrameGeneratorProgress({ visible: true, pct: 1, message: t('frameGenerator.progressNextNumber') });
   for (let scanIdx = scanStart; scanIdx < total; scanIdx++) {
     const scanPath = paths[scanIdx];
@@ -9522,7 +9750,10 @@ async function exportPaths(paths, options = null) {
     setFrameGeneratorProgress({
       visible: true,
       pct: Math.min(8, Math.round((100 * scanIdx) / Math.max(1, total * 2))),
-      message: t('frameGenerator.progressLoadingScan', { current: scanIdx + 1, total })
+      message: withBatchProgressStats(
+        t('frameGenerator.progressLoadingScan', { current: scanIdx + 1, total }),
+        { startedAtMs: runStartedAtMs, processedFrames, totalFrames: totalFramesToProcess }
+      )
     });
     updateStatus(
       5 + Math.round((70 * scanIdx) / total),
@@ -9553,7 +9784,10 @@ async function exportPaths(paths, options = null) {
           return { written: writtenTotal, stopped: true };
         }
         let canvas = cropFrameAtIndexForExport(exportStrip, previewStrip, i);
-        if (!canvas) continue;
+        if (!canvas) {
+          processedFrames++;
+          continue;
+        }
         if (outDims) {
           const scaled = scaleCanvasToSize(canvas, outDims.w, outDims.h, outDims.allowUpscale !== false);
           if (scaled !== canvas) disposeCanvas(canvas);
@@ -9618,17 +9852,21 @@ async function exportPaths(paths, options = null) {
           result = { ok: false };
         }
         if (result?.ok) writtenTotal++;
-        const done = writtenTotal;
-        const barPct = Math.min(99, Math.round((100 * done) / Math.max(1, estimatedTotalFrames)));
+        processedFrames++;
+        const done = processedFrames;
+        const barPct = Math.min(99, Math.round((100 * done) / Math.max(1, totalFramesToProcess || estimatedTotalFrames)));
         setFrameGeneratorProgress({
           visible: true,
           pct: barPct,
-          message: t('frameGenerator.progressWriting', {
-            scan: scanIdx + 1,
-            totalScans: total,
-            frame: i + 1,
-            framesInScan: n
-          })
+          message: withBatchProgressStats(
+            t('frameGenerator.progressWriting', {
+              scan: scanIdx + 1,
+              totalScans: total,
+              frame: i + 1,
+              framesInScan: n
+            }),
+            { startedAtMs: runStartedAtMs, processedFrames, totalFrames: totalFramesToProcess || estimatedTotalFrames }
+          )
         });
         await yieldToEventLoop();
       }
@@ -9643,7 +9881,10 @@ async function exportPaths(paths, options = null) {
       setFrameGeneratorProgress({
         visible: true,
         pct: Math.min(99, Math.round((100 * writtenTotal) / est)),
-        message: t('frameGenerator.progressPause', { seconds: pauseSec, scan: scanIdx + 1 })
+        message: withBatchProgressStats(
+          t('frameGenerator.progressPause', { seconds: pauseSec, scan: scanIdx + 1 }),
+          { startedAtMs: runStartedAtMs, processedFrames, totalFrames: totalFramesToProcess || est }
+        )
       });
       updateStatus(80, t('status.exportPause', { seconds: pauseSec, scan: scanIdx + 1 }));
       await delay(pauseSec * 1000);
@@ -9686,6 +9927,10 @@ async function jumpToRangeStartScan(range) {
   const loaded = await loadScanByPath(targetPos.scanPath, scanNavigationGridOptions());
   if (!loaded) return false;
   setActiveFrameIndex(Math.max(0, targetPos.frameInScan - 1));
+  if (applyRangeReferenceSnapshotForRange(range, targetPos.scanPath)) {
+    // Bij een opgeslagen referentie blijft de startframe-positie leidend.
+    setActiveFrameIndex(Math.max(0, targetPos.frameInScan - 1));
+  }
   setDirty();
   updateUI();
   refreshPreviews();
@@ -9848,6 +10093,7 @@ async function onResumeStoppedBatchRun() {
 }
 
 async function onGoToPreviousBatchRange() {
+  persistCurrentRangeReferenceSnapshot();
   if (!exportScanBatchRanges.length) {
     alert(t('frameExport.batchRangeListEmpty'));
     return;
@@ -9871,6 +10117,7 @@ async function onGoToPreviousBatchRange() {
 }
 
 async function onGoToNextBatchRange() {
+  persistCurrentRangeReferenceSnapshot();
   if (!exportScanBatchRanges.length) {
     alert(t('frameExport.batchRangeListEmpty'));
     return;
@@ -9973,6 +10220,16 @@ async function onRunBatchRangeList(options = null) {
     } else {
       clearExportBatchResumeState();
     }
+    let totalFramesToProcess = 0;
+    for (let i = startRangeIndex; i < exportScanBatchRanges.length; i++) {
+      const r = exportScanBatchRanges[i];
+      const rawFrom = i === startRangeIndex ? Math.max(r.from, startGlobalFrame) : r.from;
+      const from = Math.max(1, Math.min(map.totalFrames, rawFrom));
+      const to = Math.max(1, Math.min(map.totalFrames, r.to));
+      if (from <= to) totalFramesToProcess += Math.max(0, to - from + 1);
+    }
+    let processedFrames = 0;
+    const runStartedAtMs = Date.now();
     for (let i = startRangeIndex; i < exportScanBatchRanges.length; i++) {
       const range = exportScanBatchRanges[i];
       const rawFrom = i === startRangeIndex ? Math.max(range.from, startGlobalFrame) : range.from;
@@ -10001,8 +10258,17 @@ async function onRunBatchRangeList(options = null) {
           to
         })
       );
-      const rangeResult = await exportGlobalFrameRange(paths, map, from, to, i, exportScanBatchRanges.length);
+      const rangeResult = await exportGlobalFrameRange(
+        paths,
+        map,
+        from,
+        to,
+        i,
+        exportScanBatchRanges.length,
+        { startedAtMs: runStartedAtMs, totalFrames: totalFramesToProcess, processedBefore: processedFrames }
+      );
       writtenTotal += Number(rangeResult?.written) || 0;
+      processedFrames += Number(rangeResult?.processed) || 0;
       if (rangeResult?.stopped) {
         stopped = true;
         updateStatus(0, t('frameGenerator.batchStoppedStatus'));
@@ -10024,7 +10290,7 @@ async function onRunBatchRangeList(options = null) {
   }
 }
 
-async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, rangeIdx, rangeTotal) {
+async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, rangeIdx, rangeTotal, progressCtx = null) {
   const folder = getState().exportFolderPath;
   const appSettings = await window.api?.getAppSettings?.().catch(() => null);
   const outDims = getExportOutputDimensions(appSettings);
@@ -10063,7 +10329,7 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
           t('frameGenerator.batchPausedStatus')
         );
         if (shouldStop) {
-          return { written: writtenTotal, stopped: true, nextGlobalFrame: currentGlobalFrame };
+          return { written: writtenTotal, stopped: true, nextGlobalFrame: currentGlobalFrame, processed: processedInRange };
         }
         let canvas = cropFrameAtIndexForExport(exportStrip, previewStrip, i - 1);
         if (!canvas) {
@@ -10122,17 +10388,29 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
         }
         if (result?.ok) writtenTotal++;
         processedInRange++;
-        const pct = Math.min(99, Math.round((processedInRange * 100) / spanFrames));
+        const processedTotal = Math.max(
+          0,
+          Math.floor(Number(progressCtx?.processedBefore) || 0) + processedInRange
+        );
+        const totalFrames = Math.max(1, Math.floor(Number(progressCtx?.totalFrames) || spanFrames));
+        const pct = Math.min(99, Math.round((processedTotal * 100) / totalFrames));
         setFrameGeneratorProgress({
           visible: true,
           pct,
-          message: t('frameGenerator.batchRangeProgressFrame', {
-            currentRange: rangeIdx + 1,
-            totalRanges: rangeTotal,
-            frame: fromFrame + processedInRange - 1,
-            from: fromFrame,
-            to: toFrame
-          })
+          message: withBatchProgressStats(
+            t('frameGenerator.batchRangeProgressFrame', {
+              currentRange: rangeIdx + 1,
+              totalRanges: rangeTotal,
+              frame: fromFrame + processedInRange - 1,
+              from: fromFrame,
+              to: toFrame
+            }),
+            {
+              startedAtMs: Number(progressCtx?.startedAtMs) || Date.now(),
+              processedFrames: processedTotal,
+              totalFrames
+            }
+          )
         });
         await yieldToEventLoop();
       }
@@ -10141,7 +10419,7 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
       assistSampleCache = null;
     }
   }
-  return { written: writtenTotal, stopped: false, nextGlobalFrame: toFrame + 1 };
+  return { written: writtenTotal, stopped: false, nextGlobalFrame: toFrame + 1, processed: processedInRange };
 }
 
 /** Batch: alle scanlints laden, frames uitsnijden met originele bestandsnamen. */
