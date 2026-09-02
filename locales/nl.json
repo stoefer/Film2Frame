@@ -556,6 +556,7 @@
   "stripWindow.stepLabel": "Stap:",
   "stripWindow.step1Title": "Stap 1 px (Tab wisselt 1 ↔ 10)",
   "stripWindow.step10Title": "Stap 10 px (Tab wisselt 1 ↔ 10)",
+  "stripWindow.step100Title": "Stap 100 px (grote sprong)",
   "stripWindow.stepToggleTitle": "Tab: wissel stap 1 ↔ 10",
   "stripWindow.imgAlt": "Scanlint",
   "stripWindow.scanGotoInvalidAlert": "Voer een geldig scanlint-nummer in (minimaal 1).",

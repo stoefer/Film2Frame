@@ -2088,6 +2088,7 @@
             <label></label>
             <button type="button" id="btn-step-1">1</button>
             <button type="button" id="btn-step-10">10</button>
+            <button type="button" id="btn-step-100">100</button>
           </span>
         </div>
         <div class="manual-scan-nav raster-subpanel raster-subpanel--manual" id="manual-scan-nav">
@@ -3976,8 +3977,10 @@
         if (hD) hD.title = stripTr('stripWindow.handDownTitle');
         var s1 = document.getElementById('btn-step-1');
         var s10 = document.getElementById('btn-step-10');
+        var s100 = document.getElementById('btn-step-100');
         if (s1) s1.title = stripTr('stripWindow.step1Title');
         if (s10) s10.title = stripTr('stripWindow.step10Title');
+        if (s100) s100.title = stripTr('stripWindow.step100Title');
         var stepGroup = document.querySelector('.step-group');
         if (stepGroup) stepGroup.title = stripTr('stripWindow.stepToggleTitle');
         if (img) img.alt = stripTr('stripWindow.imgAlt');
@@ -4083,6 +4086,7 @@
 
       const btnStep1 = document.getElementById('btn-step-1');
       const btnStep10 = document.getElementById('btn-step-10');
+      const btnStep100 = document.getElementById('btn-step-100');
       const btnTop = document.getElementById('btn-top');
       const btnMiddle = document.getElementById('btn-middle');
       const btnBottom = document.getElementById('btn-bottom');
@@ -4102,8 +4106,9 @@
       ].filter(Boolean);
 
       function updateActiveButtons() {
-        btnStep1.classList.toggle('btn-active', stepPx === 1);
-        btnStep10.classList.toggle('btn-active', stepPx === 10);
+        if (btnStep1) btnStep1.classList.toggle('btn-active', stepPx === 1);
+        if (btnStep10) btnStep10.classList.toggle('btn-active', stepPx === 10);
+        if (btnStep100) btnStep100.classList.toggle('btn-active', stepPx === 100);
         btnTop.classList.toggle('btn-active', activeJump === 'top');
         btnMiddle.classList.toggle('btn-active', activeJump === 'middle');
         btnBottom.classList.toggle('btn-active', activeJump === 'bottom');
@@ -5548,6 +5553,7 @@
 
       document.getElementById('btn-step-1').addEventListener('click', function () { stepPx = 1; updateActiveButtons(); });
       document.getElementById('btn-step-10').addEventListener('click', function () { stepPx = 10; updateActiveButtons(); });
+      document.getElementById('btn-step-100').addEventListener('click', function () { stepPx = 100; updateActiveButtons(); });
       function toggleStepPx() {
         stepPx = stepPx === 10 ? 1 : 10;
         updateActiveButtons();

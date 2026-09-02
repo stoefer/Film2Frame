@@ -556,6 +556,7 @@
   "stripWindow.stepLabel": "Step:",
   "stripWindow.step1Title": "Step 1 px (Tab toggles 1 ↔ 10)",
   "stripWindow.step10Title": "Step 10 px (Tab toggles 1 ↔ 10)",
+  "stripWindow.step100Title": "Step 100 px (large jump)",
   "stripWindow.stepToggleTitle": "Tab: toggle step 1 ↔ 10",
   "stripWindow.imgAlt": "Scan strip",
   "stripWindow.scanGotoInvalidAlert": "Enter a valid scan number (at least 1).",
