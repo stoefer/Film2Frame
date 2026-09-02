@@ -126,6 +126,10 @@ contextBridge.exposeInMainWorld('stripApi', {
     }
     ipcRenderer.send('strip-navigate-scan', { index: Number(request), exportCurrent: false });
   },
+  goToPreviousBatchRange: () => invokeStripApi('goToPreviousBatchRange', []),
+  goToNextBatchRange: () => invokeStripApi('goToNextBatchRange', []),
+  getBatchRangeContext: () => invokeStripApi('getBatchRangeContext', []),
+  setCurrentFrameAsBatchRangeReference: () => invokeStripApi('setCurrentFrameAsBatchRangeReference', []),
   saveMacroFile: (payload) => ipcRenderer.invoke('save-macro-file', payload),
   openMacroFile: () => ipcRenderer.invoke('open-macro-file'),
   stripRotate90: () => { ipcRenderer.send('strip-rotate-90'); },

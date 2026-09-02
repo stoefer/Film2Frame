@@ -212,6 +212,11 @@
     body.strip-ui-compact-hd .raster-current-label {
       font-size: 12px;
     }
+    body.strip-ui-compact-hd .raster-current-range-display {
+      min-height: 20px;
+      padding: 2px 7px;
+      font-size: 0.69rem;
+    }
     body.strip-ui-compact-hd .raster-subpanel__nav-center .btn-scan-nav {
       width: 6.4rem;
       min-width: 6.4rem;
@@ -337,6 +342,20 @@
       font-size: 1rem;
       font-weight: 700;
       letter-spacing: 0.04em;
+      font-variant-numeric: tabular-nums;
+    }
+    .raster-current-range-display {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid #3b4450;
+      background: #1b222b;
+      color: #c9d5e5;
+      font-size: 0.75rem;
+      line-height: 1.2;
+      white-space: nowrap;
       font-variant-numeric: tabular-nums;
     }
     .raster-subpanel__lead label {
@@ -2103,10 +2122,14 @@
             <span class="raster-current-scan-wrap">
               <span id="raster-current-scan-display" class="raster-current-scan-display" title="">—</span>
             </span>
+            <span id="raster-current-range-display" class="raster-current-range-display" title="">—</span>
           </div>
           <div class="manual-scan-nav__buttons raster-subpanel__nav-center">
             <button type="button" id="btn-scan-prev" class="btn-scan-nav"></button>
             <button type="button" id="btn-scan-next" class="btn-scan-nav"></button>
+            <button type="button" id="btn-range-prev" class="btn-scan-nav"></button>
+            <button type="button" id="btn-range-next" class="btn-scan-nav"></button>
+            <button type="button" id="btn-range-use-current-ref" class="btn-scan-nav"></button>
             <label class="auto-advance-align" for="chk-auto-advance-align" title="">
               <input type="checkbox" id="chk-auto-advance-align" />
               <span id="label-auto-advance-align"></span>
@@ -2441,6 +2464,10 @@
       const btnAssistExtraPresetLeft4 = document.getElementById('btn-assist-extra-preset-left4');
       const btnAssistExtraPresetFrame = document.getElementById('btn-assist-extra-preset-frame');
       const inputScanGoto = document.getElementById('input-scan-goto');
+      const btnRangePrev = document.getElementById('btn-range-prev');
+      const btnRangeNext = document.getElementById('btn-range-next');
+      const btnRangeUseCurrentRef = document.getElementById('btn-range-use-current-ref');
+      const currentRangeDisplayEl = document.getElementById('raster-current-range-display');
       const zoomSelect = document.getElementById('zoom');
       const inputVerticalAnchorK = document.getElementById('strip-vertical-anchor-k');
       const stripRightPanel = document.getElementById('strip-right-tools');
@@ -2474,6 +2501,8 @@
       const btnAssistHelpClose = document.getElementById('btn-assist-help-close');
 
       let lastPayload = null;
+      let lastBatchRangeContext = null;
+      let rangeContextRequestToken = 0;
       const ASSIST_HELP_STORAGE_KEY = 'f2f.strip.assistHelp.v1';
       var assistHelpState = { open: false, left: null, top: null };
       var assistHelpDragState = null;
@@ -3804,6 +3833,18 @@
         if (bPr) bPr.textContent = stripTr('stripWindow.btnPrev');
         var bNx = document.getElementById('btn-scan-next');
         if (bNx) bNx.textContent = stripTr('stripWindow.btnNext');
+        if (btnRangePrev) {
+          btnRangePrev.textContent = stripTr('frameGenerator.batchPrevRangeButton');
+          btnRangePrev.title = stripTr('stripWindow.batchPrevRangeTitle');
+        }
+        if (btnRangeNext) {
+          btnRangeNext.textContent = stripTr('frameGenerator.batchNextRangeButton');
+          btnRangeNext.title = stripTr('stripWindow.batchNextRangeTitle');
+        }
+        if (btnRangeUseCurrentRef) {
+          btnRangeUseCurrentRef.textContent = stripTr('stripWindow.batchUseCurrentRefButton');
+          btnRangeUseCurrentRef.title = stripTr('stripWindow.batchUseCurrentRefTitle');
+        }
         var lblAutoAdv = document.getElementById('label-auto-advance-align');
         if (lblAutoAdv) lblAutoAdv.textContent = stripTr('stripWindow.autoAdvanceAlignLabel');
         var chkAutoAdv = document.getElementById('chk-auto-advance-align');
@@ -3816,6 +3857,7 @@
         }
         var curLab = document.getElementById('raster-current-frame-label');
         if (curLab) curLab.textContent = stripTr('stripWindow.currentFrameLabel');
+        if (currentRangeDisplayEl) currentRangeDisplayEl.textContent = stripTr('stripWindow.currentRangeUnknown');
         var sti = document.getElementById('strip-scaninfo-title');
         if (sti) sti.textContent = stripTr('scaninfo.panelTitle');
         var sli = document.getElementById('strip-scaninfo-lbl-index');
@@ -4931,18 +4973,92 @@
           : (payload.activeFrameIndex != null ? Math.floor(Number(payload.activeFrameIndex)) + 1 : NaN);
         if (!Number.isFinite(totalFrames) || totalFrames < 1) totalFrames = NaN;
         if (!Number.isFinite(activeFrame) || activeFrame < 1) activeFrame = NaN;
+        var globalFrame = lastBatchRangeContext && lastBatchRangeContext.globalFrameNumber != null
+          ? Math.floor(Number(lastBatchRangeContext.globalFrameNumber))
+          : NaN;
+        if (!Number.isFinite(globalFrame) || globalFrame < 1) globalFrame = NaN;
         if (Number.isFinite(activeFrame) && Number.isFinite(totalFrames)) {
-          inlineFrameEl.textContent = String(activeFrame);
-          inlineFrameEl.title = String(activeFrame) + ' / ' + String(totalFrames);
+          inlineFrameEl.textContent = Number.isFinite(globalFrame)
+            ? (String(activeFrame) + ' / ' + String(totalFrames) + ' · G' + String(globalFrame))
+            : (String(activeFrame) + ' / ' + String(totalFrames));
+          inlineFrameEl.title = Number.isFinite(globalFrame)
+            ? (String(activeFrame) + ' / ' + String(totalFrames) + ' (global ' + String(globalFrame) + ')')
+            : (String(activeFrame) + ' / ' + String(totalFrames));
           return;
         }
         if (Number.isFinite(activeFrame)) {
-          inlineFrameEl.textContent = String(activeFrame);
-          inlineFrameEl.title = String(activeFrame);
+          inlineFrameEl.textContent = Number.isFinite(globalFrame)
+            ? (String(activeFrame) + ' · G' + String(globalFrame))
+            : String(activeFrame);
+          inlineFrameEl.title = Number.isFinite(globalFrame)
+            ? (String(activeFrame) + ' (global ' + String(globalFrame) + ')')
+            : String(activeFrame);
           return;
         }
         inlineFrameEl.textContent = '—';
         inlineFrameEl.title = '';
+      }
+
+      function updateCurrentRangeDisplay(rangeCtx) {
+        if (!currentRangeDisplayEl) return;
+        if (!rangeCtx || typeof rangeCtx !== 'object') {
+          currentRangeDisplayEl.textContent = stripTr('stripWindow.currentRangeUnknown');
+          currentRangeDisplayEl.title = '';
+          return;
+        }
+        var idx = Math.floor(Number(rangeCtx.rangeIndex));
+        var total = Math.floor(Number(rangeCtx.rangeCount));
+        var r = rangeCtx.range;
+        var g = Math.floor(Number(rangeCtx.globalFrameNumber));
+        if (Number.isFinite(idx) && idx >= 0 && Number.isFinite(total) && total > 0 && r && Number.isFinite(Number(r.from)) && Number.isFinite(Number(r.to))) {
+          currentRangeDisplayEl.textContent = stripTrFmt('stripWindow.currentRangeDisplay', {
+            index: idx + 1,
+            total: total,
+            from: Math.floor(Number(r.from)),
+            to: Math.floor(Number(r.to))
+          });
+          currentRangeDisplayEl.title = Number.isFinite(g) && g > 0
+            ? stripTrFmt('stripWindow.currentRangeDisplayWithFrameTitle', {
+                frame: g,
+                index: idx + 1,
+                total: total,
+                from: Math.floor(Number(r.from)),
+                to: Math.floor(Number(r.to))
+              })
+            : currentRangeDisplayEl.textContent;
+          return;
+        }
+        if (Number.isFinite(g) && g > 0) {
+          currentRangeDisplayEl.textContent = stripTrFmt('stripWindow.currentRangeNoMatch', { frame: g });
+          currentRangeDisplayEl.title = currentRangeDisplayEl.textContent;
+          return;
+        }
+        currentRangeDisplayEl.textContent = stripTr('stripWindow.currentRangeUnknown');
+        currentRangeDisplayEl.title = '';
+      }
+
+      function refreshRangeContextUiFromMain(payloadForFrame) {
+        if (!api || !api.getBatchRangeContext) {
+          lastBatchRangeContext = null;
+          updateCurrentRangeDisplay(null);
+          updateCurrentFrameDisplay(payloadForFrame || lastPayload);
+          return;
+        }
+        rangeContextRequestToken += 1;
+        var token = rangeContextRequestToken;
+        Promise.resolve(api.getBatchRangeContext())
+          .then(function (ctx) {
+            if (token !== rangeContextRequestToken) return;
+            lastBatchRangeContext = ctx && typeof ctx === 'object' ? ctx : null;
+            updateCurrentRangeDisplay(lastBatchRangeContext);
+            updateCurrentFrameDisplay(payloadForFrame || lastPayload);
+          })
+          .catch(function () {
+            if (token !== rangeContextRequestToken) return;
+            lastBatchRangeContext = null;
+            updateCurrentRangeDisplay(null);
+            updateCurrentFrameDisplay(payloadForFrame || lastPayload);
+          });
       }
 
       /** Werkelijke export-uitsnede (strip-canvas / volle resolutie), niet de verkleinde preview op het scherm. */
@@ -4968,12 +5084,14 @@
         if (!stripPayloadHasContent(payload)) {
           updateAlignAreaFromGridPayload(null);
           lastPayload = null;
+          lastBatchRangeContext = null;
           lastSeenActiveFrameNumber = null;
           pendingJumpScroll = true;
           lastStripDataUrlApplied = '';
           updateHeaderFilename(null);
           updateScanGotoHints(null);
           updateCurrentFrameDisplay(null);
+          updateCurrentRangeDisplay(null);
           syncOrientFlipFromPayload(null);
           fixResolutionLocked = false;
           updateFixResolutionUi();
@@ -5001,6 +5119,7 @@
         }
         updateScanGotoHints(payload);
         updateCurrentFrameDisplay(payload);
+        refreshRangeContextUiFromMain(payload);
         updateHeaderFilename(payload);
         syncVerticalAnchorFromPayload(payload);
         syncPanelLinkFromPayload(payload);
@@ -6031,6 +6150,33 @@
       document.getElementById('btn-scan-next').addEventListener('click', function () {
         runNavigateScan('next', true, true);
       });
+      if (btnRangePrev) {
+        btnRangePrev.addEventListener('click', function () {
+          if (!api.goToPreviousBatchRange) return;
+          setBusy(true);
+          Promise.resolve(api.goToPreviousBatchRange())
+            .catch(function () {})
+            .finally(function () { setBusy(false); });
+        });
+      }
+      if (btnRangeNext) {
+        btnRangeNext.addEventListener('click', function () {
+          if (!api.goToNextBatchRange) return;
+          setBusy(true);
+          Promise.resolve(api.goToNextBatchRange())
+            .catch(function () {})
+            .finally(function () { setBusy(false); });
+        });
+      }
+      if (btnRangeUseCurrentRef) {
+        btnRangeUseCurrentRef.addEventListener('click', function () {
+          if (!api.setCurrentFrameAsBatchRangeReference) return;
+          setBusy(true);
+          Promise.resolve(api.setCurrentFrameAsBatchRangeReference())
+            .catch(function () {})
+            .finally(function () { setBusy(false); });
+        });
+      }
       if (chkAutoAdvanceAlign) {
         chkAutoAdvanceAlign.addEventListener('change', function () {
           var on = !!chkAutoAdvanceAlign.checked;

@@ -619,6 +619,10 @@ function setupInlineStripBridge() {
       if (request && typeof request === 'object') return onStripNavigateScan(request);
       return onStripNavigateScan({ index: request });
     },
+    goToPreviousBatchRange: () => onGoToPreviousBatchRange(),
+    goToNextBatchRange: () => onGoToNextBatchRange(),
+    getBatchRangeContext: () => getBatchRangeContextForCurrentFrame(),
+    setCurrentFrameAsBatchRangeReference: () => setCurrentFrameAsRangeReference(),
     getLocale: () => window.api?.getLocale?.(),
     getTranslations: () => window.api?.getTranslations?.(),
     saveMacroFile: (payload) => window.api?.saveMacroFile?.(payload),
@@ -1118,6 +1122,59 @@ function resolveGlobalFramePosition(frameNo, rows) {
   return null;
 }
 
+function resolveCurrentGlobalFrameContext() {
+  const meta = getProjectMeta();
+  const s = getState();
+  if (!meta || !s?.path) return null;
+  const paths = Array.isArray(meta.scanInfos) ? meta.scanInfos.map((row) => row.path).filter(Boolean) : [];
+  if (!paths.length) return null;
+  const map = buildGlobalFrameMap(paths);
+  const currentPathKey = normPathKey(s.path);
+  if (!currentPathKey) return null;
+  const row = map.rows.find((entry) => normPathKey(entry.scanPath) === currentPathKey);
+  if (!row) return null;
+  const frameInScan = Math.max(1, Math.min(row.count, Math.floor(Number(s.activeFrameIndex) || 0) + 1));
+  return {
+    globalFrameNumber: row.start + frameInScan - 1,
+    totalFrames: map.totalFrames,
+    scanPath: row.scanPath,
+    frameInScan
+  };
+}
+
+function findBatchRangeIndexForGlobalFrame(globalFrameNumber) {
+  const target = Math.floor(Number(globalFrameNumber) || 0);
+  if (!Number.isFinite(target) || target < 1) return -1;
+  for (let i = 0; i < exportScanBatchRanges.length; i++) {
+    const range = exportScanBatchRanges[i];
+    if (!range) continue;
+    if (target >= range.from && target <= range.to) return i;
+  }
+  return -1;
+}
+
+function getBatchRangeContextForCurrentFrame() {
+  const frameCtx = resolveCurrentGlobalFrameContext();
+  if (!frameCtx) {
+    return {
+      globalFrameNumber: null,
+      totalProjectFrames: getProjectTotalFrameCountEstimate(),
+      rangeIndex: -1,
+      rangeCount: exportScanBatchRanges.length,
+      range: null
+    };
+  }
+  const rangeIndex = findBatchRangeIndexForGlobalFrame(frameCtx.globalFrameNumber);
+  const range = rangeIndex >= 0 ? exportScanBatchRanges[rangeIndex] : null;
+  return {
+    globalFrameNumber: frameCtx.globalFrameNumber,
+    totalProjectFrames: frameCtx.totalFrames,
+    rangeIndex,
+    rangeCount: exportScanBatchRanges.length,
+    range: range ? { from: range.from, to: range.to } : null
+  };
+}
+
 function setExportRangeInputs(from, to) {
   const fromEl = el(ids.exportScanFrom);
   const toEl = el(ids.exportScanTo);
@@ -1170,32 +1227,47 @@ function persistCurrentRangeReferenceSnapshot(index = exportScanBatchSelectedInd
     snapshot,
     savedAt: Date.now(),
     scanPath: s.path,
-    activeFrameIndex: Math.max(0, Math.floor(Number(s.activeFrameIndex) || 0))
+    activeFrameIndex: Math.max(0, Math.floor(Number(s.activeFrameIndex) || 0)),
+    globalFrameNumber: (() => {
+      const ctx = resolveCurrentGlobalFrameContext();
+      return Number.isFinite(Number(ctx?.globalFrameNumber)) ? Number(ctx.globalFrameNumber) : null;
+    })()
   };
   persistExportScanBatchRanges();
 }
 
-function applyRangeReferenceSnapshotForRange(range, targetScanPath = '') {
+function applyRangeReferenceSnapshotForRange(range, _targetScanPath = '') {
   const key = getExportScanBatchRangeKey(range);
   if (!key) return false;
   const ref = exportScanBatchRangeRefs && exportScanBatchRangeRefs[key];
   if (!ref || !ref.snapshot || typeof ref.snapshot !== 'object') return false;
-  const targetKey = normPathKey(targetScanPath || '');
-  const refKey = normPathKey(ref.scanPath || '');
-  if (targetKey && refKey && targetKey !== refKey) return false;
   applyLintState(ref.snapshot);
   return true;
 }
 
-function getRangeReferenceSnapshotForRange(range, targetScanPath = '') {
+function getRangeReferenceSnapshotForRange(range, _targetScanPath = '') {
   const key = getExportScanBatchRangeKey(range);
   if (!key) return null;
   const ref = exportScanBatchRangeRefs && exportScanBatchRangeRefs[key];
   if (!ref || !ref.snapshot || typeof ref.snapshot !== 'object') return null;
-  const targetKey = normPathKey(targetScanPath || '');
-  const refKey = normPathKey(ref.scanPath || '');
-  if (targetKey && refKey && targetKey !== refKey) return null;
   return ref.snapshot;
+}
+
+function setCurrentFrameAsRangeReference() {
+  if (!exportScanBatchRanges.length) return { ok: false, reason: 'empty' };
+  const ctx = getBatchRangeContextForCurrentFrame();
+  if (!ctx || ctx.rangeIndex < 0 || !ctx.range) return { ok: false, reason: 'no-range' };
+  exportScanBatchSelectedIndex = ctx.rangeIndex;
+  persistCurrentRangeReferenceSnapshot(ctx.rangeIndex);
+  renderExportScanBatchRangeList();
+  showTransientStatusMessage(
+    t('frameGenerator.batchRangeRefSetFromFrame', {
+      from: ctx.range.from,
+      to: ctx.range.to
+    }),
+    2000
+  );
+  return { ok: true, rangeIndex: ctx.rangeIndex, range: ctx.range };
 }
 function normalizeExportBatchResumeState(raw) {
   if (!raw || typeof raw !== 'object') return null;
