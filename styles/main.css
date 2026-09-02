@@ -769,6 +769,7 @@ body.theme-light .btn-floating-preview-toggle.pressed {
   border-color: #93c5fd !important;
   color: #f8fafc !important;
   box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.35);
+  font-weight: 600;
 }
 #f2f-export-batch-range-prev:hover,
 #f2f-export-batch-range-next:hover {
@@ -1401,7 +1402,7 @@ body.theme-light .frame-generator-progress-pct {
   border: 1px solid #243141;
   background: #19212b;
   text-align: left;
-  color: #f8fafc;
+  color: #f8fafc !important;
 }
 
 .export-range-list-item.active {
@@ -1413,12 +1414,17 @@ body.theme-light .frame-generator-progress-pct {
   flex: 1;
   min-width: 0;
   font-size: 0.82rem;
-  color: #f8fafc;
+  color: #f8fafc !important;
 }
 
 .export-range-list-item-jump {
   font-size: 0.72rem;
-  color: #dbeafe;
+  color: #dbeafe !important;
+}
+
+.export-range-list button.export-range-list-item,
+button.export-range-list-item {
+  color: #f8fafc !important;
 }
 
 .export-range-ref-badge {
