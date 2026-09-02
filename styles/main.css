@@ -1415,6 +1415,27 @@ body.theme-light .frame-generator-progress-pct {
   color: #9ecbff;
 }
 
+.export-range-ref-badge {
+  font-size: 0.68rem;
+  line-height: 1.1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.export-range-ref-badge--saved {
+  background: #14532d;
+  border-color: #22c55e;
+  color: #dcfce7;
+}
+
+.export-range-ref-badge--missing {
+  background: #713f12;
+  border-color: #f59e0b;
+  color: #fef3c7;
+}
+
 .export-range-mode {
   font-size: 0.78rem;
   color: #9fb0c4;
@@ -1447,6 +1468,18 @@ body.theme-light .export-range-mode {
 
 body.theme-light .export-range-summary {
   color: #475569;
+}
+
+body.theme-light .export-range-ref-badge--saved {
+  background: #dcfce7;
+  border-color: #16a34a;
+  color: #14532d;
+}
+
+body.theme-light .export-range-ref-badge--missing {
+  background: #fef3c7;
+  border-color: #d97706;
+  color: #7c2d12;
 }
 
 /* Zelfstandig instellingen-venster */

@@ -1349,6 +1349,9 @@ function renderExportScanBatchRangeList() {
     row.type = 'button';
     row.className = `export-range-list-item${i === exportScanBatchSelectedIndex ? ' active' : ''}`;
     row.addEventListener('click', () => {
+      if (exportScanBatchSelectedIndex !== i) {
+        persistCurrentRangeReferenceSnapshot(exportScanBatchSelectedIndex);
+      }
       exportScanBatchSelectedIndex = i;
       renderExportScanBatchRangeList();
     });
@@ -1362,8 +1365,16 @@ function renderExportScanBatchRangeList() {
     const hint = document.createElement('span');
     hint.className = 'export-range-list-item-jump';
     hint.textContent = t('frameGenerator.batchJumpHint');
+    const refBadge = document.createElement('span');
+    const rangeKey = getExportScanBatchRangeKey(item);
+    const hasRef = !!(rangeKey && exportScanBatchRangeRefs && exportScanBatchRangeRefs[rangeKey]);
+    refBadge.className = `export-range-ref-badge ${hasRef ? 'export-range-ref-badge--saved' : 'export-range-ref-badge--missing'}`;
+    refBadge.textContent = hasRef
+      ? t('frameGenerator.batchRangeRefSaved')
+      : t('frameGenerator.batchRangeRefMissing');
     row.appendChild(label);
     row.appendChild(hint);
+    row.appendChild(refBadge);
     frag.appendChild(row);
   }
   listEl.appendChild(frag);
@@ -9307,6 +9318,31 @@ function setFrameGeneratorProgress(opts) {
   if (labelEl) labelEl.textContent = message || '';
 }
 
+function formatBatchProgressStats(ctx) {
+  if (!ctx || typeof ctx !== 'object') return '';
+  const startedAtMs = Number(ctx.startedAtMs);
+  const processedFrames = Math.max(0, Math.floor(Number(ctx.processedFrames) || 0));
+  const totalFrames = Math.max(0, Math.floor(Number(ctx.totalFrames) || 0));
+  if (!Number.isFinite(startedAtMs) || startedAtMs <= 0 || totalFrames < 1) return '';
+  const elapsedMs = Math.max(0, Date.now() - startedAtMs);
+  const elapsedSec = elapsedMs / 1000;
+  const fps = elapsedSec > 0 ? (processedFrames / elapsedSec) : 0;
+  const remainingFrames = Math.max(0, totalFrames - processedFrames);
+  const etaMs = fps > 0 ? Math.round((remainingFrames / fps) * 1000) : NaN;
+  const etaLabel = Number.isFinite(etaMs) ? formatProgressDuration(etaMs) : t('scanFolderOverlay.timeUnknown');
+  return t('frameGenerator.progressStats', {
+    elapsed: formatProgressDuration(elapsedMs),
+    eta: etaLabel,
+    fps: (Math.round(fps * 10) / 10).toFixed(1)
+  });
+}
+
+function withBatchProgressStats(baseMessage, ctx) {
+  const stats = formatBatchProgressStats(ctx);
+  if (!stats) return baseMessage || '';
+  return baseMessage ? `${baseMessage} · ${stats}` : stats;
+}
+
 function pathBasename(p) {
   const s = String(p || '').replace(/\\/g, '/');
   const i = s.lastIndexOf('/');
@@ -9640,6 +9676,14 @@ async function exportPaths(paths, options = null) {
     frameStart = Math.max(1, resume.frameIndex || 1);
   }
   let writtenTotal = 0;
+  let processedFrames = 0;
+  const runStartedAtMs = Date.now();
+  let totalFramesToProcess = 0;
+  for (let i = scanStart; i < total; i++) {
+    const frameCount = Math.max(1, getScanFrameCountByPath(paths[i]));
+    const startFrame = i === scanStart ? Math.max(1, frameStart) : 1;
+    totalFramesToProcess += Math.max(0, frameCount - startFrame + 1);
+  }
   setFrameGeneratorProgress({ visible: true, pct: 1, message: t('frameGenerator.progressNextNumber') });
   for (let scanIdx = scanStart; scanIdx < total; scanIdx++) {
     const scanPath = paths[scanIdx];
@@ -9658,7 +9702,10 @@ async function exportPaths(paths, options = null) {
     setFrameGeneratorProgress({
       visible: true,
       pct: Math.min(8, Math.round((100 * scanIdx) / Math.max(1, total * 2))),
-      message: t('frameGenerator.progressLoadingScan', { current: scanIdx + 1, total })
+      message: withBatchProgressStats(
+        t('frameGenerator.progressLoadingScan', { current: scanIdx + 1, total }),
+        { startedAtMs: runStartedAtMs, processedFrames, totalFrames: totalFramesToProcess }
+      )
     });
     updateStatus(
       5 + Math.round((70 * scanIdx) / total),
@@ -9689,7 +9736,10 @@ async function exportPaths(paths, options = null) {
           return { written: writtenTotal, stopped: true };
         }
         let canvas = cropFrameAtIndexForExport(exportStrip, previewStrip, i);
-        if (!canvas) continue;
+        if (!canvas) {
+          processedFrames++;
+          continue;
+        }
         if (outDims) {
           const scaled = scaleCanvasToSize(canvas, outDims.w, outDims.h, outDims.allowUpscale !== false);
           if (scaled !== canvas) disposeCanvas(canvas);
@@ -9754,17 +9804,21 @@ async function exportPaths(paths, options = null) {
           result = { ok: false };
         }
         if (result?.ok) writtenTotal++;
-        const done = writtenTotal;
-        const barPct = Math.min(99, Math.round((100 * done) / Math.max(1, estimatedTotalFrames)));
+        processedFrames++;
+        const done = processedFrames;
+        const barPct = Math.min(99, Math.round((100 * done) / Math.max(1, totalFramesToProcess || estimatedTotalFrames)));
         setFrameGeneratorProgress({
           visible: true,
           pct: barPct,
-          message: t('frameGenerator.progressWriting', {
-            scan: scanIdx + 1,
-            totalScans: total,
-            frame: i + 1,
-            framesInScan: n
-          })
+          message: withBatchProgressStats(
+            t('frameGenerator.progressWriting', {
+              scan: scanIdx + 1,
+              totalScans: total,
+              frame: i + 1,
+              framesInScan: n
+            }),
+            { startedAtMs: runStartedAtMs, processedFrames, totalFrames: totalFramesToProcess || estimatedTotalFrames }
+          )
         });
         await yieldToEventLoop();
       }
@@ -9779,7 +9833,10 @@ async function exportPaths(paths, options = null) {
       setFrameGeneratorProgress({
         visible: true,
         pct: Math.min(99, Math.round((100 * writtenTotal) / est)),
-        message: t('frameGenerator.progressPause', { seconds: pauseSec, scan: scanIdx + 1 })
+        message: withBatchProgressStats(
+          t('frameGenerator.progressPause', { seconds: pauseSec, scan: scanIdx + 1 }),
+          { startedAtMs: runStartedAtMs, processedFrames, totalFrames: totalFramesToProcess || est }
+        )
       });
       updateStatus(80, t('status.exportPause', { seconds: pauseSec, scan: scanIdx + 1 }));
       await delay(pauseSec * 1000);
@@ -10115,6 +10172,16 @@ async function onRunBatchRangeList(options = null) {
     } else {
       clearExportBatchResumeState();
     }
+    let totalFramesToProcess = 0;
+    for (let i = startRangeIndex; i < exportScanBatchRanges.length; i++) {
+      const r = exportScanBatchRanges[i];
+      const rawFrom = i === startRangeIndex ? Math.max(r.from, startGlobalFrame) : r.from;
+      const from = Math.max(1, Math.min(map.totalFrames, rawFrom));
+      const to = Math.max(1, Math.min(map.totalFrames, r.to));
+      if (from <= to) totalFramesToProcess += Math.max(0, to - from + 1);
+    }
+    let processedFrames = 0;
+    const runStartedAtMs = Date.now();
     for (let i = startRangeIndex; i < exportScanBatchRanges.length; i++) {
       const range = exportScanBatchRanges[i];
       const rawFrom = i === startRangeIndex ? Math.max(range.from, startGlobalFrame) : range.from;
@@ -10143,8 +10210,17 @@ async function onRunBatchRangeList(options = null) {
           to
         })
       );
-      const rangeResult = await exportGlobalFrameRange(paths, map, from, to, i, exportScanBatchRanges.length);
+      const rangeResult = await exportGlobalFrameRange(
+        paths,
+        map,
+        from,
+        to,
+        i,
+        exportScanBatchRanges.length,
+        { startedAtMs: runStartedAtMs, totalFrames: totalFramesToProcess, processedBefore: processedFrames }
+      );
       writtenTotal += Number(rangeResult?.written) || 0;
+      processedFrames += Number(rangeResult?.processed) || 0;
       if (rangeResult?.stopped) {
         stopped = true;
         updateStatus(0, t('frameGenerator.batchStoppedStatus'));
@@ -10166,7 +10242,7 @@ async function onRunBatchRangeList(options = null) {
   }
 }
 
-async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, rangeIdx, rangeTotal) {
+async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, rangeIdx, rangeTotal, progressCtx = null) {
   const folder = getState().exportFolderPath;
   const appSettings = await window.api?.getAppSettings?.().catch(() => null);
   const outDims = getExportOutputDimensions(appSettings);
@@ -10205,7 +10281,7 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
           t('frameGenerator.batchPausedStatus')
         );
         if (shouldStop) {
-          return { written: writtenTotal, stopped: true, nextGlobalFrame: currentGlobalFrame };
+          return { written: writtenTotal, stopped: true, nextGlobalFrame: currentGlobalFrame, processed: processedInRange };
         }
         let canvas = cropFrameAtIndexForExport(exportStrip, previewStrip, i - 1);
         if (!canvas) {
@@ -10264,17 +10340,29 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
         }
         if (result?.ok) writtenTotal++;
         processedInRange++;
-        const pct = Math.min(99, Math.round((processedInRange * 100) / spanFrames));
+        const processedTotal = Math.max(
+          0,
+          Math.floor(Number(progressCtx?.processedBefore) || 0) + processedInRange
+        );
+        const totalFrames = Math.max(1, Math.floor(Number(progressCtx?.totalFrames) || spanFrames));
+        const pct = Math.min(99, Math.round((processedTotal * 100) / totalFrames));
         setFrameGeneratorProgress({
           visible: true,
           pct,
-          message: t('frameGenerator.batchRangeProgressFrame', {
-            currentRange: rangeIdx + 1,
-            totalRanges: rangeTotal,
-            frame: fromFrame + processedInRange - 1,
-            from: fromFrame,
-            to: toFrame
-          })
+          message: withBatchProgressStats(
+            t('frameGenerator.batchRangeProgressFrame', {
+              currentRange: rangeIdx + 1,
+              totalRanges: rangeTotal,
+              frame: fromFrame + processedInRange - 1,
+              from: fromFrame,
+              to: toFrame
+            }),
+            {
+              startedAtMs: Number(progressCtx?.startedAtMs) || Date.now(),
+              processedFrames: processedTotal,
+              totalFrames
+            }
+          )
         });
         await yieldToEventLoop();
       }
@@ -10283,7 +10371,7 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
       assistSampleCache = null;
     }
   }
-  return { written: writtenTotal, stopped: false, nextGlobalFrame: toFrame + 1 };
+  return { written: writtenTotal, stopped: false, nextGlobalFrame: toFrame + 1, processed: processedInRange };
 }
 
 /** Batch: alle scanlints laden, frames uitsnijden met originele bestandsnamen. */
