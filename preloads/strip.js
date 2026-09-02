@@ -130,6 +130,7 @@ contextBridge.exposeInMainWorld('stripApi', {
   goToNextBatchRange: () => invokeStripApi('goToNextBatchRange', []),
   getBatchRangeContext: () => invokeStripApi('getBatchRangeContext', []),
   setCurrentFrameAsBatchRangeReference: () => invokeStripApi('setCurrentFrameAsBatchRangeReference', []),
+  notifyRangeInteractionStart: (source) => invokeStripApi('notifyRangeInteractionStart', [source]),
   notifyRangeInteractionEnd: () => invokeStripApi('notifyRangeInteractionEnd', []),
   saveMacroFile: (payload) => ipcRenderer.invoke('save-macro-file', payload),
   openMacroFile: () => ipcRenderer.invoke('open-macro-file'),

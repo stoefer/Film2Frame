@@ -2529,6 +2529,11 @@
         Promise.resolve(api.notifyRangeInteractionEnd()).catch(function () {});
       }
 
+      function notifyRangeInteractionStart(source) {
+        if (!api || !api.notifyRangeInteractionStart) return;
+        Promise.resolve(api.notifyRangeInteractionStart(source || 'frame-control')).catch(function () {});
+      }
+
       function scheduleRangeInteractionEndNotify(delayMs) {
         var d = Number.isFinite(Number(delayMs)) ? Math.max(20, Math.floor(Number(delayMs))) : 220;
         if (rangeInteractionEndTimer) clearTimeout(rangeInteractionEndTimer);
@@ -5857,6 +5862,15 @@
       window.addEventListener('resize', function () {
         if (zoomSelect.value === 'fit-screen' || zoomSelect.value === 'fit-frame' || zoomSelect.value === 'fit-width' || zoomSelect.value === 'fit-height') applyZoom();
       });
+      var frameControlRoot = document.getElementById('manual-scan-nav');
+      if (frameControlRoot) {
+        frameControlRoot.addEventListener('pointerdown', function () {
+          notifyRangeInteractionStart('frame-control');
+        }, true);
+        frameControlRoot.addEventListener('keydown', function () {
+          notifyRangeInteractionStart('frame-control');
+        }, true);
+      }
       window.addEventListener('pointerup', function () {
         scheduleRangeInteractionEndNotify(220);
       }, true);

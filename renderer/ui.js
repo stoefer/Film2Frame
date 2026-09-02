@@ -70,6 +70,8 @@ let transientStatusToken = 0;
 let autoRangeReferenceDirty = false;
 let autoRangeReferenceFlushTimer = null;
 let autoRangeReferenceSignatures = {};
+let autoRangeReferenceFrameControlActive = false;
+let autoRangeReferenceFrameControlTouchedAt = 0;
 const exportBatchRunState = {
   running: false,
   paused: false,
@@ -630,8 +632,16 @@ function setupInlineStripBridge() {
     goToNextBatchRange: () => onGoToNextBatchRange(),
     getBatchRangeContext: () => getBatchRangeContextForCurrentFrame(),
     setCurrentFrameAsBatchRangeReference: () => setCurrentFrameAsRangeReference(),
+    notifyRangeInteractionStart: (source) => {
+      if (source === 'frame-control') {
+        autoRangeReferenceFrameControlActive = true;
+        autoRangeReferenceFrameControlTouchedAt = Date.now();
+      }
+    },
     notifyRangeInteractionEnd: () => {
       flushAutoPersistCurrentRangeReference();
+      autoRangeReferenceFrameControlActive = false;
+      autoRangeReferenceFrameControlTouchedAt = 0;
     },
     getLocale: () => window.api?.getLocale?.(),
     getTranslations: () => window.api?.getTranslations?.(),
@@ -1241,10 +1251,19 @@ function scheduleAutoRangeReferenceFlush() {
 
 function markAutoPersistCurrentRangeReferenceDirty() {
   if (exportBatchRunState.running) return;
+  if (!autoRangeReferenceFrameControlActive) return;
   autoRangeReferenceDirty = true;
 }
 
 function flushAutoPersistCurrentRangeReference() {
+  if (!autoRangeReferenceFrameControlActive) {
+    autoRangeReferenceDirty = false;
+    return;
+  }
+  if (Date.now() - autoRangeReferenceFrameControlTouchedAt > 3000) {
+    autoRangeReferenceDirty = false;
+    return;
+  }
   if (!autoRangeReferenceDirty || exportBatchRunState.running) return;
   autoRangeReferenceDirty = false;
   const ctx = getBatchRangeContextForCurrentFrame();
@@ -10168,6 +10187,8 @@ function saveExportScanBatchRangesAndRefresh() {
     autoRangeReferenceFlushTimer = null;
   }
   autoRangeReferenceDirty = false;
+  autoRangeReferenceFrameControlActive = false;
+  autoRangeReferenceFrameControlTouchedAt = 0;
   autoRangeReferenceSignatures = {};
   renderExportScanBatchRangeList();
 }
