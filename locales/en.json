@@ -699,6 +699,7 @@
   "frameGenerator.batchRangeReimportFailed": "Re-import from Notepad file failed.",
   "frameGenerator.batchRangeNotepadOpenFailed": "Opening Notepad list failed.",
   "frameGenerator.batchRangeNotepadOpened": "Opened Notepad list: {path}",
+  "frameGenerator.batchRangeTemplateWarning": "You loaded the sample file (1-300, 301-600). Replace sample lines with your real ranges.",
   "frameGenerator.batchRangeModeIdle": "Mode: append at bottom",
   "frameGenerator.batchRangeModeEdit": "Mode: editing (keeps same list position)",
   "frameGenerator.batchRangeModeInsertAbove": "Mode: insert above selected range",

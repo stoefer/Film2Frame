@@ -699,6 +699,7 @@
   "frameGenerator.batchRangeReimportFailed": "Opnieuw importeren uit Notepad-bestand is mislukt.",
   "frameGenerator.batchRangeNotepadOpenFailed": "Notepad-lijst openen is mislukt.",
   "frameGenerator.batchRangeNotepadOpened": "Notepad-lijst geopend: {path}",
+  "frameGenerator.batchRangeTemplateWarning": "Je hebt het voorbeeldbestand geladen (1-300, 301-600). Vervang deze voorbeeldregels met je echte bereiken.",
   "frameGenerator.batchRangeModeIdle": "Modus: toevoegen onderaan",
   "frameGenerator.batchRangeModeEdit": "Modus: bewerken (positie blijft behouden)",
   "frameGenerator.batchRangeModeInsertAbove": "Modus: invoegen boven geselecteerd bereik",

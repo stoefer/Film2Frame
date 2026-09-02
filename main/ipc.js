@@ -814,13 +814,20 @@ function registerIPC() {
           error: 'Geen geldige bereiken gevonden. Gebruik per regel bijv. "1-300" of "301 600".'
         };
       }
+      const templateDetected =
+        ranges.length === 2 &&
+        ranges[0].from === 1 && ranges[0].to === 300 &&
+        ranges[1].from === 301 && ranges[1].to === 600 &&
+        /#\s*film2frame batch/i.test(raw) &&
+        /examples?:/i.test(raw);
       rememberBatchRangeListPath(filePath);
       return {
         ok: true,
         path: filePath,
         ranges,
         invalidLineNumbers: parsed.invalidLineNumbers,
-        dataLineCount: parsed.dataLineCount
+        dataLineCount: parsed.dataLineCount,
+        templateDetected
       };
     } catch (err) {
       return { ok: false, error: err && err.message ? err.message : 'Batchlijst importeren mislukt.' };
@@ -837,8 +844,9 @@ function registerIPC() {
           '# Film2Frame batch range list',
           '# One range per line',
           '# Examples:',
-          '1-300',
-          '301-600',
+          '# 1-300',
+          '# 301-600',
+          '# Remove # to activate a sample line',
           '# You can also use text like: frame 601 to 900'
         ].join('\n');
         fs.writeFileSync(filePath, template, 'utf8');
@@ -876,12 +884,19 @@ function registerIPC() {
           error: 'Geen geldige bereiken gevonden. Gebruik per regel bijv. "1-300" of "301 600".'
         };
       }
+      const templateDetected =
+        ranges.length === 2 &&
+        ranges[0].from === 1 && ranges[0].to === 300 &&
+        ranges[1].from === 301 && ranges[1].to === 600 &&
+        /#\s*film2frame batch/i.test(raw) &&
+        /examples?:/i.test(raw);
       return {
         ok: true,
         path: filePath,
         ranges,
         invalidLineNumbers: parsed.invalidLineNumbers,
-        dataLineCount: parsed.dataLineCount
+        dataLineCount: parsed.dataLineCount,
+        templateDetected
       };
     } catch (err) {
       return { ok: false, error: err && err.message ? err.message : 'Opnieuw importeren uit Notepad mislukt.' };

@@ -9584,7 +9584,7 @@ function onToggleBatchWrapNav() {
   updateUI();
 }
 
-function applyImportedBatchRanges(ranges, sourceLabel, invalidLineNumbers = [], dataLineCount = 0) {
+function applyImportedBatchRanges(ranges, sourceLabel, invalidLineNumbers = [], dataLineCount = 0, templateDetected = false) {
   exportScanBatchRanges = normalizeExportScanBatchRanges(
     Array.isArray(ranges) ? ranges : [],
     Number.POSITIVE_INFINITY
@@ -9600,6 +9600,9 @@ function applyImportedBatchRanges(ranges, sourceLabel, invalidLineNumbers = [], 
     const first = exportScanBatchRanges[0];
     setExportRangeInputs(first.from, first.to);
     updateStatus(0, t('frameGenerator.batchRangeImportDone', { count: exportScanBatchRanges.length, source: sourceLabel || t('frameGenerator.batchRangeImportSourceFile') }));
+    if (templateDetected) {
+      alert(t('frameGenerator.batchRangeTemplateWarning'));
+    }
     const invalidCount = Array.isArray(invalidLineNumbers) ? invalidLineNumbers.length : 0;
     if (invalidCount > 0) {
       const linesShort = invalidLineNumbers.slice(0, 8).join(', ');
@@ -9628,7 +9631,8 @@ async function onImportBatchRangeList() {
     result.ranges,
     result.path || t('frameGenerator.batchRangeImportSourceFile'),
     result.invalidLineNumbers,
-    result.dataLineCount
+    result.dataLineCount,
+    result.templateDetected
   );
 }
 
@@ -9654,7 +9658,8 @@ async function onReimportBatchRangeFromNotepad() {
     result.ranges,
     result.path || t('frameGenerator.batchRangeImportSourceNotepad'),
     result.invalidLineNumbers,
-    result.dataLineCount
+    result.dataLineCount,
+    result.templateDetected
   );
 }
 
