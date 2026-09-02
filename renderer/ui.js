@@ -61,10 +61,13 @@ let exportScanBatchEditIndex = -1;
 let exportScanBatchInsertMode = 'append';
 let exportScanBatchAutoMerge = true;
 let exportScanBatchWrapNav = false;
+let exportBatchDisablePreview = false;
 let exportScanBatchRangeRefs = {};
 let exportBatchResumeState = null;
 let transientStatusTimer = null;
 let transientStatusToken = 0;
+let autoRangeReferencePersistTimer = null;
+let autoRangeReferenceSignatures = {};
 const exportBatchRunState = {
   running: false,
   paused: false,
@@ -186,6 +189,7 @@ const ids = {
   exportBatchRangeSummary: 'f2f-export-batch-range-summary',
   exportBatchAutoMerge: 'f2f-export-batch-auto-merge',
   exportBatchWrapNav: 'f2f-export-batch-wrap-nav',
+  exportBatchDisablePreview: 'f2f-export-batch-disable-preview',
   exportBatchPause: 'f2f-export-batch-pause',
   exportBatchStop: 'f2f-export-batch-stop',
   exportBatchResume: 'f2f-export-batch-resume',
@@ -310,6 +314,9 @@ async function runAutoSaveNow() {
 
 function setupInlineStripBridge() {
   window.__f2fInlineStripPushUpdate = emitInlineStripUpdate;
+  window.__f2fOnRasterPreviewRefreshed = () => {
+    queueAutoPersistCurrentRangeReference();
+  };
   window.__f2fInvokeStripApi = (method, args) => {
     const api = window.__f2fEmbeddedStripApi;
     if (!api || typeof method !== 'string') return null;
@@ -617,6 +624,10 @@ function setupInlineStripBridge() {
       if (request && typeof request === 'object') return onStripNavigateScan(request);
       return onStripNavigateScan({ index: request });
     },
+    goToPreviousBatchRange: () => onGoToPreviousBatchRange(),
+    goToNextBatchRange: () => onGoToNextBatchRange(),
+    getBatchRangeContext: () => getBatchRangeContextForCurrentFrame(),
+    setCurrentFrameAsBatchRangeReference: () => setCurrentFrameAsRangeReference(),
     getLocale: () => window.api?.getLocale?.(),
     getTranslations: () => window.api?.getTranslations?.(),
     saveMacroFile: (payload) => window.api?.saveMacroFile?.(payload),
@@ -938,6 +949,7 @@ function updateUI() {
   const nextBtn = el(ids.exportBatchRangeNext);
   const autoMergeEl = el(ids.exportBatchAutoMerge);
   const wrapNavEl = el(ids.exportBatchWrapNav);
+  const disablePreviewEl = el(ids.exportBatchDisablePreview);
   const pauseBtn = el(ids.exportBatchPause);
   const stopBtn = el(ids.exportBatchStop);
   const resumeBtn = el(ids.exportBatchResume);
@@ -956,6 +968,7 @@ function updateUI() {
   if (nextBtn) nextBtn.disabled = !hasRanges || (!canWrapRangeNav && hasSelection && exportScanBatchSelectedIndex >= exportScanBatchRanges.length - 1);
   if (autoMergeEl) autoMergeEl.checked = exportScanBatchAutoMerge !== false;
   if (wrapNavEl) wrapNavEl.checked = exportScanBatchWrapNav === true;
+  if (disablePreviewEl) disablePreviewEl.checked = exportBatchDisablePreview === true;
   if (pauseBtn) {
     pauseBtn.disabled = !exportBatchRunState.running;
     pauseBtn.textContent = exportBatchRunState.paused
@@ -1114,6 +1127,83 @@ function resolveGlobalFramePosition(frameNo, rows) {
   return null;
 }
 
+function resolveCurrentGlobalFrameContext() {
+  const meta = getProjectMeta();
+  const s = getState();
+  if (!meta || !s?.path) return null;
+  const paths = Array.isArray(meta.scanInfos) ? meta.scanInfos.map((row) => row.path).filter(Boolean) : [];
+  if (!paths.length) return null;
+  const map = buildGlobalFrameMap(paths);
+  const currentPathKey = normPathKey(s.path);
+  if (!currentPathKey) return null;
+  const row = map.rows.find((entry) => normPathKey(entry.scanPath) === currentPathKey);
+  if (!row) return null;
+  const frameInScan = Math.max(1, Math.min(row.count, Math.floor(Number(s.activeFrameIndex) || 0) + 1));
+  return {
+    globalFrameNumber: row.start + frameInScan - 1,
+    totalFrames: map.totalFrames,
+    scanPath: row.scanPath,
+    frameInScan
+  };
+}
+
+function findBatchRangeIndexForGlobalFrame(globalFrameNumber) {
+  const target = Math.floor(Number(globalFrameNumber) || 0);
+  if (!Number.isFinite(target) || target < 1) return -1;
+  for (let i = 0; i < exportScanBatchRanges.length; i++) {
+    const range = exportScanBatchRanges[i];
+    if (!range) continue;
+    if (target >= range.from && target <= range.to) return i;
+  }
+  return -1;
+}
+
+function getBatchRangeContextForCurrentFrame() {
+  const frameCtx = resolveCurrentGlobalFrameContext();
+  if (!frameCtx) {
+    return {
+      globalFrameNumber: null,
+      totalProjectFrames: getProjectTotalFrameCountEstimate(),
+      rangeIndex: -1,
+      rangeCount: exportScanBatchRanges.length,
+      range: null
+    };
+  }
+  const rangeIndex = findBatchRangeIndexForGlobalFrame(frameCtx.globalFrameNumber);
+  const range = rangeIndex >= 0 ? exportScanBatchRanges[rangeIndex] : null;
+  return {
+    globalFrameNumber: frameCtx.globalFrameNumber,
+    totalProjectFrames: frameCtx.totalFrames,
+    rangeIndex,
+    rangeCount: exportScanBatchRanges.length,
+    range: range ? { from: range.from, to: range.to } : null
+  };
+}
+
+function queueAutoPersistCurrentRangeReference() {
+  if (exportBatchRunState.running) return;
+  if (autoRangeReferencePersistTimer) clearTimeout(autoRangeReferencePersistTimer);
+  autoRangeReferencePersistTimer = setTimeout(() => {
+    autoRangeReferencePersistTimer = null;
+    const ctx = getBatchRangeContextForCurrentFrame();
+    if (!ctx || ctx.rangeIndex < 0 || !ctx.range) return;
+    const snapshot = getLintStateSnapshot();
+    if (!snapshot || typeof snapshot !== 'object') return;
+    const key = getExportScanBatchRangeKey(ctx.range);
+    if (!key) return;
+    let signature = '';
+    try {
+      signature = JSON.stringify(snapshot);
+    } catch (_) {
+      signature = '';
+    }
+    if (!signature || autoRangeReferenceSignatures[key] === signature) return;
+    persistCurrentRangeReferenceSnapshot(ctx.rangeIndex);
+    autoRangeReferenceSignatures[key] = signature;
+    renderExportScanBatchRangeList();
+  }, 120);
+}
+
 function setExportRangeInputs(from, to) {
   const fromEl = el(ids.exportScanFrom);
   const toEl = el(ids.exportScanTo);
@@ -1147,6 +1237,7 @@ function persistExportScanBatchRanges() {
     exportScanBatchRanges: exportScanBatchRanges.map((r) => ({ from: r.from, to: r.to })),
     exportScanBatchAutoMerge: exportScanBatchAutoMerge !== false,
     exportScanBatchWrapNav: exportScanBatchWrapNav === true,
+    exportBatchDisablePreview: exportBatchDisablePreview === true,
     exportScanBatchRangeRefs: exportScanBatchRangeRefs
   };
   window.api.setAppSettings(payload).catch(() => {});
@@ -1165,21 +1256,57 @@ function persistCurrentRangeReferenceSnapshot(index = exportScanBatchSelectedInd
     snapshot,
     savedAt: Date.now(),
     scanPath: s.path,
-    activeFrameIndex: Math.max(0, Math.floor(Number(s.activeFrameIndex) || 0))
+    activeFrameIndex: Math.max(0, Math.floor(Number(s.activeFrameIndex) || 0)),
+    globalFrameNumber: (() => {
+      const ctx = resolveCurrentGlobalFrameContext();
+      return Number.isFinite(Number(ctx?.globalFrameNumber)) ? Number(ctx.globalFrameNumber) : null;
+    })()
   };
   persistExportScanBatchRanges();
 }
 
-function applyRangeReferenceSnapshotForRange(range, targetScanPath = '') {
+function applyRangeReferenceSnapshotForRange(range, _targetScanPath = '') {
   const key = getExportScanBatchRangeKey(range);
   if (!key) return false;
   const ref = exportScanBatchRangeRefs && exportScanBatchRangeRefs[key];
   if (!ref || !ref.snapshot || typeof ref.snapshot !== 'object') return false;
-  if (targetScanPath && ref.scanPath && ref.scanPath !== targetScanPath) return false;
   applyLintState(ref.snapshot);
   return true;
 }
 
+function getRangeReferenceSnapshotForRange(range, _targetScanPath = '') {
+  const key = getExportScanBatchRangeKey(range);
+  if (!key) return null;
+  const ref = exportScanBatchRangeRefs && exportScanBatchRangeRefs[key];
+  if (!ref || !ref.snapshot || typeof ref.snapshot !== 'object') return null;
+  return ref.snapshot;
+}
+
+function setCurrentFrameAsRangeReference() {
+  if (!exportScanBatchRanges.length) return { ok: false, reason: 'empty' };
+  const ctx = getBatchRangeContextForCurrentFrame();
+  if (!ctx || ctx.rangeIndex < 0 || !ctx.range) return { ok: false, reason: 'no-range' };
+  exportScanBatchSelectedIndex = ctx.rangeIndex;
+  persistCurrentRangeReferenceSnapshot(ctx.rangeIndex);
+  const key = getExportScanBatchRangeKey(ctx.range);
+  if (key) {
+    const snap = getLintStateSnapshot();
+    if (snap && typeof snap === 'object') {
+      try {
+        autoRangeReferenceSignatures[key] = JSON.stringify(snap);
+      } catch (_) {}
+    }
+  }
+  renderExportScanBatchRangeList();
+  showTransientStatusMessage(
+    t('frameGenerator.batchRangeRefSetFromFrame', {
+      from: ctx.range.from,
+      to: ctx.range.to
+    }),
+    2000
+  );
+  return { ok: true, rangeIndex: ctx.rangeIndex, range: ctx.range };
+}
 function normalizeExportBatchResumeState(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const mode = raw.mode === 'all-scans' || raw.mode === 'range-list' ? raw.mode : '';
@@ -1612,7 +1739,9 @@ async function loadScanByPath(lintPath, opts = {}) {
     setDirty();
   }
   updateUI();
-  refreshPreviews();
+  if (!opts.skipPreviewRefresh) {
+    refreshPreviews();
+  }
   if (paths.length) prefetch(paths, idx, lintPath, (p) => window.api.getFileUrl(p), getState);
   if (!opts.skipPersistAfterLoad) {
     await persistProjectAfterLintLoad();
@@ -6415,12 +6544,15 @@ async function loadAppSettings() {
     const frameCount = getProjectTotalFrameCountEstimate();
     exportScanBatchAutoMerge = s.exportScanBatchAutoMerge !== false;
     exportScanBatchWrapNav = s.exportScanBatchWrapNav === true;
+    exportBatchDisablePreview = s.exportBatchDisablePreview === true;
     exportScanBatchRangeRefs = normalizeExportScanBatchRangeRefs(s.exportScanBatchRangeRefs);
     exportBatchResumeState = normalizeExportBatchResumeState(s.exportBatchResumeState);
     const mergeToggleEl = el(ids.exportBatchAutoMerge);
     if (mergeToggleEl) mergeToggleEl.checked = exportScanBatchAutoMerge;
     const wrapToggleEl = el(ids.exportBatchWrapNav);
     if (wrapToggleEl) wrapToggleEl.checked = exportScanBatchWrapNav;
+    const disablePreviewToggleEl = el(ids.exportBatchDisablePreview);
+    if (disablePreviewToggleEl) disablePreviewToggleEl.checked = exportBatchDisablePreview;
     exportScanBatchRanges = normalizeExportScanBatchRanges(
       s.exportScanBatchRanges,
       frameCount > 0 ? frameCount : Number.POSITIVE_INFINITY
@@ -8878,6 +9010,7 @@ function bind() {
   el(ids.exportBatchRangeReimport)?.addEventListener('click', () => { onReimportBatchRangeFromNotepad().catch(() => {}); });
   el(ids.exportBatchAutoMerge)?.addEventListener('change', onToggleBatchAutoMerge);
   el(ids.exportBatchWrapNav)?.addEventListener('change', onToggleBatchWrapNav);
+  el(ids.exportBatchDisablePreview)?.addEventListener('change', onToggleBatchDisablePreview);
   el(ids.exportBatchPause)?.addEventListener('click', togglePauseBatchRun);
   el(ids.exportBatchStop)?.addEventListener('click', requestStopBatchRun);
   el(ids.exportBatchResume)?.addEventListener('click', () => { onResumeStoppedBatchRun().catch(() => {}); });
@@ -9705,6 +9838,7 @@ function rememberExportRangeForCurrentScan(folder, baseName, startIndex, frameCo
 /** Voert frame-export uit voor een lijst scanpaden. Bestandsnaam = originele scanstam. */
 async function exportPaths(paths, options = null) {
   const opts = options && typeof options === 'object' ? options : {};
+  const suppressPreview = opts.suppressPreview === true;
   const folder = getState().exportFolderPath;
   const pauseSec = 0;
   const appSettings = await window.api?.getAppSettings?.().catch(() => null);
@@ -9759,7 +9893,7 @@ async function exportPaths(paths, options = null) {
       5 + Math.round((70 * scanIdx) / total),
       t('status.scanLoadProject', { current: scanIdx + 1, total })
     );
-    const ok = await loadScanByPath(scanPath);
+    const ok = await loadScanByPath(scanPath, { skipPreviewRefresh: suppressPreview });
     if (!ok) continue;
     const pair = getStripCanvasPairForExport();
     if (!pair) continue;
@@ -9958,6 +10092,7 @@ function saveExportScanBatchRangesAndRefresh() {
     exportScanBatchRanges = sortAndMergeExportScanBatchRanges(exportScanBatchRanges);
   }
   persistExportScanBatchRanges();
+  autoRangeReferenceSignatures = {};
   renderExportScanBatchRangeList();
 }
 
@@ -9992,6 +10127,12 @@ function onToggleBatchAutoMerge() {
 
 function onToggleBatchWrapNav() {
   exportScanBatchWrapNav = el(ids.exportBatchWrapNav)?.checked === true;
+  persistExportScanBatchRanges();
+  updateUI();
+}
+
+function onToggleBatchDisablePreview() {
+  exportBatchDisablePreview = el(ids.exportBatchDisablePreview)?.checked === true;
   persistExportScanBatchRanges();
   updateUI();
 }
@@ -10184,6 +10325,7 @@ async function onRunBatchRangeList(options = null) {
     return;
   }
   const opts = options && typeof options === 'object' ? options : {};
+  const suppressPreview = opts.suppressPreview === true || exportBatchDisablePreview === true;
   const resume = normalizeExportBatchResumeState(opts.resumeState);
   const folder = getState().exportFolderPath;
   if (!folder) {
@@ -10211,6 +10353,8 @@ async function onRunBatchRangeList(options = null) {
   let writtenTotal = 0;
   let stopped = false;
   try {
+    // Als gebruiker direct exporteert na kalibreren (zonder range-switch), snapshot toch bewaren.
+    persistCurrentRangeReferenceSnapshot(exportScanBatchSelectedIndex >= 0 ? exportScanBatchSelectedIndex : 0);
     let startRangeIndex = 0;
     let startGlobalFrame = 1;
     if (resume && resume.mode === 'range-list') {
@@ -10258,6 +10402,8 @@ async function onRunBatchRangeList(options = null) {
           to
         })
       );
+      const startPos = resolveGlobalFramePosition(from, map.rows);
+      const fixedReferenceSnapshot = getRangeReferenceSnapshotForRange(range, startPos?.scanPath || '');
       const rangeResult = await exportGlobalFrameRange(
         paths,
         map,
@@ -10265,6 +10411,8 @@ async function onRunBatchRangeList(options = null) {
         to,
         i,
         exportScanBatchRanges.length,
+        fixedReferenceSnapshot,
+        suppressPreview,
         { startedAtMs: runStartedAtMs, totalFrames: totalFramesToProcess, processedBefore: processedFrames }
       );
       writtenTotal += Number(rangeResult?.written) || 0;
@@ -10290,7 +10438,7 @@ async function onRunBatchRangeList(options = null) {
   }
 }
 
-async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, rangeIdx, rangeTotal, progressCtx = null) {
+async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, rangeIdx, rangeTotal, fixedReferenceSnapshot = null, suppressPreview = false, progressCtx = null) {
   const folder = getState().exportFolderPath;
   const appSettings = await window.api?.getAppSettings?.().catch(() => null);
   const outDims = getExportOutputDimensions(appSettings);
@@ -10306,8 +10454,11 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
     if (!scanPath) continue;
     const sameFolderErr = assertExportFolderNotInput(folder, scanPath);
     if (sameFolderErr) throw new Error(sameFolderErr);
-    const ok = await loadScanByPath(scanPath);
+    const ok = await loadScanByPath(scanPath, { ...scanNavigationGridOptions(), preserveGrid: true, skipPreviewRefresh: suppressPreview });
     if (!ok) continue;
+    if (fixedReferenceSnapshot) {
+      applyLintState(fixedReferenceSnapshot);
+    }
     const pair = getStripCanvasPairForExport();
     if (!pair) continue;
     try {
@@ -10430,6 +10581,7 @@ async function onExportBatch(options = null) {
   }
   const opts = options && typeof options === 'object' ? options : {};
   const resume = normalizeExportBatchResumeState(opts.resumeState);
+  const suppressPreview = opts.suppressPreview === true || exportBatchDisablePreview === true;
   const folder = getState().exportFolderPath;
   if (!folder) {
     endBatchRun();
@@ -10450,7 +10602,7 @@ async function onExportBatch(options = null) {
   updateStatus(5, t('status.batchStart'));
   let stopped = false;
   try {
-    const result = await exportPaths(paths, { resumeState: resume });
+    const result = await exportPaths(paths, { resumeState: resume, suppressPreview });
     const written = Number(result?.written) || 0;
     stopped = !!result?.stopped;
     if (stopped) {

@@ -441,6 +441,11 @@ function afterStripPreviewRefresh() {
   if (hasProject()) persistCurrentLintStateInProject();
   refreshFramePixelEditor();
   notifyPixelEditorRemoteRefresh();
+  try {
+    if (typeof window !== 'undefined' && typeof window.__f2fOnRasterPreviewRefreshed === 'function') {
+      window.__f2fOnRasterPreviewRefreshed();
+    }
+  } catch (_) {}
 }
 
 function sendStripUpdateFull() {

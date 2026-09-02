@@ -765,15 +765,17 @@ body.theme-light .btn-floating-preview-toggle.pressed {
 /* Navigatieknoppen in batch-bereik duidelijker zichtbaar */
 #f2f-export-batch-range-prev,
 #f2f-export-batch-range-next {
-  background: #334155;
-  border-color: #7dd3fc;
-  color: #e0f2fe;
+  background: #475569 !important;
+  border-color: #93c5fd !important;
+  color: #f8fafc !important;
+  box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.35);
+  font-weight: 600;
 }
 #f2f-export-batch-range-prev:hover,
 #f2f-export-batch-range-next:hover {
-  background: #475569;
-  border-color: #bae6fd;
-  color: #f0f9ff;
+  background: #64748b !important;
+  border-color: #dbeafe !important;
+  color: #ffffff !important;
 }
 /* Projectbalk: laden (blauwe rand), bewaren en wissen (rode rand) */
 .btn-project-open {
@@ -1400,6 +1402,7 @@ body.theme-light .frame-generator-progress-pct {
   border: 1px solid #243141;
   background: #19212b;
   text-align: left;
+  color: #f8fafc !important;
 }
 
 .export-range-list-item.active {
@@ -1411,11 +1414,17 @@ body.theme-light .frame-generator-progress-pct {
   flex: 1;
   min-width: 0;
   font-size: 0.82rem;
+  color: #f8fafc !important;
 }
 
 .export-range-list-item-jump {
   font-size: 0.72rem;
-  color: #9ecbff;
+  color: #dbeafe !important;
+}
+
+.export-range-list button.export-range-list-item,
+button.export-range-list-item {
+  color: #f8fafc !important;
 }
 
 .export-range-ref-badge {
@@ -1461,11 +1470,21 @@ body.theme-light .export-range-list {
 body.theme-light .export-range-list-item {
   border-color: #cbd5e1;
   background: #eef2f7;
+  color: #111827;
 }
 
 body.theme-light .export-range-list-item.active {
   border-color: #4f8fd1;
   background: #dbeafe;
+  color: #111827;
+}
+
+body.theme-light .export-range-list-item-label {
+  color: #111827;
+}
+
+body.theme-light .export-range-list-item-jump {
+  color: #1d4ed8;
 }
 
 body.theme-light .export-range-mode {
