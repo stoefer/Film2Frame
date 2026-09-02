@@ -67,7 +67,7 @@ let exportScanBatchRangeRefs = {};
 let exportBatchResumeState = null;
 let transientStatusTimer = null;
 let transientStatusToken = 0;
-let autoRangeReferencePersistTimer = null;
+let autoRangeReferenceDirty = false;
 let autoRangeReferenceFlushTimer = null;
 let autoRangeReferenceSignatures = {};
 const exportBatchRunState = {
@@ -317,7 +317,7 @@ async function runAutoSaveNow() {
 function setupInlineStripBridge() {
   window.__f2fInlineStripPushUpdate = emitInlineStripUpdate;
   window.__f2fOnRasterPreviewRefreshed = () => {
-    queueAutoPersistCurrentRangeReference();
+    markAutoPersistCurrentRangeReferenceDirty();
   };
   window.__f2fInvokeStripApi = (method, args) => {
     const api = window.__f2fEmbeddedStripApi;
@@ -630,6 +630,9 @@ function setupInlineStripBridge() {
     goToNextBatchRange: () => onGoToNextBatchRange(),
     getBatchRangeContext: () => getBatchRangeContextForCurrentFrame(),
     setCurrentFrameAsBatchRangeReference: () => setCurrentFrameAsRangeReference(),
+    notifyRangeInteractionEnd: () => {
+      flushAutoPersistCurrentRangeReference();
+    },
     getLocale: () => window.api?.getLocale?.(),
     getTranslations: () => window.api?.getTranslations?.(),
     saveMacroFile: (payload) => window.api?.saveMacroFile?.(payload),
@@ -1236,33 +1239,35 @@ function scheduleAutoRangeReferenceFlush() {
   }, 450);
 }
 
-function queueAutoPersistCurrentRangeReference() {
+function markAutoPersistCurrentRangeReferenceDirty() {
   if (exportBatchRunState.running) return;
-  if (autoRangeReferencePersistTimer) clearTimeout(autoRangeReferencePersistTimer);
-  autoRangeReferencePersistTimer = setTimeout(() => {
-    autoRangeReferencePersistTimer = null;
-    const ctx = getBatchRangeContextForCurrentFrame();
-    if (!ctx || ctx.rangeIndex < 0 || !ctx.range) return;
-    const snapshot = getLintStateSnapshot();
-    if (!snapshot || typeof snapshot !== 'object') return;
-    const key = getExportScanBatchRangeKey(ctx.range);
-    if (!key) return;
-    const signature = buildRangeReferenceSnapshotSignature(snapshot);
-    if (!signature || autoRangeReferenceSignatures[key] === signature) return;
-    const s = getState();
-    if (!s.path) return;
-    const hadRef = !!(exportScanBatchRangeRefs && exportScanBatchRangeRefs[key]);
-    exportScanBatchRangeRefs[key] = {
-      snapshot,
-      savedAt: Date.now(),
-      scanPath: s.path,
-      activeFrameIndex: Math.max(0, Math.floor(Number(s.activeFrameIndex) || 0)),
-      globalFrameNumber: Number.isFinite(Number(ctx.globalFrameNumber)) ? Number(ctx.globalFrameNumber) : null
-    };
-    autoRangeReferenceSignatures[key] = signature;
-    scheduleAutoRangeReferenceFlush();
-    if (!hadRef) renderExportScanBatchRangeList();
-  }, 240);
+  autoRangeReferenceDirty = true;
+}
+
+function flushAutoPersistCurrentRangeReference() {
+  if (!autoRangeReferenceDirty || exportBatchRunState.running) return;
+  autoRangeReferenceDirty = false;
+  const ctx = getBatchRangeContextForCurrentFrame();
+  if (!ctx || ctx.rangeIndex < 0 || !ctx.range) return;
+  const snapshot = getLintStateSnapshot();
+  if (!snapshot || typeof snapshot !== 'object') return;
+  const key = getExportScanBatchRangeKey(ctx.range);
+  if (!key) return;
+  const signature = buildRangeReferenceSnapshotSignature(snapshot);
+  if (!signature || autoRangeReferenceSignatures[key] === signature) return;
+  const s = getState();
+  if (!s.path) return;
+  const hadRef = !!(exportScanBatchRangeRefs && exportScanBatchRangeRefs[key]);
+  exportScanBatchRangeRefs[key] = {
+    snapshot,
+    savedAt: Date.now(),
+    scanPath: s.path,
+    activeFrameIndex: Math.max(0, Math.floor(Number(s.activeFrameIndex) || 0)),
+    globalFrameNumber: Number.isFinite(Number(ctx.globalFrameNumber)) ? Number(ctx.globalFrameNumber) : null
+  };
+  autoRangeReferenceSignatures[key] = signature;
+  scheduleAutoRangeReferenceFlush();
+  if (!hadRef) renderExportScanBatchRangeList();
 }
 
 function setExportRangeInputs(from, to) {
@@ -10162,6 +10167,7 @@ function saveExportScanBatchRangesAndRefresh() {
     clearTimeout(autoRangeReferenceFlushTimer);
     autoRangeReferenceFlushTimer = null;
   }
+  autoRangeReferenceDirty = false;
   autoRangeReferenceSignatures = {};
   renderExportScanBatchRangeList();
 }

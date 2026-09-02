@@ -2505,6 +2505,7 @@
       let rangeContextRequestToken = 0;
       let lastRangeContextFrameKey = '';
       let lastRangeContextRefreshAt = 0;
+      let rangeInteractionEndTimer = null;
       const ASSIST_HELP_STORAGE_KEY = 'f2f.strip.assistHelp.v1';
       var assistHelpState = { open: false, left: null, top: null };
       var assistHelpDragState = null;
@@ -2521,6 +2522,20 @@
           s = s.split('{' + k + '}').join(String(vars[k]));
         });
         return s;
+      }
+
+      function notifyRangeInteractionEnd() {
+        if (!api || !api.notifyRangeInteractionEnd) return;
+        Promise.resolve(api.notifyRangeInteractionEnd()).catch(function () {});
+      }
+
+      function scheduleRangeInteractionEndNotify(delayMs) {
+        var d = Number.isFinite(Number(delayMs)) ? Math.max(20, Math.floor(Number(delayMs))) : 220;
+        if (rangeInteractionEndTimer) clearTimeout(rangeInteractionEndTimer);
+        rangeInteractionEndTimer = setTimeout(function () {
+          rangeInteractionEndTimer = null;
+          notifyRangeInteractionEnd();
+        }, d);
       }
 
       function readAssistHelpState() {
@@ -5842,6 +5857,12 @@
       window.addEventListener('resize', function () {
         if (zoomSelect.value === 'fit-screen' || zoomSelect.value === 'fit-frame' || zoomSelect.value === 'fit-width' || zoomSelect.value === 'fit-height') applyZoom();
       });
+      window.addEventListener('pointerup', function () {
+        scheduleRangeInteractionEndNotify(220);
+      }, true);
+      window.addEventListener('pointercancel', function () {
+        scheduleRangeInteractionEndNotify(140);
+      }, true);
 
       var stripKb = { order: [], bindings: {} };
       function applyStripShortcutsPayload(payload) {
