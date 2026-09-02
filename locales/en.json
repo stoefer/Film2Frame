@@ -471,6 +471,7 @@
   "stripWindow.gridSizeInvalidAlert": "Enter valid pixel values for width and height (minimum 1).",
   "stripWindow.scanGotoRowTitle": "Scan strip number (1 = first in project), then Go to",
   "stripWindow.labelScanNr": "No.:",
+  "stripWindow.frameControlTitle": "FRAME CONTROL",
   "stripWindow.navActionsTitle": "Go to: chosen scan strip. Previous/Next: same grid/frame count (minimal format correction); project is saved first.",
   "stripWindow.manualPanelTitle": "Manual positioning",
   "stripWindow.assistPanelTitle": "Assist settings",

@@ -471,6 +471,7 @@
   "stripWindow.gridSizeInvalidAlert": "Vul geldige pixelwaarden in voor breedte en hoogte (minimaal 1).",
   "stripWindow.scanGotoRowTitle": "Scanlint-nummer (1 = eerste in project), daarna Ga naar",
   "stripWindow.labelScanNr": "Nr.:",
+  "stripWindow.frameControlTitle": "FRAME CONTROL",
   "stripWindow.navActionsTitle": "Ga naar: opgegeven scanlint. Vorige/Volgende: zelfde raster/frames (minimale correctie op lintformaat); project wordt eerst opgeslagen.",
   "stripWindow.manualPanelTitle": "Manuele positie",
   "stripWindow.assistPanelTitle": "Assist-instellingen",

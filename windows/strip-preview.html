@@ -2092,6 +2092,7 @@
           </span>
         </div>
         <div class="manual-scan-nav raster-subpanel raster-subpanel--manual" id="manual-scan-nav">
+          <div id="raster-frame-control-title" class="raster-half-title"></div>
           <div class="manual-scan-nav__goto raster-subpanel__trail">
             <label class="label-scan-goto" for="input-scan-goto"></label>
             <input type="number" id="input-scan-goto" class="input-scan-goto" min="1" max="99999" step="1" placeholder="1" inputmode="numeric" />
@@ -3791,6 +3792,8 @@
         if (navRow) navRow.title = stripTr('stripWindow.navActionsTitle');
         var manualTitle = document.getElementById('raster-manual-title');
         if (manualTitle) manualTitle.textContent = stripTr('stripWindow.manualPanelTitle');
+        var frameControlTitle = document.getElementById('raster-frame-control-title');
+        if (frameControlTitle) frameControlTitle.textContent = stripTr('stripWindow.frameControlTitle');
         var assistTitle = document.getElementById('raster-assist-title');
         if (assistTitle) assistTitle.textContent = stripTr('stripWindow.assistPanelTitle');
         var exportTitle = document.getElementById('raster-export-title');
@@ -4871,17 +4874,12 @@
       function updateScanInfoFromPayload(payload) {
         var si = payload && payload.scanInfo;
         var idxEl = document.getElementById('strip-scaninfo-index');
-        var inlineIdxEl = document.getElementById('raster-current-scan-display');
         var dimEl = document.getElementById('strip-scaninfo-dim');
         var dpiEl = document.getElementById('strip-scaninfo-dpi');
         var filmEl = document.getElementById('strip-scaninfo-film');
         if (!idxEl || !dimEl || !dpiEl || !filmEl) return;
         if (!payload || typeof payload !== 'object') {
           idxEl.textContent = '—';
-          if (inlineIdxEl) {
-            inlineIdxEl.textContent = '—';
-            inlineIdxEl.title = '';
-          }
           dimEl.textContent = '—';
           dpiEl.textContent = '—';
           filmEl.textContent = '—';
@@ -4891,22 +4889,10 @@
         var scanCount = payload.projectScanCount != null ? Math.floor(Number(payload.projectScanCount)) : NaN;
         if (Number.isFinite(scanIdx) && scanIdx >= 1 && Number.isFinite(scanCount) && scanCount >= 1) {
           idxEl.textContent = String(scanIdx) + ' / ' + String(scanCount);
-          if (inlineIdxEl) {
-            inlineIdxEl.textContent = String(scanIdx);
-            inlineIdxEl.title = String(scanIdx) + ' / ' + String(scanCount);
-          }
         } else if (Number.isFinite(scanIdx) && scanIdx >= 1) {
           idxEl.textContent = String(scanIdx);
-          if (inlineIdxEl) {
-            inlineIdxEl.textContent = String(scanIdx);
-            inlineIdxEl.title = String(scanIdx);
-          }
         } else {
           idxEl.textContent = '—';
-          if (inlineIdxEl) {
-            inlineIdxEl.textContent = '—';
-            inlineIdxEl.title = '';
-          }
         }
         if (!si || typeof si !== 'object') {
           dimEl.textContent = '—';
@@ -4927,6 +4913,36 @@
             : stripTr('strip.polarityPositive');
         if (!si.filmFormat) filmEl.textContent = '—';
         else filmEl.textContent = fmtLabel + ', ' + pol;
+      }
+
+      function updateCurrentFrameDisplay(payload) {
+        var inlineFrameEl = document.getElementById('raster-current-scan-display');
+        if (!inlineFrameEl) return;
+        if (!payload || typeof payload !== 'object') {
+          inlineFrameEl.textContent = '—';
+          inlineFrameEl.title = '';
+          return;
+        }
+        var totalFrames = payload.numFrames != null
+          ? Math.floor(Number(payload.numFrames))
+          : (payload.gridRects && payload.gridRects.length ? payload.gridRects.length : NaN);
+        var activeFrame = payload.activeFrameNumber != null
+          ? Math.floor(Number(payload.activeFrameNumber))
+          : (payload.activeFrameIndex != null ? Math.floor(Number(payload.activeFrameIndex)) + 1 : NaN);
+        if (!Number.isFinite(totalFrames) || totalFrames < 1) totalFrames = NaN;
+        if (!Number.isFinite(activeFrame) || activeFrame < 1) activeFrame = NaN;
+        if (Number.isFinite(activeFrame) && Number.isFinite(totalFrames)) {
+          inlineFrameEl.textContent = String(activeFrame);
+          inlineFrameEl.title = String(activeFrame) + ' / ' + String(totalFrames);
+          return;
+        }
+        if (Number.isFinite(activeFrame)) {
+          inlineFrameEl.textContent = String(activeFrame);
+          inlineFrameEl.title = String(activeFrame);
+          return;
+        }
+        inlineFrameEl.textContent = '—';
+        inlineFrameEl.title = '';
       }
 
       /** Werkelijke export-uitsnede (strip-canvas / volle resolutie), niet de verkleinde preview op het scherm. */
@@ -4957,6 +4973,7 @@
           lastStripDataUrlApplied = '';
           updateHeaderFilename(null);
           updateScanGotoHints(null);
+          updateCurrentFrameDisplay(null);
           syncOrientFlipFromPayload(null);
           fixResolutionLocked = false;
           updateFixResolutionUi();
@@ -4983,6 +5000,7 @@
           updateFixResolutionUi();
         }
         updateScanGotoHints(payload);
+        updateCurrentFrameDisplay(payload);
         updateHeaderFilename(payload);
         syncVerticalAnchorFromPayload(payload);
         syncPanelLinkFromPayload(payload);
