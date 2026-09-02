@@ -21,7 +21,11 @@ app.whenReady().then(() => {
   applyAppMenu(windows);
   const mainWin = windows.getMainWindow();
   function openAuxWindowsDefault() {
-    windows.openAuxiliaryWindowsFromPanelMask('010000');
+    const s = prefs.getAllSettings();
+    const mask = windows.parsePanelOpenMask6(s.windowGridAutoOpenMask || '000000');
+    // Zwevende preview alleen auto-openen als die voorkeur expliciet AAN staat.
+    if (s.stripPreviewFloating !== true) mask[1] = false;
+    windows.openAuxiliaryWindowsFromPanelMask(mask);
   }
   function maybeAutoArrange() {
     try {

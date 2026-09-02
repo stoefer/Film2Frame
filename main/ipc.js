@@ -1006,7 +1006,10 @@ function registerIPC() {
   ipcMain.handle('accept-eula', () => {
     prefs.acceptEula();
     try {
-      windows.openAuxiliaryWindowsFromPanelMask('010000');
+      const s = prefs.getAllSettings();
+      const mask = windows.parsePanelOpenMask6(s.windowGridAutoOpenMask || '000000');
+      if (s.stripPreviewFloating !== true) mask[1] = false;
+      windows.openAuxiliaryWindowsFromPanelMask(mask);
       setTimeout(() => {
         try {
           if (prefs.getAllSettings().arrangeWindowsOnStartup) {
