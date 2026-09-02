@@ -6080,10 +6080,10 @@
       if (!isEmbeddedStrip && api.getAppSettings) {
         api.getAppSettings().then(function (s) {
           applyStripPreviewDisplayPrefs({
-            stripPreviewFloating: !s || s.stripPreviewFloating !== false
+            stripPreviewFloating: !!(s && s.stripPreviewFloating === true)
           });
         }).catch(function () {
-          applyFitScreenPreferred();
+          applyZoom();
         });
       }
     })();

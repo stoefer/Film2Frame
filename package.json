@@ -7,11 +7,11 @@
   "scripts": {
     "prestart": "node scripts/bump-version.js",
     "start": "electron .",
-    "prepack": "node scripts/bump-version.js",
-    "prebuild": "node scripts/bump-version.js",
+    "prepack": "node scripts/bump-version.js --bump-package",
+    "prebuild": "node scripts/bump-version.js --bump-package",
     "pack": "electron-builder --dir",
     "build": "electron-builder",
-    "version:bump": "node scripts/bump-version.js"
+    "version:bump": "node scripts/bump-version.js --bump-package"
   },
   "author": "Jan De Nef <softwarejdn@gmail.com>",
   "license": "SEE LICENSE IN END_USER_AGREEMENT.md",

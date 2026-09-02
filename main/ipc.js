@@ -1028,7 +1028,7 @@ function registerIPC() {
     windows.applyWindowGeometryLockFromPrefs();
     const all = prefs.getAllSettings();
     windows.sendToStripPreview('strip-preview-display-prefs', {
-      stripPreviewFloating: all.stripPreviewFloating !== false
+      stripPreviewFloating: all.stripPreviewFloating === true
     });
     // Zwevend aan/uit: open of sluit previewvenster
     if (settings && settings.stripPreviewFloating !== undefined) {

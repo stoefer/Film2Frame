@@ -57,7 +57,7 @@ const DEFAULTS = {
   arrangeWindowsOnStartup: false,
   arrangeAcrossAllDisplays: false,
   windowsGeometryLocked: false,
-  stripPreviewFloating: true,
+  stripPreviewFloating: false,
   arrowStepPx: 1,
   arrowStepShiftPx: 10,
   preserveGridOnScanNav: true,
@@ -177,7 +177,10 @@ function getAllSettings() {
     arrangeWindowsOnStartup: data[KEYS.arrangeWindowsOnStartup] === true,
     arrangeAcrossAllDisplays: data[KEYS.arrangeAcrossAllDisplays] === true,
     windowsGeometryLocked: data[KEYS.windowsGeometryLocked] === true,
-    stripPreviewFloating: data[KEYS.stripPreviewFloating] !== false,
+    stripPreviewFloating:
+      data[KEYS.stripPreviewFloating] !== undefined
+        ? data[KEYS.stripPreviewFloating] === true
+        : DEFAULTS.stripPreviewFloating,
   arrowStepPx: typeof data[KEYS.arrowStepPx] === 'number' ? Math.max(1, Math.min(10, data[KEYS.arrowStepPx])) : DEFAULTS.arrowStepPx,
   arrowStepShiftPx: typeof data[KEYS.arrowStepShiftPx] === 'number' ? Math.max(10, Math.min(100, data[KEYS.arrowStepShiftPx])) : DEFAULTS.arrowStepShiftPx,
   locale: typeof data[KEYS.locale] === 'string' && ['en', 'nl'].includes(data[KEYS.locale]) ? data[KEYS.locale] : 'nl',
