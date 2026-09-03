@@ -722,10 +722,15 @@ function registerIPC() {
     }
   });
 
-  /* Prestatie-timing: pad naar en append voor het perf-logbestand (voor profilering op echte hardware). */
+  /*
+   * Prestatie-timing: logbestand in Documenten\Film2Frame (dezelfde, goed vindbare map als de projecten),
+   * i.p.v. de verborgen userData-map. Voor profilering op echte hardware.
+   */
   function getPerfLogPath() {
     try {
-      return path.join(app.getPath('userData'), 'perf-timing.log');
+      const dir = path.join(app.getPath('documents'), 'Film2Frame');
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+      return path.join(dir, 'perf-timing.log');
     } catch (_) {
       return path.join(os.tmpdir(), 'film2frame-perf-timing.log');
     }
