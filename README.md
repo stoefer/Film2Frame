@@ -36,6 +36,21 @@ npm start
 - `npm run pack` – build (dir)  
 - `npm run build` – Windows-installer (NSIS; bestand `dist/F2F-Setup-<versie>.exe`, toont de gebruikersovereenkomst)
 
+## Installer maken
+
+Op **Windows** (aanbevolen), in de projectmap:
+
+```bash
+npm install        # eenmalig / na git pull
+npm run build      # → dist/F2F-Setup-<versie>.exe
+```
+
+- Resultaat: `dist/F2F-Setup-<versie>.exe` — dubbelklik om te installeren.
+- Alleen uitpakken zonder installatie: `npm run pack` → `dist/win-unpacked/Film2Frame.exe`.
+- `npm run build` verhoogt automatisch de versie (patch). Wil je een vast nummer, zet dan eerst `"version"` in `package.json` en bouw met `npx electron-builder --win` (slaat de auto-bump over).
+- De installer is niet ondertekend: Windows SmartScreen toont "onbekende uitgever" → **Meer informatie → Toch uitvoeren**. Installeren vraagt beheerdersrechten (per-machine).
+- Op macOS/Linux bouwen kan via [Wine](https://www.winehq.org/): `npm run build -- --win`. Op Windows is Wine niet nodig.
+
 ## Documentatie in de app
 
 Via **Documenten** in de toolbar: snelstart, handleiding, freeware-info.
