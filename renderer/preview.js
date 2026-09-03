@@ -16,6 +16,7 @@ import {
 } from './grid.js';
 import { STRIP_EXTENDED_RATIO, DEFAULT_STRIP_PREVIEW_MAX_DIM } from './constants.js';
 import { refreshFramePixelEditor } from './frame-pixel-editor.js';
+import { perfLog } from './perf.js';
 
 /** Standaard max. zijde als state nog niet gezet is (= strip-cap, één schaalstap). */
 const STRIP_PREVIEW_MAX_DIM_DEFAULT = DEFAULT_STRIP_PREVIEW_MAX_DIM;
@@ -449,6 +450,7 @@ function afterStripPreviewRefresh() {
 }
 
 function sendStripUpdateFull() {
+  const tFull = performance.now();
   const canvas = getStripCanvas();
   const s = getState();
   const n = Math.max(1, s.numFrames || 1);
@@ -456,10 +458,13 @@ function sendStripUpdateFull() {
     const scaled = scaleStripCanvasForPreview(canvas);
     const scale = canvas.height > 0 ? scaled.height / canvas.height : 1;
     const payload = buildGridPayload(scaled.width, scaled.height, scale, undefined, canvas.width);
+    const tEncode = performance.now();
     payload.stripDataUrl = scaled.toDataURL('image/png');
+    const encodeMs = performance.now() - tEncode;
     const enriched = attachScanInfo(payload);
     sendStripUpdateToMain(enriched);
     pushInlineStripUpdate(enriched);
+    perfLog('refreshPreviews (full)', performance.now() - tFull, { toDataURL: encodeMs, px: scaled.width + 'x' + scaled.height });
     return;
   }
   const dims = getStripCanvasDimensions();

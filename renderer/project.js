@@ -19,6 +19,7 @@ import {
 } from './state.js';
 import { restoreFramePaintOverlaysFromSerialized } from './frame-pixel-overlay-persist.js';
 import { t } from './i18n.js';
+import { perfLog } from './perf.js';
 
 export function hasProject() {
   return !!getState().projectPath;
@@ -212,6 +213,7 @@ export async function saveProject(opts = {}) {
   });
   if (typeof window.api?.saveProject !== 'function') return { ok: false, error: t('errors.apiUnavailable') };
   const includeScanInfos = opts.includeScanInfos === true;
+  const tSave = performance.now();
   const result = await window.api.saveProject({
     projectFolderPath: s.projectPath,
     state: snapshot,
@@ -230,6 +232,7 @@ export async function saveProject(opts = {}) {
     pixelEditorOutputFolder: s.pixelEditorOutputFolder || null,
     pixelEditorSourceFolder: s.pixelEditorSourceFolder || null
   });
+  perfLog('saveProject (project.json)', performance.now() - tSave, 'scans=' + (s.lintStates ? s.lintStates.length : 0));
   if (result.ok) {
     s.isDirty = false;
     if (s.projectMeta) {

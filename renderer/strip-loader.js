@@ -6,6 +6,13 @@
 import { getState } from './state.js';
 import { getFrameCropRectInStripPx } from './grid.js';
 import { STRIP_CANVAS_MAX_DIM, EXPORT_STRIP_MAX_DIM, STRIP_IMAGE_LOAD_TIMEOUT_MS } from './constants.js';
+import { perfLog } from './perf.js';
+
+function shortName(p) {
+  const s = typeof p === 'string' ? p.replace(/\\/g, '/') : '';
+  const i = s.lastIndexOf('/');
+  return i >= 0 ? s.slice(i + 1) : s;
+}
 
 /**
  * Kantelpunt in bronpixels: (0,0) linksonder? — Nee: canvas drawImage gebruikt linkerboven als oorsprong.
@@ -212,6 +219,7 @@ function stripPreviewCacheKey() {
  * @returns {Promise<HTMLImageElement|null>}
  */
 export function loadImage(path, fileUrl) {
+  const t0 = performance.now();
   return new Promise((resolve) => {
     if (!path || !fileUrl) {
       resolve(null);
@@ -223,6 +231,7 @@ export function loadImage(path, fileUrl) {
       if (done) return;
       done = true;
       if (timeoutId != null) clearTimeout(timeoutId);
+      if (result) perfLog('loadImage decode', performance.now() - t0, shortName(path));
       resolve(result);
     };
     const timeoutId = setTimeout(() => {
@@ -388,7 +397,9 @@ export function getStripCanvas() {
   if (previewStripCache.canvas && previewStripCache.key === key) {
     return previewStripCache.canvas;
   }
+  const tBuild = performance.now();
   const built = buildStripCanvasRaw(STRIP_CANVAS_MAX_DIM);
+  perfLog('getStripCanvas build', performance.now() - tBuild, built ? built.width + 'x' + built.height : 'null');
   if (!built) {
     invalidateStripCanvasCache();
     return null;

@@ -136,5 +136,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('strip-navigate-scan', (_, payload) => cb && cb(payload));
   },
   onStripRotate90: (cb) => { ipcRenderer.on('strip-rotate-90', () => cb && cb()); },
-  onStripSetFlip: (cb) => { ipcRenderer.on('strip-set-flip', (_, p) => cb && cb(p)); }
+  onStripSetFlip: (cb) => { ipcRenderer.on('strip-set-flip', (_, p) => cb && cb(p)); },
+  /** Prestatie-timing: schrijf een regel naar het perf-logbestand (userData/perf-timing.log). */
+  appendPerfLog: (line) => ipcRenderer.send('perf-log-append', line),
+  getPerfLogPath: () => ipcRenderer.invoke('perf-log-path')
 });
