@@ -30,7 +30,7 @@ import {
   getGridRect
 } from './grid.js';
 import { refreshPreviews, refreshPreviewsGridOnly, getScaledDimensions, getScaledDimensionsFromSize, buildGridPayload } from './preview.js';
-import { hasProject, getProjectMeta, getProjectPath, isDirty, createProject, openProject, openProjectFromFile, openProjectByPath, saveProject, deleteProject, closeCurrentProject, applySavedLintState, pickResumeLintPath, persistCurrentLintStateInProject } from './project.js';
+import { hasProject, getProjectMeta, getProjectPath, isDirty, createProject, openProject, openProjectFromFile, openProjectByPath, saveProject, deleteProject, closeCurrentProject, applySavedLintState, pickResumeLintPath, persistCurrentLintStateInProject, scheduleProjectSave, flushPendingProjectSave, cancelPendingProjectSave } from './project.js';
 import { getFromCache, prefetch, clearCache } from './strip-cache.js';
 
 import { updateStatus } from './status.js';
@@ -1558,9 +1558,10 @@ async function getProjectScanPaths() {
 /** Na succesvol laden: project.json bijwerken (lintStates + huidige scan) zodat rasterwijzigingen niet verloren gaan. */
 async function persistProjectAfterLintLoad() {
   if (!hasProject()) return;
-  try {
-    await saveProject();
-  } catch (_) {}
+  /* Debounce de schijf-opslag: bij Vorige/Volgende hoeft niet elke scanwissel synchroon project.json te
+   * serialiseren + schrijven. De in-memory lint-states zijn al bijgewerkt; de schijfschrijf wordt uitgesteld
+   * en samengevoegd. Wordt geflusht bij afsluiten/projectwissel. */
+  scheduleProjectSave();
 }
 
 /**
@@ -3937,8 +3938,15 @@ function analyzeBestAssistPreset() {
 
 function getAssistSample(stripCanvas) {
   if (!stripCanvas || stripCanvas.width < 4 || stripCanvas.height < 4) return null;
+  /*
+   * Cache-sleutel = het strip-canvas-OBJECT zelf. getStripCanvas() geeft hetzelfde gecachte canvas terug zolang
+   * de strip niet wijzigt (zelfde pad/rotatie/spiegel/paint); het wordt pas een nieuw object bij een echte
+   * wijziging. Zo hoeven we de (dure) downscale + getImageData niet opnieuw te doen bij herhaald positioneren,
+   * en vervalt de cache automatisch bij scanwissel/roteren/spiegelen — zonder verspreide handmatige resets.
+   */
   if (
     assistSampleCache &&
+    assistSampleCache.canvas === stripCanvas &&
     assistSampleCache.srcW === stripCanvas.width &&
     assistSampleCache.srcH === stripCanvas.height
   ) {
@@ -3956,6 +3964,7 @@ function getAssistSample(stripCanvas) {
   ctx.drawImage(stripCanvas, 0, 0, sw, sh);
   const img = ctx.getImageData(0, 0, sw, sh);
   assistSampleCache = {
+    canvas: stripCanvas,
     srcW: stripCanvas.width,
     srcH: stripCanvas.height,
     width: sw,
@@ -6912,6 +6921,8 @@ async function finishOpenProject(result) {
     if (result.error) alert(result.error);
     return;
   }
+  /* Nog uitgestelde opslag van het vorige project eerst wegschrijven vóór we van project wisselen. */
+  await flushPendingProjectSave();
   clearCache();
   invalidateStripCanvasCache();
   assistSampleCache = null;
@@ -7007,6 +7018,8 @@ async function onDeleteProjectClick() {
 async function onCloseProjectClick() {
   if (!hasProject()) return;
   if (isDirty() && !confirm(t('project.closeProjectConfirm'))) return;
+  /* Uitgestelde opslag nog wegschrijven vóór het project sluit. */
+  await flushPendingProjectSave();
   clearCache();
   invalidateStripCanvasCache();
   assistSampleCache = null;
@@ -9070,6 +9083,7 @@ function registerQuitSaveHandler() {
     void (async () => {
       try {
         if (hasProject()) {
+          cancelPendingProjectSave();
           persistCurrentLintStateInProject();
           await saveProject();
         }

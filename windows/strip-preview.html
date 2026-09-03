@@ -183,7 +183,16 @@
     body.strip-ui-compact-hd .raster-current-scan-display {
       min-width: 5.2rem;
       min-height: 32px;
-      font-size: 0.9rem;
+      gap: 3px;
+    }
+    body.strip-ui-compact-hd .raster-current-scan-display .rcs-val {
+      font-size: 0.85rem;
+    }
+    body.strip-ui-compact-hd .raster-current-scan-display #rcs-val-range {
+      font-size: 0.74rem;
+    }
+    body.strip-ui-compact-hd .raster-current-scan-display .rcs-cap {
+      font-size: 0.54rem;
     }
     body.strip-ui-compact-hd .raster-subpanel__nav-center .btn-scan-nav,
     body.strip-ui-compact-hd .raster-subpanel__trail #btn-scan-goto {
@@ -328,21 +337,51 @@
     }
     .raster-current-scan-display {
       display: inline-flex;
-      align-items: center;
+      flex-direction: column;
+      align-items: stretch;
       justify-content: center;
+      gap: 4px;
       width: var(--raster-current-col);
       min-width: var(--raster-current-col);
       min-height: 38px;
-      padding: 6px 10px;
+      padding: 6px 8px;
       border-radius: 6px;
       border: 1px solid #8a1d1d;
       background: #260d0d;
       color: #ff4a4a;
       font-family: Consolas, "Courier New", monospace;
-      font-size: 1rem;
       font-weight: 700;
       letter-spacing: 0.04em;
       font-variant-numeric: tabular-nums;
+    }
+    /* Elk segment: grote waarde met klein label eronder. */
+    .raster-current-scan-display .rcs-seg {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      line-height: 1.05;
+    }
+    .raster-current-scan-display .rcs-seg + .rcs-seg {
+      border-top: 1px solid #4a1414;
+      padding-top: 3px;
+    }
+    .raster-current-scan-display .rcs-val {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #ff4a4a;
+      white-space: nowrap;
+    }
+    .raster-current-scan-display #rcs-val-range {
+      font-size: 0.82rem;
+    }
+    .raster-current-scan-display .rcs-cap {
+      margin-top: 1px;
+      font-size: 0.58rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #d99a9a;
+      white-space: nowrap;
     }
     .raster-current-range-display {
       display: inline-flex;
@@ -2120,7 +2159,11 @@
           <div class="manual-scan-nav__current raster-subpanel__center">
             <span id="raster-current-frame-label" class="raster-current-label"></span>
             <span class="raster-current-scan-wrap">
-              <span id="raster-current-scan-display" class="raster-current-scan-display" title="">—</span>
+              <span id="raster-current-scan-display" class="raster-current-scan-display" title="">
+                <span class="rcs-seg" id="rcs-seg-frame"><span class="rcs-val" id="rcs-val-frame">—</span><span class="rcs-cap" id="rcs-cap-frame"></span></span>
+                <span class="rcs-seg" id="rcs-seg-global"><span class="rcs-val" id="rcs-val-global">—</span><span class="rcs-cap" id="rcs-cap-global"></span></span>
+                <span class="rcs-seg" id="rcs-seg-range"><span class="rcs-val" id="rcs-val-range">—</span><span class="rcs-cap" id="rcs-cap-range"></span></span>
+              </span>
             </span>
             <span id="raster-current-range-display" class="raster-current-range-display" title="">—</span>
           </div>
@@ -4960,11 +5003,26 @@
       }
 
       function updateCurrentFrameDisplay(payload) {
-        var inlineFrameEl = document.getElementById('raster-current-scan-display');
-        if (!inlineFrameEl) return;
+        var boxEl = document.getElementById('raster-current-scan-display');
+        if (!boxEl) return;
+        var valFrame = document.getElementById('rcs-val-frame');
+        var valGlobal = document.getElementById('rcs-val-global');
+        var valRange = document.getElementById('rcs-val-range');
+        var segGlobal = document.getElementById('rcs-seg-global');
+        var segRange = document.getElementById('rcs-seg-range');
+        var capFrame = document.getElementById('rcs-cap-frame');
+        var capGlobal = document.getElementById('rcs-cap-global');
+        var capRange = document.getElementById('rcs-cap-range');
+        /* Labels (klein) onder elk segment; blijven staan zodat de betekenis altijd duidelijk is. */
+        if (capFrame) capFrame.textContent = stripTr('stripWindow.currentSegFrameCap');
+        if (capGlobal) capGlobal.textContent = stripTr('stripWindow.currentSegGlobalCap');
+        if (capRange) capRange.textContent = stripTr('stripWindow.currentSegRangeCap');
+
         if (!payload || typeof payload !== 'object') {
-          inlineFrameEl.textContent = '—';
-          inlineFrameEl.title = '';
+          if (valFrame) valFrame.textContent = '—';
+          if (segGlobal) segGlobal.style.display = 'none';
+          if (segRange) segRange.style.display = 'none';
+          boxEl.title = '';
           return;
         }
         var totalFrames = payload.numFrames != null
@@ -4978,6 +5036,7 @@
         var globalFrame = lastBatchRangeContext && lastBatchRangeContext.globalFrameNumber != null
           ? Math.floor(Number(lastBatchRangeContext.globalFrameNumber))
           : NaN;
+        if (!Number.isFinite(globalFrame) || globalFrame < 1) globalFrame = NaN;
         var rangeText = '';
         if (
           lastBatchRangeContext &&
@@ -4986,34 +5045,41 @@
           Number.isFinite(Number(lastBatchRangeContext.range.to))
         ) {
           rangeText =
-            ' | R' +
+            'R' +
             String(Math.max(1, Math.floor(Number(lastBatchRangeContext.rangeIndex) || 0) + 1)) +
             ':' +
             String(Math.floor(Number(lastBatchRangeContext.range.from))) +
             '-' +
             String(Math.floor(Number(lastBatchRangeContext.range.to)));
         }
-        if (!Number.isFinite(globalFrame) || globalFrame < 1) globalFrame = NaN;
-        if (Number.isFinite(activeFrame) && Number.isFinite(totalFrames)) {
-          inlineFrameEl.textContent = Number.isFinite(globalFrame)
-            ? (String(activeFrame) + '/' + String(totalFrames) + ' | G' + String(globalFrame) + rangeText)
-            : (String(activeFrame) + ' / ' + String(totalFrames));
-          inlineFrameEl.title = Number.isFinite(globalFrame)
-            ? ('Frame ' + String(activeFrame) + '/' + String(totalFrames) + ' | Global ' + String(globalFrame) + rangeText)
-            : (String(activeFrame) + ' / ' + String(totalFrames));
-          return;
+
+        /* Segment 1: frame in de scan / aantal frames in die scan. */
+        var frameText = '—';
+        if (Number.isFinite(activeFrame) && Number.isFinite(totalFrames)) frameText = String(activeFrame) + '/' + String(totalFrames);
+        else if (Number.isFinite(activeFrame)) frameText = String(activeFrame);
+        if (valFrame) valFrame.textContent = frameText;
+
+        /* Segment 2: globaal framenummer over alle scans. */
+        if (Number.isFinite(globalFrame)) {
+          if (valGlobal) valGlobal.textContent = 'G' + String(globalFrame);
+          if (segGlobal) segGlobal.style.display = '';
+        } else if (segGlobal) {
+          segGlobal.style.display = 'none';
         }
-        if (Number.isFinite(activeFrame)) {
-          inlineFrameEl.textContent = Number.isFinite(globalFrame)
-            ? (String(activeFrame) + ' | G' + String(globalFrame) + rangeText)
-            : String(activeFrame);
-          inlineFrameEl.title = Number.isFinite(globalFrame)
-            ? ('Frame ' + String(activeFrame) + ' | Global ' + String(globalFrame) + rangeText)
-            : String(activeFrame);
-          return;
+
+        /* Segment 3: actief batchbereik (index + van–tot). */
+        if (rangeText) {
+          if (valRange) valRange.textContent = rangeText;
+          if (segRange) segRange.style.display = '';
+        } else if (segRange) {
+          segRange.style.display = 'none';
         }
-        inlineFrameEl.textContent = '—';
-        inlineFrameEl.title = '';
+
+        var titleParts = [];
+        if (frameText !== '—') titleParts.push(stripTr('stripWindow.currentSegFrameCap') + ': ' + frameText);
+        if (Number.isFinite(globalFrame)) titleParts.push(stripTr('stripWindow.currentSegGlobalCap') + ': ' + String(globalFrame));
+        if (rangeText) titleParts.push(stripTr('stripWindow.currentSegRangeCap') + ': ' + rangeText);
+        boxEl.title = titleParts.join('  |  ');
       }
 
       function updateCurrentRangeDisplay(rangeCtx) {

@@ -145,6 +145,60 @@ export function persistCurrentLintStateInProject() {
   if (snapshot) setLintStateForPath(s.path, snapshot);
 }
 
+/**
+ * Debounced schijf-opslag van project.json. De in-memory lint-states blijven altijd actueel
+ * (persistCurrentLintStateInProject); alleen de zware serialisatie + schijfschrijf wordt uitgesteld en
+ * samengevoegd, zodat snel achter elkaar navigeren (Vorige/Volgende) niet elke keer seconden kost.
+ */
+let pendingSaveTimer = null;
+let pendingSaveOpts = null;
+let pendingSaveResolvers = [];
+
+export function scheduleProjectSave(opts = {}, delayMs = 1200) {
+  if (!hasProject()) return;
+  // Zwaarste optie wint als er meerdere in de wachtrij staan.
+  pendingSaveOpts = { ...(pendingSaveOpts || {}), ...(opts || {}) };
+  if (pendingSaveTimer) clearTimeout(pendingSaveTimer);
+  pendingSaveTimer = setTimeout(() => {
+    void flushPendingProjectSave();
+  }, Math.max(0, Number(delayMs) || 0));
+}
+
+export function hasPendingProjectSave() {
+  return pendingSaveTimer != null || pendingSaveOpts != null;
+}
+
+/** Annuleer een uitgestelde opslag zonder te schrijven (bv. wanneer een expliciete saveProject alles al wegschrijft). */
+export function cancelPendingProjectSave() {
+  if (pendingSaveTimer) {
+    clearTimeout(pendingSaveTimer);
+    pendingSaveTimer = null;
+  }
+  pendingSaveOpts = null;
+  pendingSaveResolvers = [];
+}
+
+/** Voer een uitgestelde opslag nu uit (bv. bij afsluiten, projectwissel, of vóór export). */
+export async function flushPendingProjectSave() {
+  if (pendingSaveTimer) {
+    clearTimeout(pendingSaveTimer);
+    pendingSaveTimer = null;
+  }
+  if (pendingSaveOpts == null) return { ok: true, skipped: true };
+  const opts = pendingSaveOpts;
+  pendingSaveOpts = null;
+  const resolvers = pendingSaveResolvers;
+  pendingSaveResolvers = [];
+  let result = { ok: false };
+  try {
+    result = await saveProject(opts);
+  } catch (e) {
+    result = { ok: false, error: e && e.message ? e.message : String(e) };
+  }
+  resolvers.forEach((r) => { try { r(result); } catch (_) {} });
+  return result;
+}
+
 export async function saveProject(opts = {}) {
   const s = getState();
   if (!s.projectPath) return { ok: false, error: t('ipc.errorNoProjectOpen') };
