@@ -151,7 +151,9 @@ export function cropFrameAtIndexForExport(fullStrip, previewStrip, frameIndex) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
-  const ctx = c.getContext('2d');
+  /* CPU-backed (willReadFrequently): per-frame export-canvas. Bij batch van duizenden frames voorkomt dit
+   * dat de GPU-canvaspool uitgeput raakt (→ zwarte/corrupte uitsnedes na ~1700 frames). */
+  const ctx = c.getContext('2d', { willReadFrequently: true });
   if (ctx.imageSmoothingEnabled !== undefined) ctx.imageSmoothingEnabled = false;
   ctx.drawImage(fullStrip, x, y, w, h, 0, 0, w, h);
   return c;
