@@ -13,6 +13,7 @@ const KEYS = {
   darkMode: 'darkMode',
   stripPreviewRes: 'stripPreviewRes',
   outputFormat: 'outputFormat',
+  jpgQuality: 'jpgQuality',
   scanDpi: 'scanDpi',
   defaultFramesPerStrip: 'defaultFramesPerStrip',
   outputResolution: 'outputResolution',
@@ -56,6 +57,7 @@ const DEFAULTS = {
   darkMode: false,
   stripPreviewRes: 1536,
   outputFormat: 'png',
+  jpgQuality: 92,
   scanDpi: 4800,
   defaultFramesPerStrip: 30,
   outputResolution: 'original',
@@ -199,6 +201,7 @@ function getAllSettings() {
     darkMode: data[KEYS.darkMode] !== undefined ? !!data[KEYS.darkMode] : DEFAULTS.darkMode,
     stripPreviewRes: typeof data[KEYS.stripPreviewRes] === 'number' ? data[KEYS.stripPreviewRes] : DEFAULTS.stripPreviewRes,
     outputFormat: data[KEYS.outputFormat] || DEFAULTS.outputFormat,
+    jpgQuality: typeof data[KEYS.jpgQuality] === 'number' ? data[KEYS.jpgQuality] : DEFAULTS.jpgQuality,
     scanDpi: typeof data[KEYS.scanDpi] === 'number' ? data[KEYS.scanDpi] : DEFAULTS.scanDpi,
     defaultFramesPerStrip: typeof data[KEYS.defaultFramesPerStrip] === 'number' ? data[KEYS.defaultFramesPerStrip] : DEFAULTS.defaultFramesPerStrip,
     outputResolution: data[KEYS.outputResolution] || DEFAULTS.outputResolution,
@@ -272,6 +275,7 @@ function setSettings(settings) {
   if (settings.darkMode !== undefined) data[KEYS.darkMode] = !!settings.darkMode;
   if (settings.stripPreviewRes !== undefined) data[KEYS.stripPreviewRes] = Math.max(512, Math.min(8192, Number(settings.stripPreviewRes) || 2048));
   if (settings.outputFormat !== undefined) data[KEYS.outputFormat] = settings.outputFormat === 'jpg' || settings.outputFormat === 'jpeg' ? 'jpg' : 'png';
+  if (settings.jpgQuality !== undefined) data[KEYS.jpgQuality] = Math.max(1, Math.min(100, Math.round(Number(settings.jpgQuality) || 92)));
   if (settings.scanDpi !== undefined) data[KEYS.scanDpi] = Math.max(300, Math.min(9600, Number(settings.scanDpi) || 4800));
   if (settings.defaultFramesPerStrip !== undefined) data[KEYS.defaultFramesPerStrip] = Math.max(1, Math.min(99, Number(settings.defaultFramesPerStrip) || 30));
   if (settings.outputResolution !== undefined) data[KEYS.outputResolution] = String(settings.outputResolution);

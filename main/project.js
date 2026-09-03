@@ -322,6 +322,7 @@ async function writeProject(projectFolderPath, data) {
         filmPolarity: d.filmPolarity || 'positief',
         outputFolder: d.outputFolder || null,
         outputFormat: d.outputFormat || 'png',
+        jpgQuality: Math.max(1, Math.min(100, Number(d.jpgQuality) || 92)),
         scanDpi: d.scanDpi || 4800,
         stripPresetId:
           d.stripPresetId != null && typeof d.stripPresetId === 'string' && d.stripPresetId.trim() !== ''

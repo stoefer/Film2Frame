@@ -278,7 +278,7 @@ function registerIPC() {
   });
 
   ipcMain.handle('create-project', async (_, payload) => {
-    const { projectFolderPath, name, location, framesPerLint, numberOfScans, scanInfos, filmFormat, filmPolarity, outputFolder, outputFormat, scanDpi } = payload || {};
+    const { projectFolderPath, name, location, framesPerLint, numberOfScans, scanInfos, filmFormat, filmPolarity, outputFolder, outputFormat, jpgQuality, scanDpi } = payload || {};
     if (!projectFolderPath) return { ok: false, error: tr('ipc.errorNoProjectFolderChosen') };
     try {
       const hasManualCount = numberOfScans !== undefined && numberOfScans !== null && Number.isFinite(Number(numberOfScans));
@@ -296,6 +296,7 @@ function registerIPC() {
         filmPolarity: filmPolarity || 'positief',
         outputFolder: outputFolder || null,
         outputFormat: outputFormat || 'png',
+        jpgQuality: Math.max(1, Math.min(100, Number(jpgQuality) || 92)),
         scanDpi: scanDpi || 4800,
         stripPresetId: null,
         pixelEditorOutputFolder: null,
