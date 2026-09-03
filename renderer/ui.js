@@ -1112,23 +1112,45 @@ function getScanFrameCountByPath(scanPath) {
   return getDefaultFramesPerScanEstimate();
 }
 
+/**
+ * O(1) opzoektabel pad → opgeslagen aantal frames, uit lintStates. Voorkomt O(n²) bij duizenden scans
+ * (voorheen deed elke scan een lineaire lintStates.find → ~22M vergelijkingen bij 4740 scans ≈ 3 s,
+ * en dat per preview-refresh). Nu is de globale frame-map O(n).
+ */
+function buildScanFramesByPathLookup() {
+  const m = new Map();
+  const lintStates = getState().lintStates || [];
+  for (let i = 0; i < lintStates.length; i++) {
+    const ls = lintStates[i];
+    if (ls && ls.path) {
+      const nf = Math.floor(Number(ls.numFrames));
+      if (Number.isFinite(nf) && nf > 0) m.set(ls.path, nf);
+    }
+  }
+  return m;
+}
+
 function getProjectTotalFrameCountEstimate() {
   const meta = getProjectMeta();
   const paths = Array.isArray(meta?.scanInfos) ? meta.scanInfos.map((s) => s.path).filter(Boolean) : [];
   if (paths.length) {
+    const framesByPath = buildScanFramesByPathLookup();
+    const def = getDefaultFramesPerScanEstimate();
     let total = 0;
-    for (const p of paths) total += getScanFrameCountByPath(p);
+    for (let i = 0; i < paths.length; i++) total += Math.max(1, framesByPath.get(paths[i]) || def);
     return Math.max(0, total);
   }
   return getProjectScanCountEstimate() * getDefaultFramesPerScanEstimate();
 }
 
 function buildGlobalFrameMap(paths) {
+  const framesByPath = buildScanFramesByPathLookup();
+  const def = getDefaultFramesPerScanEstimate();
   const rows = [];
   let cursor = 1;
   for (let i = 0; i < paths.length; i++) {
     const scanPath = paths[i];
-    const count = Math.max(1, getScanFrameCountByPath(scanPath));
+    const count = Math.max(1, framesByPath.get(scanPath) || def);
     const start = cursor;
     const end = start + count - 1;
     rows.push({ scanPath, scanIndex: i, count, start, end });
