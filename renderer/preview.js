@@ -51,6 +51,22 @@ function scaleStripCanvasForPreview(sourceCanvas) {
   return out || sourceCanvas;
 }
 
+/**
+ * Encodeer de preview-bitmap naar een data-URL. Voor grote canvassen JPEG (veel sneller + kleiner);
+ * voor kleine canvassen PNG (verwaarloosbaar en behoudt transparantie). Alleen weergave — het raster
+ * wordt apart als overlay getekend, dus JPEG-compressie heeft geen invloed op de uitlijnnauwkeurigheid.
+ */
+function encodePreviewDataUrl(canvas) {
+  const area = (canvas.width || 0) * (canvas.height || 0);
+  if (area > 700000) {
+    try {
+      const url = canvas.toDataURL('image/jpeg', 0.85);
+      if (url && url.indexOf('data:image/jpeg') === 0) return url;
+    } catch (_) {}
+  }
+  return canvas.toDataURL('image/png');
+}
+
 /** Alleen bestandsnaam voor scanlint-titelbalk (Windows-paden). */
 function getLintBasename() {
   const p = getState().path;
@@ -459,12 +475,17 @@ function sendStripUpdateFull() {
     const scale = canvas.height > 0 ? scaled.height / canvas.height : 1;
     const payload = buildGridPayload(scaled.width, scaled.height, scale, undefined, canvas.width);
     const tEncode = performance.now();
-    payload.stripDataUrl = scaled.toDataURL('image/png');
+    /*
+     * Preview-bitmap als JPEG i.p.v. PNG: dit is alleen de achtergrond voor weergave (het raster wordt als
+     * vector-overlay er bovenop getekend). Bij grote scans (bv. 4096×3072) kostte PNG-encode 1–1,5 s en gaf
+     * een payload van vele MB's; JPEG is ~10× sneller/kleiner en visueel gelijkwaardig voor uitlijnen.
+     */
+    payload.stripDataUrl = encodePreviewDataUrl(scaled);
     const encodeMs = performance.now() - tEncode;
     const enriched = attachScanInfo(payload);
     sendStripUpdateToMain(enriched);
     pushInlineStripUpdate(enriched);
-    perfLog('refreshPreviews (full)', performance.now() - tFull, { toDataURL: encodeMs, px: scaled.width + 'x' + scaled.height });
+    perfLog('refreshPreviews (full)', performance.now() - tFull, { encode: encodeMs, px: scaled.width + 'x' + scaled.height });
     return;
   }
   const dims = getStripCanvasDimensions();

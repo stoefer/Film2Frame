@@ -31,7 +31,7 @@ import {
 } from './grid.js';
 import { refreshPreviews, refreshPreviewsGridOnly, getScaledDimensions, getScaledDimensionsFromSize, buildGridPayload } from './preview.js';
 import { perfLog, perfStart, isPerfEnabled } from './perf.js';
-import { hasProject, getProjectMeta, getProjectPath, isDirty, createProject, openProject, openProjectFromFile, openProjectByPath, saveProject, deleteProject, closeCurrentProject, applySavedLintState, pickResumeLintPath, persistCurrentLintStateInProject, scheduleProjectSave, flushPendingProjectSave, cancelPendingProjectSave } from './project.js';
+import { hasProject, getProjectMeta, getProjectPath, isDirty, createProject, openProject, openProjectFromFile, openProjectByPath, saveProject, deleteProject, closeCurrentProject, applySavedLintState, pickResumeLintPath, persistCurrentLintStateInProject, cancelPendingProjectSave } from './project.js';
 import { getFromCache, prefetch, clearCache } from './strip-cache.js';
 
 import { updateStatus } from './status.js';
@@ -249,7 +249,9 @@ const inlineStripLocaleListeners = new Set();
 const inlineStripZoomModeListeners = new Set();
 let inlineStripLastPayload = null;
 let inlineStripLastZoomMode = 'fit-height';
-const AUTO_SAVE_DEBOUNCE_MS = 700;
+/* Langere debounce: bij grote projecten (duizenden scans) kost project.json wegschrijven seconden.
+ * Door pas na een pauze op te slaan, blokkeert snel navigeren (Vorige/Volgende/bereik) niet meer. */
+const AUTO_SAVE_DEBOUNCE_MS = 4000;
 let autoSaveTimer = null;
 let autoSaveInFlight = false;
 let autoSaveQueued = false;
@@ -288,6 +290,16 @@ function queueAutoSave() {
     autoSaveTimer = null;
     void runAutoSaveNow();
   }, AUTO_SAVE_DEBOUNCE_MS);
+}
+
+/** Voer een uitgestelde autosave nu meteen uit (bij projectwissel, sluiten, afsluiten). */
+async function flushAutoSaveNow() {
+  if (autoSaveTimer) { clearTimeout(autoSaveTimer); autoSaveTimer = null; }
+  if (!hasProject() || !isDirty()) return;
+  try {
+    persistCurrentLintStateInProject();
+    await saveProject();
+  } catch (_) {}
 }
 
 async function runAutoSaveNow() {
@@ -1569,10 +1581,9 @@ async function getProjectScanPaths() {
 /** Na succesvol laden: project.json bijwerken (lintStates + huidige scan) zodat rasterwijzigingen niet verloren gaan. */
 async function persistProjectAfterLintLoad() {
   if (!hasProject()) return;
-  /* Debounce de schijf-opslag: bij Vorige/Volgende hoeft niet elke scanwissel synchroon project.json te
-   * serialiseren + schrijven. De in-memory lint-states zijn al bijgewerkt; de schijfschrijf wordt uitgesteld
-   * en samengevoegd. Wordt geflusht bij afsluiten/projectwissel. */
-  scheduleProjectSave();
+  /* Eén gedeeld, ruim gedebounced opslagmechanisme (autosave). Geen dubbele/synchrone save meer per
+   * scanwissel; snel navigeren blijft vlot, opslaan gebeurt pas na een korte pauze (of bij sluiten/afsluiten). */
+  queueAutoSave();
 }
 
 /**
@@ -6963,7 +6974,7 @@ async function finishOpenProject(result) {
     return;
   }
   /* Nog uitgestelde opslag van het vorige project eerst wegschrijven vóór we van project wisselen. */
-  await flushPendingProjectSave();
+  await flushAutoSaveNow();
   clearCache();
   invalidateStripCanvasCache();
   assistSampleCache = null;
@@ -7060,7 +7071,7 @@ async function onCloseProjectClick() {
   if (!hasProject()) return;
   if (isDirty() && !confirm(t('project.closeProjectConfirm'))) return;
   /* Uitgestelde opslag nog wegschrijven vóór het project sluit. */
-  await flushPendingProjectSave();
+  await flushAutoSaveNow();
   clearCache();
   invalidateStripCanvasCache();
   assistSampleCache = null;
@@ -9134,6 +9145,7 @@ function registerQuitSaveHandler() {
     void (async () => {
       try {
         if (hasProject()) {
+          if (autoSaveTimer) { clearTimeout(autoSaveTimer); autoSaveTimer = null; }
           cancelPendingProjectSave();
           persistCurrentLintStateInProject();
           await saveProject();
