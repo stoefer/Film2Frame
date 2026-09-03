@@ -1,7 +1,7 @@
 /**
  * UI-binding – koppelt DOM aan state en preview. Enige module die getElementById gebruikt.
  */
-import { getState, setStrip, setRotation90, setFineRotation, setNumFrames, setActiveFrameIndex, setZoomFrames, setFramePreviewVisibleFrames, setStripPreviewMaxDim, setExportFolderPath, setExportBaseName, setExportPauseSeconds, setGridOffset, setGridOffsetXMargins, setGridOffsetYOnly, setGridOffsetYBottom, setDirty, setFlipHorizontal, setFlipVertical, setTimecodeFps, setFilmFormat, setFilmPolarity, setTiltPivot, setOutputFormat, setScanDpi, setArrowStepPx, setArrowStepShiftPx, setPreserveGridOnScanNav, setAutoAdvanceAfterAlign as setAutoAdvanceAfterAlignState, setAutoRasterAssistMode as setAutoRasterAssistModeState, setAutoRasterAssistXRef as setAutoRasterAssistXRefState, setAutoRasterAssistYRef as setAutoRasterAssistYRefState, setAutoRasterAssistPreset as setAutoRasterAssistPresetState, setAutoRasterAssistExtraLeftPx as setAutoRasterAssistExtraLeftPxState, setAutoRasterAssistExtraRightPx as setAutoRasterAssistExtraRightPxState, setAutoRasterAssistExtraTopPx as setAutoRasterAssistExtraTopPxState, setAutoRasterAssistExtraBottomPx as setAutoRasterAssistExtraBottomPxState, setAutoRasterCenterBeforeDetect as setAutoRasterCenterBeforeDetectState, setAutoRasterDetectOnScanNav as setAutoRasterDetectOnScanNavState, setAutoRasterLeftWhiteMinMarginPx as setAutoRasterLeftWhiteMinMarginPxState, setAutoRasterDarkLineLeftBiasPx as setAutoRasterDarkLineLeftBiasPxState, setAutoRasterDarkLineStrongScale as setAutoRasterDarkLineStrongScaleState, setAutoRasterDarkLineStrongScaleAuto as setAutoRasterDarkLineStrongScaleAutoState, setAutoRasterDarkBottomBiasPx as setAutoRasterDarkBottomBiasPxState, setAutoRasterDarkLineThickness as setAutoRasterDarkLineThicknessState, setAutoRasterDarkLineSearchRangePx as setAutoRasterDarkLineSearchRangePxState, setAutoRasterTriangleSensitivity as setAutoRasterTriangleSensitivityState, getLintStateSnapshot, getGridGeometrySnapshot, applyGridGeometrySnapshot, setLintStateForPath, updateProjectScanInfos, updateProjectScanFolder, applyLintState, setGridVerticalAnchorMode, setGridVerticalPivotCustomK, setGridSplitLowerPanCanvas, setGridPanelLinkVerticalAnchor, setFixResolutionLocked, resetGridToDefault as resetGridStateToDefault, getLintStateForPath, applyAutoOrientationFromNaturalSize } from './state.js';
+import { getState, setStrip, setRotation90, setFineRotation, setNumFrames, setActiveFrameIndex, setZoomFrames, setFramePreviewVisibleFrames, setStripPreviewMaxDim, setExportFolderPath, setExportBaseName, setExportPauseSeconds, setGridOffset, setGridOffsetXMargins, setGridOffsetYOnly, setGridOffsetYBottom, setDirty, setFlipHorizontal, setFlipVertical, setTimecodeFps, setFilmFormat, setFilmPolarity, setTiltPivot, setOutputFormat, setJpgQuality, setScanDpi, setArrowStepPx, setArrowStepShiftPx, setPreserveGridOnScanNav, setAutoAdvanceAfterAlign as setAutoAdvanceAfterAlignState, setAutoRasterAssistMode as setAutoRasterAssistModeState, setAutoRasterAssistXRef as setAutoRasterAssistXRefState, setAutoRasterAssistYRef as setAutoRasterAssistYRefState, setAutoRasterAssistPreset as setAutoRasterAssistPresetState, setAutoRasterAssistExtraLeftPx as setAutoRasterAssistExtraLeftPxState, setAutoRasterAssistExtraRightPx as setAutoRasterAssistExtraRightPxState, setAutoRasterAssistExtraTopPx as setAutoRasterAssistExtraTopPxState, setAutoRasterAssistExtraBottomPx as setAutoRasterAssistExtraBottomPxState, setAutoRasterCenterBeforeDetect as setAutoRasterCenterBeforeDetectState, setAutoRasterDetectOnScanNav as setAutoRasterDetectOnScanNavState, setAutoRasterLeftWhiteMinMarginPx as setAutoRasterLeftWhiteMinMarginPxState, setAutoRasterDarkLineLeftBiasPx as setAutoRasterDarkLineLeftBiasPxState, setAutoRasterDarkLineStrongScale as setAutoRasterDarkLineStrongScaleState, setAutoRasterDarkLineStrongScaleAuto as setAutoRasterDarkLineStrongScaleAutoState, setAutoRasterDarkBottomBiasPx as setAutoRasterDarkBottomBiasPxState, setAutoRasterDarkLineThickness as setAutoRasterDarkLineThicknessState, setAutoRasterDarkLineSearchRangePx as setAutoRasterDarkLineSearchRangePxState, setAutoRasterTriangleSensitivity as setAutoRasterTriangleSensitivityState, getLintStateSnapshot, getGridGeometrySnapshot, applyGridGeometrySnapshot, setLintStateForPath, updateProjectScanInfos, updateProjectScanFolder, applyLintState, setGridVerticalAnchorMode, setGridVerticalPivotCustomK, setGridSplitLowerPanCanvas, setGridPanelLinkVerticalAnchor, setFixResolutionLocked, resetGridToDefault as resetGridStateToDefault, getLintStateForPath, applyAutoOrientationFromNaturalSize } from './state.js';
 import { loadImage, getStripCanvas, getStripCanvasDimensions, getStripCanvasPairForExport, releaseStripCanvasPair, invalidateStripCanvasCache, disposeCanvas, getExportStripDimensions } from './strip-loader.js';
 import {
   getFrameDimensions,
@@ -222,6 +222,8 @@ const ids = {
   polarityNeg: 'f2f-polarity-neg',
   tiltPivot: 'f2f-tilt-pivot',
   outputFormat: 'f2f-output-format',
+  jpgQuality: 'f2f-jpg-quality',
+  jpgQualityWrap: 'f2f-jpg-quality-wrap',
   projectStarten: 'f2f-project-starten',
   exportOutputRes: 'f2f-export-output-res',
   openSettings: 'f2f-open-settings',
@@ -926,6 +928,14 @@ function updateUI() {
   }
   if (el(ids.exportFolderPath)) el(ids.exportFolderPath).textContent = s.exportFolderPath ? (s.exportFolderPath.length > 50 ? '...' + s.exportFolderPath.slice(-47) : s.exportFolderPath) : '—';
   if (el(ids.exportBaseName)) el(ids.exportBaseName).value = s.exportBaseName || 'frame';
+  const isJpgOut = s.outputFormat === 'jpg' || s.outputFormat === 'jpeg';
+  if (el(ids.outputFormat) && document.activeElement !== el(ids.outputFormat)) {
+    el(ids.outputFormat).value = isJpgOut ? 'jpg' : 'png';
+  }
+  if (el(ids.jpgQuality) && document.activeElement !== el(ids.jpgQuality)) {
+    el(ids.jpgQuality).value = String(Math.max(1, Math.min(100, Math.round(Number(s.jpgQuality) || 92))));
+  }
+  if (el(ids.jpgQualityWrap)) el(ids.jpgQualityWrap).hidden = !isJpgOut;
   const scanCountEl = el(ids.exportScanCount);
   const totalScans = getProjectScanCountEstimate();
   const totalFrames = getProjectTotalFrameCountEstimate();
@@ -6499,6 +6509,18 @@ function onOutputFormatChange() {
   if (v) setOutputFormat(v);
   setDirty();
   updateUI();
+  persistCurrentLintStateInProject();
+  try { window.api?.setAppSettings?.({ outputFormat: getState().outputFormat }); } catch (_) {}
+}
+
+function onJpgQualityChange() {
+  const raw = el(ids.jpgQuality)?.value;
+  const q = Math.max(1, Math.min(100, Math.round(Number(raw) || 92)));
+  setJpgQuality(q);
+  if (el(ids.jpgQuality)) el(ids.jpgQuality).value = String(q);
+  setDirty();
+  persistCurrentLintStateInProject();
+  try { window.api?.setAppSettings?.({ jpgQuality: getState().jpgQuality }); } catch (_) {}
 }
 
 /**
@@ -6571,7 +6593,8 @@ async function loadAppSettings() {
     if (el(ids.gridRefPxHeight)) el(ids.gridRefPxHeight).value = String(Math.round(overlayHeight));
     if (el(ids.gridRefPxFrames)) el(ids.gridRefPxFrames).value = String(Math.round(overlayFrames));
     setScanDpi(Number(s.scanDpi) || 4800);
-    setOutputFormat('png');
+    setOutputFormat(s.outputFormat === 'jpg' || s.outputFormat === 'jpeg' ? 'jpg' : 'png');
+    if (s.jpgQuality != null) setJpgQuality(s.jpgQuality);
     const frameCount = getProjectTotalFrameCountEstimate();
     exportScanBatchAutoMerge = s.exportScanBatchAutoMerge !== false;
     exportScanBatchWrapNav = s.exportScanBatchWrapNav === true;
@@ -6886,7 +6909,8 @@ async function onCreateProject() {
     filmFormat: s.filmFormat || '16mm-double',
     filmPolarity: s.filmPolarity || 'positief',
     outputFolder: s.exportFolderPath || null,
-    outputFormat: 'png',
+    outputFormat: s.outputFormat === 'jpg' || s.outputFormat === 'jpeg' ? 'jpg' : 'png',
+    jpgQuality: s.jpgQuality,
     scanDpi: s.scanDpi || 4800
   });
   } finally {
@@ -9038,6 +9062,9 @@ function bind() {
   el(ids.pickExportFolder)?.addEventListener('click', onPickExportFolder);
   el(ids.exportBaseName)?.addEventListener('change', function () { setExportBaseName(el(ids.exportBaseName)?.value); });
   el(ids.exportBaseName)?.addEventListener('input', function () { setExportBaseName(el(ids.exportBaseName)?.value); });
+  el(ids.outputFormat)?.addEventListener('change', onOutputFormatChange);
+  el(ids.jpgQuality)?.addEventListener('change', onJpgQualityChange);
+  el(ids.jpgQuality)?.addEventListener('input', onJpgQualityChange);
   el(ids.exportBatchRangeAdd)?.addEventListener('click', () => { onAddOrUpdateBatchRange().catch(() => {}); });
   el(ids.exportBatchRangeEdit)?.addEventListener('click', () => { onBatchRangeEditMode().catch(() => {}); });
   el(ids.exportBatchRangeInsertAbove)?.addEventListener('click', onBatchRangeInsertAboveMode);
@@ -9602,13 +9629,57 @@ function pathStem(fileName) {
 }
 
 /** Output-bestandsnamen: zelfde stam als inputscan; bij meerdere frames per lint: _01, _02, … */
+/**
+ * Uitvoer-encoding op basis van het gekozen formaat: PNG (lossless) of JPG met kwaliteit (1–100).
+ * @returns {{ ext: 'png'|'jpg', mime: 'image/png'|'image/jpeg', quality: number|undefined }}
+ */
+function getExportEncoding() {
+  const s = getState();
+  const fmt = (s.outputFormat || 'png').toLowerCase();
+  if (fmt === 'jpg' || fmt === 'jpeg') {
+    const q = Math.max(1, Math.min(100, Math.round(Number(s.jpgQuality) || 92)));
+    return { ext: 'jpg', mime: 'image/jpeg', quality: q / 100 };
+  }
+  return { ext: 'png', mime: 'image/png', quality: undefined };
+}
+
+/** Encodeer een canvas naar een ArrayBuffer volgens de gekozen uitvoer-encoding (toBlob, met fallback naar toDataURL). */
+function canvasToExportBuffer(canvas, enc) {
+  const { mime, quality } = enc || getExportEncoding();
+  return new Promise((resolve, reject) => {
+    try {
+      if (typeof canvas.toBlob === 'function') {
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) { reject(new Error(t('ipc.errorNoImageData'))); return; }
+            blob.arrayBuffer().then(resolve).catch(reject);
+          },
+          mime,
+          quality
+        );
+        return;
+      }
+      const dataUrl = quality != null ? canvas.toDataURL(mime, quality) : canvas.toDataURL(mime);
+      const b64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+      if (!b64) { reject(new Error(t('ipc.errorNoImageData'))); return; }
+      const bin = atob(b64);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      resolve(out.buffer);
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 function getExportFileNamesForScan(scanPath, numFrames) {
   const stem = pathStem(pathBasename(scanPath)).replace(/[/\\:*?"<>|]/g, '_') || 'frame';
   const n = Math.max(1, Math.round(Number(numFrames) || 1));
-  if (n <= 1) return [`${stem}.png`];
+  const ext = getExportEncoding().ext;
+  if (n <= 1) return [`${stem}.${ext}`];
   const names = [];
   for (let i = 0; i < n; i++) {
-    names.push(`${stem}_${String(i + 1).padStart(2, '0')}.png`);
+    names.push(`${stem}_${String(i + 1).padStart(2, '0')}.${ext}`);
   }
   return names;
 }
@@ -9724,43 +9795,12 @@ async function onExportCurrentScan(options = null) {
     let lastWriteError = '';
     let cropFailed = false;
     try {
-      const canvasToPngBuffer = (canvas) =>
-        new Promise((resolve, reject) => {
-          try {
-            if (typeof canvas.toBlob === 'function') {
-              canvas.toBlob(
-                (blob) => {
-                  if (!blob) {
-                    reject(new Error(t('ipc.errorNoImageData')));
-                    return;
-                  }
-                  blob
-                    .arrayBuffer()
-                    .then((ab) => resolve(ab))
-                    .catch(reject);
-                },
-                'image/png'
-              );
-              return;
-            }
-            const dataUrl = canvas.toDataURL('image/png');
-            const b64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-            if (!b64) {
-              reject(new Error(t('ipc.errorNoImageData')));
-              return;
-            }
-            const bin = atob(b64);
-            const out = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-            resolve(out.buffer);
-          } catch (err) {
-            reject(err);
-          }
-        });
+      const enc = getExportEncoding();
+      const canvasToPngBuffer = (canvas) => canvasToExportBuffer(canvas, enc);
 
       const writeFrameFile = async (fileName, pngBuffer) => {
         if (window.api?.writeFrameBuffer) {
-          return await window.api.writeFrameBuffer(folder, fileName, pngBuffer, 'png');
+          return await window.api.writeFrameBuffer(folder, fileName, pngBuffer, enc.ext);
         }
         // Fallback: data-URL (oudere preload)
         const bytes = new Uint8Array(pngBuffer);
@@ -9769,9 +9809,9 @@ async function onExportCurrentScan(options = null) {
         for (let i = 0; i < bytes.length; i += chunk) {
           binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
         }
-        const dataUrl = 'data:image/png;base64,' + btoa(binary);
+        const dataUrl = 'data:' + enc.mime + ';base64,' + btoa(binary);
         if (window.api?.writeFrame) {
-          return await window.api.writeFrame(folder, 'frame', 1, dataUrl, 'png', fileName);
+          return await window.api.writeFrame(folder, 'frame', 1, dataUrl, enc.ext, fileName);
         }
         if (window.api?.writeFramePng) {
           return await window.api.writeFramePng(folder, 'frame', 1, dataUrl, fileName);
@@ -9894,6 +9934,7 @@ async function exportPaths(paths, options = null) {
   const pauseSec = 0;
   const appSettings = await window.api?.getAppSettings?.().catch(() => null);
   const outDims = getExportOutputDimensions(appSettings);
+  const enc = getExportEncoding();
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const total = paths.length;
   const resume = normalizeExportBatchResumeState(opts.resumeState);
@@ -9981,25 +10022,10 @@ async function exportPaths(paths, options = null) {
         const fileName = fileNames[i] || fileNames[0];
         let result = null;
         try {
-          const pngBuffer = await new Promise((resolve, reject) => {
-            try {
-              canvas.toBlob(
-                (blob) => {
-                  if (!blob) {
-                    reject(new Error('no blob'));
-                    return;
-                  }
-                  blob.arrayBuffer().then(resolve).catch(reject);
-                },
-                'image/png'
-              );
-            } catch (err) {
-              reject(err);
-            }
-          });
+          const pngBuffer = await canvasToExportBuffer(canvas, enc);
           disposeCanvas(canvas);
           if (window.api?.writeFrameBuffer) {
-            result = await window.api.writeFrameBuffer(folder, fileName, pngBuffer, 'png');
+            result = await window.api.writeFrameBuffer(folder, fileName, pngBuffer, enc.ext);
           } else if (window.api?.writeFrame) {
             const bytes = new Uint8Array(pngBuffer);
             let binary = '';
@@ -10011,8 +10037,8 @@ async function exportPaths(paths, options = null) {
               folder,
               'frame',
               1,
-              'data:image/png;base64,' + btoa(binary),
-              'png',
+              'data:' + enc.mime + ';base64,' + btoa(binary),
+              enc.ext,
               fileName
             );
           } else if (window.api?.writeFramePng) {
@@ -10026,7 +10052,7 @@ async function exportPaths(paths, options = null) {
               folder,
               'frame',
               1,
-              'data:image/png;base64,' + btoa(binary),
+              'data:' + enc.mime + ';base64,' + btoa(binary),
               fileName
             );
           } else {
@@ -10493,6 +10519,7 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
   const folder = getState().exportFolderPath;
   const appSettings = await window.api?.getAppSettings?.().catch(() => null);
   const outDims = getExportOutputDimensions(appSettings);
+  const enc = getExportEncoding();
   const startPos = resolveGlobalFramePosition(fromFrame, frameMap.rows);
   const endPos = resolveGlobalFramePosition(toFrame, frameMap.rows);
   if (!startPos || !endPos) return 0;
@@ -10545,26 +10572,11 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
         }
         let result = null;
         try {
-          const pngBuffer = await new Promise((resolve, reject) => {
-            try {
-              canvas.toBlob(
-                (blob) => {
-                  if (!blob) {
-                    reject(new Error('no blob'));
-                    return;
-                  }
-                  blob.arrayBuffer().then(resolve).catch(reject);
-                },
-                'image/png'
-              );
-            } catch (err) {
-              reject(err);
-            }
-          });
+          const pngBuffer = await canvasToExportBuffer(canvas, enc);
           disposeCanvas(canvas);
           const fileName = fileNames[Math.max(0, i - 1)] || fileNames[0];
           if (window.api?.writeFrameBuffer) {
-            result = await window.api.writeFrameBuffer(folder, fileName, pngBuffer, 'png');
+            result = await window.api.writeFrameBuffer(folder, fileName, pngBuffer, enc.ext);
           } else if (window.api?.writeFrame) {
             const bytes = new Uint8Array(pngBuffer);
             let binary = '';
@@ -10572,7 +10584,7 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
             for (let bi = 0; bi < bytes.length; bi += chunk) {
               binary += String.fromCharCode.apply(null, bytes.subarray(bi, bi + chunk));
             }
-            result = await window.api.writeFrame(folder, 'frame', 1, 'data:image/png;base64,' + btoa(binary), 'png', fileName);
+            result = await window.api.writeFrame(folder, 'frame', 1, 'data:' + enc.mime + ';base64,' + btoa(binary), enc.ext, fileName);
           } else if (window.api?.writeFramePng) {
             const bytes = new Uint8Array(pngBuffer);
             let binary = '';
@@ -10580,7 +10592,7 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
             for (let bi = 0; bi < bytes.length; bi += chunk) {
               binary += String.fromCharCode.apply(null, bytes.subarray(bi, bi + chunk));
             }
-            result = await window.api.writeFramePng(folder, 'frame', 1, 'data:image/png;base64,' + btoa(binary), fileName);
+            result = await window.api.writeFramePng(folder, 'frame', 1, 'data:' + enc.mime + ';base64,' + btoa(binary), fileName);
           } else {
             throw new Error(t('errors.apiUnavailable'));
           }

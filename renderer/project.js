@@ -227,6 +227,7 @@ export async function saveProject(opts = {}) {
     filmPolarity: s.filmPolarity,
     outputFolder: s.exportFolderPath,
     outputFormat: s.outputFormat,
+    jpgQuality: s.jpgQuality,
     scanDpi: s.scanDpi,
     stripPresetId: s.projectMeta?.stripPresetId ?? null,
     pixelEditorOutputFolder: s.pixelEditorOutputFolder || null,

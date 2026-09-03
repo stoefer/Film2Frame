@@ -13,6 +13,7 @@ const version = require('./version');
 const locales = require('./locales');
 const { applyAppMenu } = require('./app-menu');
 const { tr } = require('./main-i18n');
+const perfLog = require('./perf-log');
 
 const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp'];
 
@@ -277,7 +278,7 @@ function registerIPC() {
   });
 
   ipcMain.handle('create-project', async (_, payload) => {
-    const { projectFolderPath, name, location, framesPerLint, numberOfScans, scanInfos, filmFormat, filmPolarity, outputFolder, outputFormat, scanDpi } = payload || {};
+    const { projectFolderPath, name, location, framesPerLint, numberOfScans, scanInfos, filmFormat, filmPolarity, outputFolder, outputFormat, jpgQuality, scanDpi } = payload || {};
     if (!projectFolderPath) return { ok: false, error: tr('ipc.errorNoProjectFolderChosen') };
     try {
       const hasManualCount = numberOfScans !== undefined && numberOfScans !== null && Number.isFinite(Number(numberOfScans));
@@ -295,6 +296,7 @@ function registerIPC() {
         filmPolarity: filmPolarity || 'positief',
         outputFolder: outputFolder || null,
         outputFormat: outputFormat || 'png',
+        jpgQuality: Math.max(1, Math.min(100, Number(jpgQuality) || 92)),
         scanDpi: scanDpi || 4800,
         stripPresetId: null,
         pixelEditorOutputFolder: null,
@@ -722,21 +724,9 @@ function registerIPC() {
     }
   });
 
-  /* Prestatie-timing: pad naar en append voor het perf-logbestand (voor profilering op echte hardware). */
-  function getPerfLogPath() {
-    try {
-      return path.join(app.getPath('userData'), 'perf-timing.log');
-    } catch (_) {
-      return path.join(os.tmpdir(), 'film2frame-perf-timing.log');
-    }
-  }
-  ipcMain.handle('perf-log-path', () => getPerfLogPath());
-  ipcMain.on('perf-log-append', (_, line) => {
-    try {
-      const text = typeof line === 'string' ? line : String(line);
-      fs.appendFile(getPerfLogPath(), text + '\n', () => {});
-    } catch (_) {}
-  });
+  /* Prestatie-timing: gedeeld logbestand in Documenten\Film2Frame (zie main/perf-log.js). */
+  ipcMain.handle('perf-log-path', () => perfLog.getPerfLogPath());
+  ipcMain.on('perf-log-append', (_, line) => perfLog.appendPerfLine(line));
 
   ipcMain.handle('save-macro-file', async (_, payload) => {
     try {

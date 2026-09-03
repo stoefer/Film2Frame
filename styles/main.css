@@ -2697,3 +2697,21 @@ body.theme-light .pixel-editor-viewport {
   outline: 2px solid #6ea8fe;
   outline-offset: 2px;
 }
+
+/* JPG-kwaliteit naast de uitvoerformaat-keuze (verborgen bij PNG). */
+.jpg-quality-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+}
+.jpg-quality-wrap[hidden] {
+  display: none;
+}
+.jpg-quality-wrap #f2f-jpg-quality {
+  width: 5rem;
+  min-width: 5rem;
+}
+.jpg-quality-suffix {
+  color: #aaa;
+}

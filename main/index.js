@@ -9,11 +9,16 @@ const { registerIPC } = require('./ipc');
 const windowArrange = require('./window-arrange');
 const { applyAppMenu } = require('./app-menu');
 const prefs = require('./prefs');
+const perfLog = require('./perf-log');
 
 app.whenReady().then(() => {
   try {
     const projectsDir = path.join(app.getPath('documents'), 'Film2Frame', 'Projects');
     fs.mkdirSync(projectsDir, { recursive: true });
+  } catch (_) {}
+  /* Startregel synchroon schrijven zodat het perf-logbestand gegarandeerd bestaat (ook zonder DevTools). */
+  try {
+    perfLog.appendPerfLineSync('[perf] === Film2Frame gestart ' + new Date().toISOString() + ' — logbestand: ' + perfLog.getPerfLogPath() + ' ===');
   } catch (_) {}
   const preload = path.join(__dirname, '..', 'preload.js');
   windows.createMainWindow(preload);
