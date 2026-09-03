@@ -233,9 +233,23 @@ export function loadImage(path, fileUrl) {
       } catch (_) {}
       finish(null);
     }, STRIP_IMAGE_LOAD_TIMEOUT_MS);
-    img.onload = () => finish(img);
     img.onerror = () => finish(null);
-    img.src = fileUrl;
+    /*
+     * Off-thread decode: img.decode() decodeert op een achtergrond-thread en lost pas op als het beeld
+     * tekenklaar is. Zo hoeft de eerste drawImage (buildStripCanvasRaw) niet synchroon op de UI-thread te
+     * decoderen — dat blokkeerde bij grote scans (tientallen MP) de knoppen seconden lang bij scanwissel.
+     * Fallback op onload wanneer decode() niet beschikbaar is of faalt (bv. bepaalde formaten).
+     */
+    if (typeof img.decode === 'function') {
+      img.src = fileUrl;
+      img.decode().then(() => finish(img)).catch(() => {
+        if (img.complete && (img.naturalWidth || img.width)) finish(img);
+        else img.onload = () => finish(img);
+      });
+    } else {
+      img.onload = () => finish(img);
+      img.src = fileUrl;
+    }
   });
 }
 
