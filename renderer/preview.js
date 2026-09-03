@@ -467,13 +467,19 @@ function afterStripPreviewRefresh() {
 
 function sendStripUpdateFull() {
   const tFull = performance.now();
+  const tCanvas = performance.now();
   const canvas = getStripCanvas();
+  const canvasMs = performance.now() - tCanvas;
   const s = getState();
   const n = Math.max(1, s.numFrames || 1);
   if (canvas) {
+    const tScale = performance.now();
     const scaled = scaleStripCanvasForPreview(canvas);
+    const scaleMs = performance.now() - tScale;
     const scale = canvas.height > 0 ? scaled.height / canvas.height : 1;
+    const tGrid = performance.now();
     const payload = buildGridPayload(scaled.width, scaled.height, scale, undefined, canvas.width);
+    const gridMs = performance.now() - tGrid;
     const tEncode = performance.now();
     /*
      * Preview-bitmap als JPEG i.p.v. PNG: dit is alleen de achtergrond voor weergave (het raster wordt als
@@ -482,10 +488,16 @@ function sendStripUpdateFull() {
      */
     payload.stripDataUrl = encodePreviewDataUrl(scaled);
     const encodeMs = performance.now() - tEncode;
+    const tScanInfo = performance.now();
     const enriched = attachScanInfo(payload);
+    const scanInfoMs = performance.now() - tScanInfo;
+    const tSend = performance.now();
     sendStripUpdateToMain(enriched);
+    const sendMs = performance.now() - tSend;
+    const tInline = performance.now();
     pushInlineStripUpdate(enriched);
-    perfLog('refreshPreviews (full)', performance.now() - tFull, { encode: encodeMs, px: scaled.width + 'x' + scaled.height });
+    const inlineMs = performance.now() - tInline;
+    perfLog('refreshPreviews (full)', performance.now() - tFull, { getCanvas: canvasMs, scale: scaleMs, grid: gridMs, encode: encodeMs, scanInfo: scanInfoMs, send: sendMs, inline: inlineMs, px: scaled.width + 'x' + scaled.height });
     return;
   }
   const dims = getStripCanvasDimensions();
