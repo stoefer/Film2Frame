@@ -6495,7 +6495,7 @@ function scaleCanvasToSize(sourceCanvas, targetW, targetH, allowUpscale = true) 
   const out = document.createElement('canvas');
   out.width = targetW;
   out.height = targetH;
-  const ctx = out.getContext('2d');
+  const ctx = out.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, targetW, targetH);
   const dx = Math.round((targetW - outW) / 2);

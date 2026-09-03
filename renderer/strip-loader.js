@@ -88,7 +88,9 @@ export function copyCanvasNearestScaled(src, dstW, dstH) {
   const out = document.createElement('canvas');
   out.width = dstW;
   out.height = dstH;
-  const ctx = out.getContext('2d', { alpha: true });
+  /* CPU-backed (willReadFrequently): grote strip-canvassen op de GPU raken bij batch-export van
+   * duizenden frames uitgeput/gefragmenteerd → zwarte banden / herhaalde zones. Softwarepad is stabiel. */
+  const ctx = out.getContext('2d', { alpha: true, willReadFrequently: true });
   if (!ctx) return null;
   if (ctx.imageSmoothingEnabled !== undefined) ctx.imageSmoothingEnabled = false;
   const tileH = 512;
@@ -263,7 +265,10 @@ function buildStripCanvasRawFromImage(image, w, h, maxDim = EXPORT_STRIP_MAX_DIM
   const canvas = document.createElement('canvas');
   canvas.width = cw;
   canvas.height = ch;
-  const ctx = canvas.getContext('2d', { alpha: true });
+  /* CPU-backed (willReadFrequently): dit is de zware strip-raster (tot EXPORT_STRIP_MAX_DIM). Op de GPU
+   * raakt het canvasgeheugen bij batch-export van duizenden frames uitgeput → drawImage levert dan
+   * zwarte tegels / herhaalde zones (corrupte uitsnedes). Het softwarepad blijft stabiel. */
+  const ctx = canvas.getContext('2d', { alpha: true, willReadFrequently: true });
   if (!ctx) return null;
   if (ctx.imageSmoothingEnabled !== undefined) ctx.imageSmoothingEnabled = false;
   /* Laatste transform wordt als eerste op punten toegepast: R*(p−P) dan verschuiving zodat bbox op (0,0) start. */
@@ -315,7 +320,7 @@ export function buildPixelEditorExternalStripRaw(image) {
 function applyFramePaintOverlaysToStripCanvas(result) {
   const map = getState().framePaintOverlays;
   if (!result || !map || map.size === 0) return;
-  const ctx = result.getContext('2d', { alpha: true });
+  const ctx = result.getContext('2d', { alpha: true, willReadFrequently: true });
   if (!ctx) return;
   const stripW = result.width;
   const stripH = result.height;
@@ -468,7 +473,7 @@ function copyCanvasFlipped(source, flipH, flipV) {
    */
   const flipHorizontalCPU = (src, dstCanvas) => {
     const sctx = src.getContext('2d', { willReadFrequently: true });
-    const dctx = dstCanvas.getContext('2d', { alpha: true });
+    const dctx = dstCanvas.getContext('2d', { alpha: true, willReadFrequently: true });
     if (!sctx || !dctx) return false;
     if (dctx.imageSmoothingEnabled !== undefined) dctx.imageSmoothingEnabled = false;
     const bandH = 32;
@@ -503,7 +508,7 @@ function copyCanvasFlipped(source, flipH, flipV) {
 
   /** Fallback als getImageData faalt (tainting); kleinere tegels dan voorheen. */
   const flipHorizontalStripes = (src, dstCanvas) => {
-    const dctx = dstCanvas.getContext('2d', { alpha: true });
+    const dctx = dstCanvas.getContext('2d', { alpha: true, willReadFrequently: true });
     if (!dctx) return false;
     if (dctx.imageSmoothingEnabled !== undefined) dctx.imageSmoothingEnabled = false;
     const tileW = 64;
@@ -525,7 +530,7 @@ function copyCanvasFlipped(source, flipH, flipV) {
   };
 
   const flipVerticalOneShot = (src, dstCanvas) => {
-    const dctx = dstCanvas.getContext('2d', { alpha: true });
+    const dctx = dstCanvas.getContext('2d', { alpha: true, willReadFrequently: true });
     if (!dctx) return false;
     if (dctx.imageSmoothingEnabled !== undefined) dctx.imageSmoothingEnabled = false;
     dctx.drawImage(src, 0, 0, cw, ch, 0, ch, cw, -ch);
