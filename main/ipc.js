@@ -722,6 +722,22 @@ function registerIPC() {
     }
   });
 
+  /* Prestatie-timing: pad naar en append voor het perf-logbestand (voor profilering op echte hardware). */
+  function getPerfLogPath() {
+    try {
+      return path.join(app.getPath('userData'), 'perf-timing.log');
+    } catch (_) {
+      return path.join(os.tmpdir(), 'film2frame-perf-timing.log');
+    }
+  }
+  ipcMain.handle('perf-log-path', () => getPerfLogPath());
+  ipcMain.on('perf-log-append', (_, line) => {
+    try {
+      const text = typeof line === 'string' ? line : String(line);
+      fs.appendFile(getPerfLogPath(), text + '\n', () => {});
+    } catch (_) {}
+  });
+
   ipcMain.handle('save-macro-file', async (_, payload) => {
     try {
       const win = windows.getMainWindow();

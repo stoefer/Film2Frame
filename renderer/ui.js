@@ -30,6 +30,7 @@ import {
   getGridRect
 } from './grid.js';
 import { refreshPreviews, refreshPreviewsGridOnly, getScaledDimensions, getScaledDimensionsFromSize, buildGridPayload } from './preview.js';
+import { perfLog, perfStart, isPerfEnabled } from './perf.js';
 import { hasProject, getProjectMeta, getProjectPath, isDirty, createProject, openProject, openProjectFromFile, openProjectByPath, saveProject, deleteProject, closeCurrentProject, applySavedLintState, pickResumeLintPath, persistCurrentLintStateInProject, scheduleProjectSave, flushPendingProjectSave, cancelPendingProjectSave } from './project.js';
 import { getFromCache, prefetch, clearCache } from './strip-cache.js';
 
@@ -1644,6 +1645,16 @@ async function applyProjectLintStateAfterLoad(lintPath) {
  * @param {{ preserveGrid?: boolean, skipPersistAfterLoad?: boolean }} [opts] — skipPersistAfterLoad: geen saveProject aan het eind (batch).
  */
 async function loadScanByPath(lintPath, opts = {}) {
+  if (!isPerfEnabled()) return loadScanByPathImpl(lintPath, opts);
+  const t = performance.now();
+  try {
+    return await loadScanByPathImpl(lintPath, opts);
+  } finally {
+    perfLog('loadScanByPath TOTAL', performance.now() - t, pathBasename(lintPath || ''));
+  }
+}
+
+async function loadScanByPathImpl(lintPath, opts = {}) {
   if (!lintPath || !window.api?.getFileUrl) return false;
   const s = getState();
   const preserveGrid = opts.preserveGrid === true;
@@ -2432,21 +2443,25 @@ function onActiveFrame() {
 }
 
 function onPrevFrame() {
+  const _pf = perfStart('HUIDIG FRAME: vorig frame ◀');
   syncGridSplitLowerPanClamp();
   setActiveFrameIndex(getState().activeFrameIndex - 1);
   syncGridSplitLowerPanClamp();
   setDirty();
   updateUI();
   refreshPreviewsGridOnly();
+  _pf();
 }
 
 function onNextFrame() {
+  const _pf = perfStart('HUIDIG FRAME: volgend frame ▶');
   syncGridSplitLowerPanClamp();
   setActiveFrameIndex(getState().activeFrameIndex + 1);
   syncGridSplitLowerPanClamp();
   setDirty();
   updateUI();
   refreshPreviewsGridOnly();
+  _pf();
 }
 
 function onZoom() {
@@ -3952,6 +3967,7 @@ function getAssistSample(stripCanvas) {
   ) {
     return assistSampleCache;
   }
+  const tSample = performance.now();
   const maxDim = Math.max(stripCanvas.width, stripCanvas.height);
   const scale = maxDim > ASSIST_SAMPLE_MAX_DIM ? ASSIST_SAMPLE_MAX_DIM / maxDim : 1;
   const sw = Math.max(4, Math.round(stripCanvas.width * scale));
@@ -3973,6 +3989,7 @@ function getAssistSample(stripCanvas) {
     kx: stripCanvas.width / sw,
     ky: stripCanvas.height / sh
   };
+  perfLog('getAssistSample (downscale+getImageData)', performance.now() - tSample, 'src=' + stripCanvas.width + 'x' + stripCanvas.height + ' sample=' + sw + 'x' + sh);
   return assistSampleCache;
 }
 
@@ -7303,6 +7320,7 @@ function onStripAdjustWidthEdge(payload) {
   const edge = p.edge === 'right' ? 'right' : 'left';
   const deltaDisplay = p.delta != null ? Number(p.delta) : 0;
   if (deltaDisplay === 0) return;
+  const _pf = perfStart('MANUELE POSITIE: breedte-rand (L/R)');
 
   const s = getState();
   const n = Math.max(1, s.numFrames || 1);
@@ -7361,6 +7379,7 @@ function onStripAdjustWidthEdge(payload) {
   } else {
     refreshPreviewsGridOnly();
   }
+  _pf();
 }
 
 function onStripAdjustHeightEdge(payload) {
@@ -7397,6 +7416,7 @@ function onStripAdjustHeightEdge(payload) {
 
   let stepC = Math.round(deltaDisplay * scaleY);
   if (stepC === 0) stepC = deltaDisplay > 0 ? 1 : -1;
+  const _pf = perfStart('MANUELE POSITIE: hoogte-rand (T/B)');
 
   const curTop = Number(s.gridOffsetY) || 0;
   const curBottom = Number.isFinite(Number(s.gridOffsetYBottom)) ? Math.round(s.gridOffsetYBottom) : 0;
@@ -7411,6 +7431,7 @@ function onStripAdjustHeightEdge(payload) {
     } else {
       refreshPreviewsGridOnly();
     }
+    _pf();
     return;
   }
 
@@ -7435,6 +7456,7 @@ function onStripAdjustHeightEdge(payload) {
   } else {
     refreshPreviewsGridOnly();
   }
+  _pf();
 }
 
 function onStripVerticalRigidPanBoundaryFromPreview(towardCompress) {
@@ -7604,6 +7626,7 @@ function onSetGridOffsetAbsolute(payload) {
   const canvas = getStripCanvas();
   const { frameWidth, frameHeight } = getFrameDimensions(canvas);
   if (frameWidth < 1 || frameHeight < 1) return;
+  const _pf = perfStart('MANUELE POSITIE: raster verplaatsen/positie');
   const s = getState();
   const n = Math.max(1, s.numFrames);
   const newX = clampGridOffsetX(frameWidth, p.gridOffsetX != null ? Number(p.gridOffsetX) : s.gridOffsetX);
@@ -7649,6 +7672,7 @@ function onSetGridOffsetAbsolute(payload) {
   } else {
     refreshPreviewsGridOnly();
   }
+  _pf();
 }
 
 function onAutoDetectFrameBoundsFromPreview(opts) {
@@ -9218,6 +9242,14 @@ async function init() {
   }
   await ensureEulaAccepted();
   registerQuitSaveHandler();
+  /* Prestatie-timing (deze build): meld waar het logbestand staat en hoe je het uitzet. */
+  try {
+    if (isPerfEnabled() && window.api?.getPerfLogPath) {
+      const perfPath = await window.api.getPerfLogPath();
+      console.log('[perf] timing actief — logbestand: ' + perfPath + '  (uitzetten: localStorage.setItem("f2fPerf","0") en herladen)');
+      window.api?.appendPerfLog?.('[perf] --- sessie gestart ' + new Date().toISOString() + ' ---');
+    }
+  } catch (_) {}
   updateUI();
   updateFloatingPreviewButtonUi().catch(() => {});
   if (!hasProject()) {
