@@ -80,7 +80,7 @@ function rotatedImageBounds(w, h, rad, px, py) {
  * @param {number} dstH
  * @returns {HTMLCanvasElement|null}
  */
-export function copyCanvasNearestScaled(src, dstW, dstH) {
+export function copyCanvasNearestScaled(src, dstW, dstH, cpuBacked = false) {
   const w = src.width;
   const h = src.height;
   if (dstW < 1 || dstH < 1 || w < 1 || h < 1) return null;
@@ -88,7 +88,10 @@ export function copyCanvasNearestScaled(src, dstW, dstH) {
   const out = document.createElement('canvas');
   out.width = dstW;
   out.height = dstH;
-  const ctx = out.getContext('2d', { alpha: true });
+  /* cpuBacked (willReadFrequently) alleen voor de export-pijplijn: grote canvassen op de GPU raken bij
+   * batch-export van duizenden frames uitgeput → zwarte banden. De interactieve preview blijft GPU-versneld
+   * (snelle reactie na knopklik); één gecachet canvas per wijziging put de GPU niet uit. */
+  const ctx = out.getContext('2d', cpuBacked ? { alpha: true, willReadFrequently: true } : { alpha: true });
   if (!ctx) return null;
   if (ctx.imageSmoothingEnabled !== undefined) ctx.imageSmoothingEnabled = false;
   const tileH = 512;
@@ -116,7 +119,7 @@ export function copyCanvasNearestScaled(src, dstW, dstH) {
   return out;
 }
 
-function scaleCanvasToMaxDim(source, maxDim) {
+function scaleCanvasToMaxDim(source, maxDim, cpuBacked = false) {
   const w = source.width;
   const h = source.height;
   if (w <= maxDim && h <= maxDim) return source;
@@ -124,7 +127,7 @@ function scaleCanvasToMaxDim(source, maxDim) {
   const outW = Math.round(w * scale);
   const outH = Math.round(h * scale);
   if (outW < 1 || outH < 1) return source;
-  const scaled = copyCanvasNearestScaled(source, outW, outH);
+  const scaled = copyCanvasNearestScaled(source, outW, outH, cpuBacked);
   return scaled || source;
 }
 
@@ -244,7 +247,7 @@ export function loadImage(path, fileUrl) {
  * @param {number} [maxDim] - max. zijde van het resultaat (preview vs export)
  * @returns {HTMLCanvasElement|null}
  */
-function buildStripCanvasRawFromImage(image, w, h, maxDim = EXPORT_STRIP_MAX_DIM) {
+function buildStripCanvasRawFromImage(image, w, h, maxDim = EXPORT_STRIP_MAX_DIM, cpuBacked = false) {
   const s = getState();
   if (!image || w < 1 || h < 1) return null;
   const totalDeg = s.rotation90 + s.fineRotationDeg;
@@ -263,7 +266,10 @@ function buildStripCanvasRawFromImage(image, w, h, maxDim = EXPORT_STRIP_MAX_DIM
   const canvas = document.createElement('canvas');
   canvas.width = cw;
   canvas.height = ch;
-  const ctx = canvas.getContext('2d', { alpha: true });
+  /* cpuBacked (willReadFrequently) alleen bij export: de zware strip-raster (tot EXPORT_STRIP_MAX_DIM) op de
+   * GPU raakt bij batch-export van duizenden frames uitgeput → drawImage levert dan zwarte tegels / herhaalde
+   * zones (corrupte uitsnedes). De preview blijft GPU-versneld voor snelle reactie na een knopklik. */
+  const ctx = canvas.getContext('2d', cpuBacked ? { alpha: true, willReadFrequently: true } : { alpha: true });
   if (!ctx) return null;
   if (ctx.imageSmoothingEnabled !== undefined) ctx.imageSmoothingEnabled = false;
   /* Laatste transform wordt als eerste op punten toegepast: R*(p−P) dan verschuiving zodat bbox op (0,0) start. */
@@ -286,7 +292,7 @@ function buildStripCanvasRawFromImage(image, w, h, maxDim = EXPORT_STRIP_MAX_DIM
   const flipV = !!s.flipVertical;
   let result = canvas;
   if (flipH || flipV) {
-    result = copyCanvasFlipped(canvas, flipH, flipV);
+    result = copyCanvasFlipped(canvas, flipH, flipV, cpuBacked);
     if (result !== canvas) disposeCanvas(canvas);
   }
   return result;
@@ -349,10 +355,10 @@ function applyFramePaintOverlaysToStripCanvas(result) {
  * @param {number} [maxDim]
  * @returns {HTMLCanvasElement|null}
  */
-function buildStripCanvasRaw(maxDim = EXPORT_STRIP_MAX_DIM) {
+function buildStripCanvasRaw(maxDim = EXPORT_STRIP_MAX_DIM, cpuBacked = false) {
   const s = getState();
   if (!s.image || !s.naturalWidth || !s.naturalHeight) return null;
-  const result = buildStripCanvasRawFromImage(s.image, s.naturalWidth, s.naturalHeight, maxDim);
+  const result = buildStripCanvasRawFromImage(s.image, s.naturalWidth, s.naturalHeight, maxDim, cpuBacked);
   if (!result) return null;
   applyFramePaintOverlaysToStripCanvas(result);
   return result;
@@ -409,14 +415,15 @@ export function getExportStripDimensions() {
  * @returns {{ preview: HTMLCanvasElement, export: HTMLCanvasElement } | null}
  */
 export function getStripCanvasPairForExport() {
-  const raw = buildStripCanvasRaw(EXPORT_STRIP_MAX_DIM);
+  /* Export/batch → CPU-backed (cpuBacked=true): voorkomt GPU-canvasuitputting bij duizenden frames. */
+  const raw = buildStripCanvasRaw(EXPORT_STRIP_MAX_DIM, true);
   if (!raw) return null;
   let exportCanvas = raw;
   if (
     EXPORT_STRIP_MAX_DIM > 0 &&
     (raw.width > EXPORT_STRIP_MAX_DIM || raw.height > EXPORT_STRIP_MAX_DIM)
   ) {
-    exportCanvas = scaleCanvasToMaxDim(raw, EXPORT_STRIP_MAX_DIM) || raw;
+    exportCanvas = scaleCanvasToMaxDim(raw, EXPORT_STRIP_MAX_DIM, true) || raw;
     if (exportCanvas !== raw) disposeCanvas(raw);
   }
   let preview = exportCanvas;
@@ -424,7 +431,7 @@ export function getStripCanvasPairForExport() {
     exportCanvas.width > STRIP_CANVAS_MAX_DIM ||
     exportCanvas.height > STRIP_CANVAS_MAX_DIM
   ) {
-    preview = scaleCanvasToMaxDim(exportCanvas, STRIP_CANVAS_MAX_DIM) || exportCanvas;
+    preview = scaleCanvasToMaxDim(exportCanvas, STRIP_CANVAS_MAX_DIM, true) || exportCanvas;
   }
   const key = stripPreviewCacheKey();
   if (previewStripCache.canvas && previewStripCache.canvas !== preview) {
@@ -457,10 +464,11 @@ export function releaseStripCanvasPair(pair) {
  * Horizontaal: getImageData/putImageData per band (CPU) — betrouwbaar; fallback kleine drawImage-tegels bij taint-fout.
  * Verticaal: negatieve dest-hoogte (één draw); bij H+V eerst H, dan V.
  */
-function copyCanvasFlipped(source, flipH, flipV) {
+function copyCanvasFlipped(source, flipH, flipV, cpuBacked = false) {
   const cw = source.width;
   const ch = source.height;
   if (cw < 1 || ch < 1) return source;
+  const dstCtxOpts = cpuBacked ? { alpha: true, willReadFrequently: true } : { alpha: true };
 
   /**
    * Horizontaal spiegelen: eerst CPU-pad (getImageData, rijen spiegelen, putImageData).
@@ -468,7 +476,7 @@ function copyCanvasFlipped(source, flipH, flipV) {
    */
   const flipHorizontalCPU = (src, dstCanvas) => {
     const sctx = src.getContext('2d', { willReadFrequently: true });
-    const dctx = dstCanvas.getContext('2d', { alpha: true });
+    const dctx = dstCanvas.getContext('2d', dstCtxOpts);
     if (!sctx || !dctx) return false;
     if (dctx.imageSmoothingEnabled !== undefined) dctx.imageSmoothingEnabled = false;
     const bandH = 32;
@@ -503,7 +511,7 @@ function copyCanvasFlipped(source, flipH, flipV) {
 
   /** Fallback als getImageData faalt (tainting); kleinere tegels dan voorheen. */
   const flipHorizontalStripes = (src, dstCanvas) => {
-    const dctx = dstCanvas.getContext('2d', { alpha: true });
+    const dctx = dstCanvas.getContext('2d', dstCtxOpts);
     if (!dctx) return false;
     if (dctx.imageSmoothingEnabled !== undefined) dctx.imageSmoothingEnabled = false;
     const tileW = 64;
@@ -525,7 +533,7 @@ function copyCanvasFlipped(source, flipH, flipV) {
   };
 
   const flipVerticalOneShot = (src, dstCanvas) => {
-    const dctx = dstCanvas.getContext('2d', { alpha: true });
+    const dctx = dstCanvas.getContext('2d', dstCtxOpts);
     if (!dctx) return false;
     if (dctx.imageSmoothingEnabled !== undefined) dctx.imageSmoothingEnabled = false;
     dctx.drawImage(src, 0, 0, cw, ch, 0, ch, cw, -ch);
