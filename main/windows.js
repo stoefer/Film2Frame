@@ -127,6 +127,9 @@ function getMaxContentHeightForWindow(win) {
  */
 async function fitWindowContentHeightIfNeeded(win, measureScript, minContentH) {
   if (!win || win.isDestroyed()) return;
+  // Niet de inhoudshoogte forceren wanneer het venster gemaximaliseerd/volledig scherm is
+  // (setContentSize zou de gemaximaliseerde stand ongedaan maken).
+  try { if (win.isMaximized() || win.isFullScreen()) return; } catch (_) {}
   const floor = Math.max(200, Number(minContentH) || 400);
   try {
     const raw = await win.webContents.executeJavaScript(measureScript);
@@ -367,11 +370,22 @@ function createMainWindow(preloadPath) {
   applyWindowIcon(opts);
   mainWindow = new BrowserWindow(opts);
   mainWindow.loadFile(path.join(__dirname, '..', 'index.html'));
+  // Herstel de laatst gebruikte venstermodus (gemaximaliseerd / volledig scherm).
+  if (winState.mainFullScreen) {
+    try { mainWindow.setFullScreen(true); } catch (_) {}
+  } else if (winState.mainMaximized) {
+    try { mainWindow.maximize(); } catch (_) {}
+  }
   mainWindow.on('close', (e) => {
     const state = prefs.getWindowState();
     if (mainWindow && !mainWindow.isDestroyed()) {
-      const b = mainWindow.getBounds();
-      state.mainBounds = b;
+      const isMax = mainWindow.isMaximized();
+      const isFs = mainWindow.isFullScreen();
+      // Bewaar de "vensterstand"-afmetingen (niet de gemaximaliseerde/volledig-scherm-bounds),
+      // zodat terugschakelen naar vensterstand de vorige grootte teruggeeft.
+      state.mainBounds = (isMax || isFs) ? mainWindow.getNormalBounds() : mainWindow.getBounds();
+      state.mainMaximized = isMax;
+      state.mainFullScreen = isFs;
     }
     state.stripPreviewOpen = !!(stripPreviewWindow && !stripPreviewWindow.isDestroyed());
     state.outputPreviewOpen = !!(outputPreviewWindow && !outputPreviewWindow.isDestroyed());

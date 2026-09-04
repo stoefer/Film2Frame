@@ -28,6 +28,8 @@ const KEYS = {
   windowsGeometryLocked: 'windowsGeometryLocked',
   stripPreviewFloating: 'stripPreviewFloating',
   mainWindowBounds: 'mainWindowBounds',
+  mainWindowMaximized: 'mainWindowMaximized',
+  mainWindowFullScreen: 'mainWindowFullScreen',
   stripPreviewBounds: 'stripPreviewBounds',
   stripPreviewOpen: 'stripPreviewOpen',
   arrowStepPx: 'arrowStepPx',
@@ -406,6 +408,8 @@ function getWindowState() {
   const data = read();
   return {
     mainBounds: parseBounds(data[KEYS.mainWindowBounds]),
+    mainMaximized: data[KEYS.mainWindowMaximized] === true,
+    mainFullScreen: data[KEYS.mainWindowFullScreen] === true,
     stripPreviewBounds: parseBounds(data[KEYS.stripPreviewBounds]),
     stripPreviewOpen: data[KEYS.stripPreviewOpen] === true
   };
@@ -417,6 +421,8 @@ function setWindowState(state) {
   if (state.mainBounds && typeof state.mainBounds === 'object') {
     data[KEYS.mainWindowBounds] = state.mainBounds;
   }
+  if (state.mainMaximized !== undefined) data[KEYS.mainWindowMaximized] = !!state.mainMaximized;
+  if (state.mainFullScreen !== undefined) data[KEYS.mainWindowFullScreen] = !!state.mainFullScreen;
   if (state.stripPreviewBounds && typeof state.stripPreviewBounds === 'object') {
     data[KEYS.stripPreviewBounds] = state.stripPreviewBounds;
   }
