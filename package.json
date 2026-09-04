@@ -1,6 +1,6 @@
 {
   "name": "film2frame",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "Film2Frame — freeware for cutting film scan strips into PNG frames (non-commercial)",
   "main": "main/index.js",
   "type": "commonjs",
