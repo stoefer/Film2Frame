@@ -10014,7 +10014,8 @@ async function exportPaths(paths, options = null) {
     if (sameFolderErr) throw new Error(sameFolderErr);
     setFrameGeneratorProgress({
       visible: true,
-      pct: Math.min(8, Math.round((100 * scanIdx) / Math.max(1, total * 2))),
+      // Voortgang op basis van het totale aantal verwerkte frames (niet op scan-/bereik-index).
+      pct: Math.min(99, Math.round((100 * processedFrames) / Math.max(1, totalFramesToProcess))),
       message: withBatchProgressStats(
         t('frameGenerator.progressLoadingScan', { current: scanIdx + 1, total }),
         { startedAtMs: runStartedAtMs, processedFrames, totalFrames: totalFramesToProcess }
