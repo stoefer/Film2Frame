@@ -950,11 +950,28 @@
       margin: 0;
     }
     .manual-scan-nav__current {
-      display: flex;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      grid-template-areas:
+        "label range"
+        "display display";
       align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
+      justify-content: start;
+      gap: 5px 8px;
       min-width: 0;
+    }
+    /* Bovenaan: "Huidig Frame" + bereik-badge; daaronder het rode display over de volle breedte (beter leesbaar). */
+    .manual-scan-nav__current #raster-current-frame-label { grid-area: label; }
+    .manual-scan-nav__current #raster-current-range-display { grid-area: range; justify-self: start; }
+    .manual-scan-nav__current .raster-current-scan-wrap {
+      grid-area: display;
+      width: 100%;
+      justify-content: stretch;
+    }
+    .manual-scan-nav__current .raster-current-scan-display {
+      width: 100%;
+      min-width: 0;
+      max-width: none;
     }
     .manual-scan-nav__buttons {
       display: grid;

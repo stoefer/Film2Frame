@@ -495,7 +495,7 @@
   "stripWindow.btnNext": "Volgende",
   "stripWindow.batchPrevRangeTitle": "Spring naar de vorige batch-range",
   "stripWindow.batchNextRangeTitle": "Spring naar de volgende batch-range",
-  "stripWindow.batchUseCurrentRefButton": "Gebruik frame als ref",
+  "stripWindow.batchUseCurrentRefButton": "Referentie frame",
   "stripWindow.batchUseCurrentRefTitle": "Gebruik het huidige frame als vaste referentie voor deze range",
   "stripWindow.autoAdvanceAlignLabel": "Auto ▶",
   "stripWindow.autoAdvanceAlignTitle": "Na laden + auto-uitlijning automatisch Volgende (export + volgende scan). Stopt op de laatste scan. Stop of Escape onderbreekt.",

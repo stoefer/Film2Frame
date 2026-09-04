@@ -495,7 +495,7 @@
   "stripWindow.btnNext": "Next",
   "stripWindow.batchPrevRangeTitle": "Jump to the previous batch range",
   "stripWindow.batchNextRangeTitle": "Jump to the next batch range",
-  "stripWindow.batchUseCurrentRefButton": "Use frame as ref",
+  "stripWindow.batchUseCurrentRefButton": "Reference frame",
   "stripWindow.batchUseCurrentRefTitle": "Use the current frame as fixed reference for this range",
   "stripWindow.autoAdvanceAlignLabel": "Auto ▶",
   "stripWindow.autoAdvanceAlignTitle": "After load + auto-align, automatically press Next (export + next scan). Stops on the last scan. Stop or Escape interrupts.",
