@@ -10355,6 +10355,20 @@ async function onResumeStoppedBatchRun() {
 }
 
 async function onGoToPreviousBatchRange() {
+  // Serialiseer met scan-navigatie: voorkomt dat een trage bereik-sprong (schijf-I/O)
+  // overlapt met andere navigatie. Overlappende loadScanByPath-calls sloegen de
+  // rastergeometrie op onder het verkeerde scanpad → "grid settings veranderd" + knoppen
+  // die "niets doen" doordat de UI vastliep op gestapelde laadacties.
+  if (stripNavigateBusy || exportScanBusy) return;
+  stripNavigateBusy = true;
+  try {
+    await onGoToPreviousBatchRangeBody();
+  } finally {
+    stripNavigateBusy = false;
+  }
+}
+
+async function onGoToPreviousBatchRangeBody() {
   persistCurrentRangeReferenceSnapshot();
   if (!exportScanBatchRanges.length) {
     alert(t('frameExport.batchRangeListEmpty'));
@@ -10379,6 +10393,16 @@ async function onGoToPreviousBatchRange() {
 }
 
 async function onGoToNextBatchRange() {
+  if (stripNavigateBusy || exportScanBusy) return;
+  stripNavigateBusy = true;
+  try {
+    await onGoToNextBatchRangeBody();
+  } finally {
+    stripNavigateBusy = false;
+  }
+}
+
+async function onGoToNextBatchRangeBody() {
   persistCurrentRangeReferenceSnapshot();
   if (!exportScanBatchRanges.length) {
     alert(t('frameExport.batchRangeListEmpty'));
