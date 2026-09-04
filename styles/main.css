@@ -1321,19 +1321,22 @@ body.theme-light .btn-project-close:hover {
   padding-top: 4px;
   box-sizing: border-box;
 }
-/* Voortgangsbalk onder het preview-paneel (volle breedte van de rechterkolom). */
+/* Voortgangsbalk in/onder het preview-paneel: overlay onderaan, volle breedte. */
+#f2f-inline-strip-panel { position: relative; }
 .frame-generator-progress-wrap--under-preview {
-  margin-top: 8px;
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  margin: 0;
   padding: 8px 10px;
-  background: #1a1f25;
+  background: rgba(20, 25, 32, 0.96);
   border: 1px solid #2d3748;
   border-radius: 8px;
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
-  flex: 0 0 auto;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+  z-index: 6;
+  box-sizing: border-box;
 }
-.main-panel-right .panel.frame-generator-panel { /* geen aparte max-width nodig voor de balk */ }
 .frame-generator-progress-wrap--under-preview .frame-generator-progress-bar-host { height: 14px; }
 .frame-generator-progress-inner {
   width: 100%;
