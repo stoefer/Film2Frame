@@ -571,6 +571,9 @@ input[type="number"].input-num--no-spin {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+/* FRAME EXPORT-bediening (Doelmap/Bestandsnaam/Uitvoerformaat) is verplaatst naar
+   het RASTER SETUP-paneel (rood omrand). Origineel in het hoofdvenster verborgen. */
+.fe-moved-to-strip { display: none !important; }
 /* Geen up/down-pijltjes in numerieke velden: waarden worden handmatig ingevoerd. */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {

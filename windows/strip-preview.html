@@ -1515,7 +1515,79 @@
       cursor: pointer;
     }
     .subpanel-collapse-btn:hover { background: #323845; border-color: #6d7788; }
+    /* FRAME EXPORT-bediening (proxy) in de linkerkolom van het rode paneel. */
+    .frame-export-proxy {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+      margin-bottom: 8px;
+    }
+    .frame-export-proxy .fe-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .frame-export-proxy label {
+      font-size: 11px;
+      color: #aeb9c8;
+      white-space: nowrap;
+      margin: 0;
+    }
+    .frame-export-proxy #fe-pick-export-folder {
+      min-height: 28px;
+      height: 28px;
+      padding: 0 10px;
+      font-size: 11px;
+    }
+    .frame-export-proxy .fe-folder-path {
+      flex: 1 1 8rem;
+      min-width: 0;
+      font-size: 11px;
+      color: #9cdcfe;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .frame-export-proxy .fe-input-text {
+      flex: 1 1 8rem;
+      min-width: 6rem;
+      min-height: 28px;
+      padding: 4px 6px;
+      font-size: 11px;
+      background: #2a2a2a;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #fff;
+    }
+    .frame-export-proxy .fe-select {
+      min-height: 28px;
+      padding: 4px 6px;
+      font-size: 11px;
+      background: #2a2a2a;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #fff;
+    }
+    .frame-export-proxy .fe-jpg-quality-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .frame-export-proxy .fe-jpg-quality-wrap input[type="number"] {
+      width: 3.6rem;
+      min-height: 28px;
+      padding: 4px 6px;
+      font-size: 11px;
+      background: #2a2a2a;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #fff;
+    }
     /* Ingeklapte sub-panelen: verberg de body, houd de kop zichtbaar. */
+    .toolbar-controls-left-extra.fe-collapsed > #fe-proxy-body { display: none; }
     .toolbar-controls-left-extra.export-collapsed > .assist-row--export-left { display: none; }
     .assist-row--macro.macro-collapsed > :not(.subpanel-header) { display: none; }
     .toolbar-controls-right.assist-collapsed .raster-half-controls > .assist-row--refs,
@@ -2395,6 +2467,32 @@
       <div class="toolbar-controls-split">
         <div class="toolbar-controls-left">
           <div class="toolbar-controls-left-extra">
+            <div class="subpanel-header">
+              <div class="raster-half-title" id="fe-export-title">FRAME EXPORT</div>
+              <button type="button" class="subpanel-collapse-btn" id="btn-collapse-frameexport" aria-expanded="true" data-i18n-title="stripWindow.subpanelCollapseTitle">▾</button>
+            </div>
+            <div class="frame-export-proxy" id="fe-proxy-body">
+              <div class="fe-row">
+                <button type="button" id="fe-pick-export-folder" class="btn-grid-size-film"></button>
+                <span id="fe-export-folder-path" class="fe-folder-path" title="">—</span>
+              </div>
+              <div class="fe-row">
+                <label for="fe-export-base-name" id="fe-lbl-base"></label>
+                <input type="text" id="fe-export-base-name" class="fe-input-text" value="frame" />
+              </div>
+              <div class="fe-row">
+                <label for="fe-output-format" id="fe-lbl-format"></label>
+                <select id="fe-output-format" class="fe-select">
+                  <option value="png"></option>
+                  <option value="jpg"></option>
+                </select>
+                <span id="fe-jpg-quality-wrap" class="fe-jpg-quality-wrap" hidden>
+                  <label for="fe-jpg-quality" id="fe-lbl-quality"></label>
+                  <input type="number" id="fe-jpg-quality" min="1" max="100" step="1" value="92" />
+                  <span class="fe-jpg-suffix">%</span>
+                </span>
+              </div>
+            </div>
             <div class="subpanel-header">
               <div id="raster-export-title" class="raster-half-title"></div>
               <button type="button" class="subpanel-collapse-btn" id="btn-collapse-export" aria-expanded="true" data-i18n-title="stripWindow.subpanelCollapseTitle">▾</button>
@@ -4499,9 +4597,93 @@
         }
       }
 
+      // FRAME EXPORT-bediening in het rode paneel: proxy-besturing die de (verborgen)
+      // originele bedieningen in het hoofdvenster aanstuurt (same-origin iframe).
+      // Zo blijft alle export-logica in ui.js ongewijzigd werken.
+      function setupFrameExportProxy() {
+        var proxyBody = document.getElementById('fe-proxy-body');
+        var pdoc = null;
+        try { if (window.parent && window.parent !== window) pdoc = window.parent.document; } catch (_) { pdoc = null; }
+        if (!pdoc) {
+          // Niet ingebed (bv. zwevend venster): geen parent → verberg de proxy-sectie.
+          var hdr = document.getElementById('fe-export-title');
+          if (hdr && hdr.closest('.subpanel-header')) hdr.closest('.subpanel-header').style.display = 'none';
+          if (proxyBody) proxyBody.style.display = 'none';
+          return;
+        }
+        var pFmt = pdoc.getElementById('f2f-output-format');
+        var pQ = pdoc.getElementById('f2f-jpg-quality');
+        var pQWrap = pdoc.getElementById('f2f-jpg-quality-wrap');
+        var pBase = pdoc.getElementById('f2f-export-base-name');
+        var pFolderPath = pdoc.getElementById('f2f-export-folder-path');
+        var pPickBtn = pdoc.getElementById('f2f-pick-export-folder');
+
+        var fmt = document.getElementById('fe-output-format');
+        var q = document.getElementById('fe-jpg-quality');
+        var qWrap = document.getElementById('fe-jpg-quality-wrap');
+        var base = document.getElementById('fe-export-base-name');
+        var folderPath = document.getElementById('fe-export-folder-path');
+        var pickBtn = document.getElementById('fe-pick-export-folder');
+        var lblBase = document.getElementById('fe-lbl-base');
+        var lblFormat = document.getElementById('fe-lbl-format');
+        var lblQuality = document.getElementById('fe-lbl-quality');
+
+        function pText(sel, fallback) {
+          try { var e = pdoc.querySelector(sel); return e && e.textContent ? e.textContent : fallback; } catch (_) { return fallback; }
+        }
+        // Labels/knopteksten overnemen van het (gelokaliseerde) hoofdvenster.
+        if (pickBtn && pPickBtn) pickBtn.textContent = pPickBtn.textContent || 'Doelmap…';
+        if (lblBase) lblBase.textContent = pText('label[for="f2f-export-base-name"]', 'Bestandsnaam');
+        if (lblFormat) lblFormat.textContent = pText('label[for="f2f-output-format"]', 'Uitvoerformaat');
+        if (lblQuality) lblQuality.textContent = pText('label[for="f2f-jpg-quality"]', 'JPG-kwaliteit');
+        if (fmt && pFmt) {
+          if (fmt.options[0] && pFmt.options[0]) fmt.options[0].text = pFmt.options[0].text;
+          if (fmt.options[1] && pFmt.options[1]) fmt.options[1].text = pFmt.options[1].text;
+        }
+
+        function syncFromParent() {
+          if (pFmt && fmt && document.activeElement !== fmt) fmt.value = pFmt.value;
+          if (pQ && q && document.activeElement !== q) q.value = pQ.value;
+          if (qWrap) qWrap.hidden = pQWrap ? !!pQWrap.hidden : (fmt && fmt.value !== 'jpg');
+          if (pBase && base && document.activeElement !== base) base.value = pBase.value;
+          if (pFolderPath && folderPath) {
+            var txt = pFolderPath.textContent || '—';
+            folderPath.textContent = txt;
+            folderPath.title = pFolderPath.title || txt;
+          }
+        }
+        syncFromParent();
+
+        if (fmt && pFmt) fmt.addEventListener('change', function () {
+          pFmt.value = fmt.value;
+          try { pFmt.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+          syncFromParent();
+        });
+        if (q && pQ) {
+          var onQ = function () {
+            pQ.value = q.value;
+            try { pQ.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+            try { pQ.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+          };
+          q.addEventListener('input', onQ);
+          q.addEventListener('change', onQ);
+        }
+        if (base && pBase) base.addEventListener('input', function () {
+          pBase.value = base.value;
+          try { pBase.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+        });
+        if (pickBtn && pPickBtn) pickBtn.addEventListener('click', function () { try { pPickBtn.click(); } catch (_) {} });
+
+        // Wijzigingen in het hoofdvenster (bv. Instellingen-sync, mapkeuze) terugspiegelen.
+        if (pFmt) pFmt.addEventListener('change', syncFromParent);
+        if (pQ) pQ.addEventListener('change', syncFromParent);
+        setInterval(syncFromParent, 1200);
+      }
+
       var SUBPANEL_COLLAPSE_KEY = 'f2f.strip.subpanelCollapse.v1';
       function setupSubpanelCollapse() {
         var defs = [
+          { btn: 'btn-collapse-frameexport', host: '.toolbar-controls-left-extra', cls: 'fe-collapsed', key: 'frameexport' },
           { btn: 'btn-collapse-export', host: '.toolbar-controls-left-extra', cls: 'export-collapsed', key: 'export' },
           { btn: 'btn-collapse-assist', host: '.toolbar-controls-right', cls: 'assist-collapsed', key: 'assist' },
           { btn: 'btn-collapse-macro', host: '.assist-row--macro', cls: 'macro-collapsed', key: 'macro' }
@@ -6637,6 +6819,7 @@
         });
       }
 
+      setupFrameExportProxy();
       setupSubpanelCollapse();
       readAssistHelpState();
       wireAssistHelpDrag();
