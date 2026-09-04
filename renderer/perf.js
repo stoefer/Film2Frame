@@ -7,10 +7,9 @@
  *   localStorage.setItem('f2fPerf','0')   (en herladen)  of  window.__f2fPerf = false
  */
 
-let enabled = true;
-try {
-  if (typeof localStorage !== 'undefined' && localStorage.getItem('f2fPerf') === '0') enabled = false;
-} catch (_) {}
+/* Standaard uit; wordt aangezet via de instelling "Prestatie-logging" (loadAppSettings → setPerfEnabled).
+ * Handmatige override voor power-users kan met window.__f2fPerf = true. */
+let enabled = false;
 
 export function isPerfEnabled() {
   if (typeof window !== 'undefined' && window.__f2fPerf === false) return false;
@@ -20,7 +19,6 @@ export function isPerfEnabled() {
 
 export function setPerfEnabled(v) {
   enabled = !!v;
-  try { if (typeof localStorage !== 'undefined') localStorage.setItem('f2fPerf', v ? '1' : '0'); } catch (_) {}
 }
 
 function pad2(n) { return String(n).padStart(2, '0'); }

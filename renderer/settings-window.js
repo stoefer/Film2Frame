@@ -28,6 +28,7 @@ const S = {
   settingArrowStepPx: 'f2f-setting-arrow-step-px',
   settingArrowStepShiftPx: 'f2f-setting-arrow-step-shift-px',
   settingPreserveGridOnScanNav: 'f2f-setting-preserve-grid-scan-nav',
+  settingPerfLogging: 'f2f-setting-perf-logging',
   stripShortcutsTbody: 'f2f-strip-shortcuts-tbody',
   stripShortcutsResetAll: 'f2f-strip-shortcuts-reset-all',
   arrangeWindowsBtn: 'f2f-arrange-windows',
@@ -417,6 +418,7 @@ async function loadForm() {
     set(S.settingArrowStepPx, String(arrowPx));
     set(S.settingArrowStepShiftPx, String(arrowShiftPx));
     set(S.settingPreserveGridOnScanNav, s.preserveGridOnScanNav !== false, 'checked');
+    set(S.settingPerfLogging, s.perfLogging === true, 'checked');
     applyTheme(s.darkMode);
     await buildStripShortcutsSettingsTable();
     applyToDOM(document.body);
@@ -439,7 +441,8 @@ async function saveForm() {
     arrangeAcrossAllDisplays: !!gel(S.settingArrangeAllDisplays)?.checked,
     arrowStepPx: arrowPx,
     arrowStepShiftPx: arrowShiftPx,
-    preserveGridOnScanNav: !!gel(S.settingPreserveGridOnScanNav)?.checked
+    preserveGridOnScanNav: !!gel(S.settingPreserveGridOnScanNav)?.checked,
+    perfLogging: !!gel(S.settingPerfLogging)?.checked
   };
   const tbodySc = gel(S.stripShortcutsTbody);
   if (tbodySc && tbodySc.querySelector('tr[data-action-id]')) {

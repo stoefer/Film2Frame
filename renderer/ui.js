@@ -30,7 +30,7 @@ import {
   getGridRect
 } from './grid.js';
 import { refreshPreviews, refreshPreviewsGridOnly, getScaledDimensions, getScaledDimensionsFromSize, buildGridPayload } from './preview.js';
-import { perfLog, perfStart, isPerfEnabled } from './perf.js';
+import { perfLog, perfStart, isPerfEnabled, setPerfEnabled } from './perf.js';
 import { hasProject, getProjectMeta, getProjectPath, isDirty, createProject, openProject, openProjectFromFile, openProjectByPath, saveProject, deleteProject, closeCurrentProject, applySavedLintState, pickResumeLintPath, persistCurrentLintStateInProject, cancelPendingProjectSave } from './project.js';
 import { getFromCache, prefetch, clearCache } from './strip-cache.js';
 
@@ -6626,6 +6626,7 @@ async function loadAppSettings() {
     if (el(ids.gridRefPxHeight)) el(ids.gridRefPxHeight).value = String(Math.round(overlayHeight));
     if (el(ids.gridRefPxFrames)) el(ids.gridRefPxFrames).value = String(Math.round(overlayFrames));
     setScanDpi(Number(s.scanDpi) || 4800);
+    setPerfEnabled(s.perfLogging === true);
     setOutputFormat(s.outputFormat === 'jpg' || s.outputFormat === 'jpeg' ? 'jpg' : 'png');
     if (s.jpgQuality != null) setJpgQuality(s.jpgQuality);
     const frameCount = getProjectTotalFrameCountEstimate();

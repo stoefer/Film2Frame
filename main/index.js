@@ -16,9 +16,11 @@ app.whenReady().then(() => {
     const projectsDir = path.join(app.getPath('documents'), 'Film2Frame', 'Projects');
     fs.mkdirSync(projectsDir, { recursive: true });
   } catch (_) {}
-  /* Startregel synchroon schrijven zodat het perf-logbestand gegarandeerd bestaat (ook zonder DevTools). */
+  /* Startregel alleen schrijven als prestatie-logging aanstaat (instelling); garandeert dan dat het bestand bestaat. */
   try {
-    perfLog.appendPerfLineSync('[perf] === Film2Frame gestart ' + new Date().toISOString() + ' — logbestand: ' + perfLog.getPerfLogPath() + ' ===');
+    if (prefs.getAllSettings && prefs.getAllSettings().perfLogging) {
+      perfLog.appendPerfLineSync('[perf] === Film2Frame gestart ' + new Date().toISOString() + ' — logbestand: ' + perfLog.getPerfLogPath() + ' ===');
+    }
   } catch (_) {}
   const preload = path.join(__dirname, '..', 'preload.js');
   windows.createMainWindow(preload);
