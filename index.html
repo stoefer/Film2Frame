@@ -367,25 +367,6 @@
           <button type="button" id="f2f-export-batch-resume" class="btn btn-secondary small" data-i18n="frameGenerator.batchResumeButton">Hervat batch</button>
           <span id="f2f-export-batch-resume-hint" class="export-range-mode" data-i18n="frameGenerator.batchResumeHintNone">Geen hervatpunt beschikbaar.</span>
         </div>
-        <div id="f2f-frame-generator-progress-wrap" class="frame-generator-progress-wrap hidden" role="status" aria-live="polite" aria-atomic="true" data-i18n-aria-label="frameGenerator.progressAriaLabel">
-          <div class="frame-generator-progress-inner">
-            <div
-              id="f2f-frame-generator-progress-barhost"
-              class="frame-generator-progress-bar-host"
-              role="progressbar"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              aria-valuenow="0"
-              data-i18n-aria-label="frameGenerator.progressAriaLabel"
-            >
-              <div id="f2f-frame-generator-progress-bar" class="frame-generator-progress-bar" style="width: 0%"></div>
-            </div>
-            <div class="frame-generator-progress-foot">
-              <span id="f2f-frame-generator-progress-pct" class="frame-generator-progress-pct">0%</span>
-              <span id="f2f-frame-generator-progress-label" class="frame-generator-progress-label">—</span>
-            </div>
-          </div>
-        </div>
         </div>
         </div>
       </section>
@@ -416,6 +397,25 @@
             </div>
           </div>
         </section>
+        <div id="f2f-frame-generator-progress-wrap" class="frame-generator-progress-wrap frame-generator-progress-wrap--under-preview hidden" role="status" aria-live="polite" aria-atomic="true" data-i18n-aria-label="frameGenerator.progressAriaLabel">
+          <div class="frame-generator-progress-inner">
+            <div
+              id="f2f-frame-generator-progress-barhost"
+              class="frame-generator-progress-bar-host"
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+              data-i18n-aria-label="frameGenerator.progressAriaLabel"
+            >
+              <div id="f2f-frame-generator-progress-bar" class="frame-generator-progress-bar" style="width: 0%"></div>
+            </div>
+            <div class="frame-generator-progress-foot">
+              <span id="f2f-frame-generator-progress-pct" class="frame-generator-progress-pct">0%</span>
+              <span id="f2f-frame-generator-progress-label" class="frame-generator-progress-label">—</span>
+            </div>
+          </div>
+        </div>
       </div>
       </div>
     </main>

@@ -572,8 +572,11 @@ input[type="number"].input-num--no-spin {
   appearance: textfield;
 }
 /* FRAME EXPORT-bediening (Doelmap/Bestandsnaam/Uitvoerformaat) is verplaatst naar
-   het RASTER SETUP-paneel (rood omrand). Origineel in het hoofdvenster verborgen. */
-.fe-moved-to-strip { display: none !important; }
+   het RASTER SETUP-paneel (rood omrand) in de 4K-weergave. Het RASTER SETUP-iframe
+   bepaalt de modus (op basis van schermbreedte) en zet body.fe-controls-in-strip;
+   alleen dan wordt het origineel in het hoofdvenster verborgen. Op HD blijft het
+   origineel in het hoofdvenster staan. */
+body.fe-controls-in-strip .fe-moved-to-strip { display: none !important; }
 /* Geen up/down-pijltjes in numerieke velden: waarden worden handmatig ingevoerd. */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
@@ -1318,6 +1321,20 @@ body.theme-light .btn-project-close:hover {
   padding-top: 4px;
   box-sizing: border-box;
 }
+/* Voortgangsbalk onder het preview-paneel (volle breedte van de rechterkolom). */
+.frame-generator-progress-wrap--under-preview {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #1a1f25;
+  border: 1px solid #2d3748;
+  border-radius: 8px;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  flex: 0 0 auto;
+}
+.main-panel-right .panel.frame-generator-panel { /* geen aparte max-width nodig voor de balk */ }
+.frame-generator-progress-wrap--under-preview .frame-generator-progress-bar-host { height: 14px; }
 .frame-generator-progress-inner {
   width: 100%;
   display: flex;

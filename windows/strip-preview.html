@@ -4678,6 +4678,23 @@
         if (pFmt) pFmt.addEventListener('change', syncFromParent);
         if (pQ) pQ.addEventListener('change', syncFromParent);
         setInterval(syncFromParent, 1200);
+
+        // 4K vs HD: op een breed (4K) scherm staat de FRAME EXPORT-bediening in dit
+        // rode paneel en wordt het origineel in het hoofdvenster verborgen. Op HD
+        // blijft de bediening in het hoofdvenster en tonen we de proxy hier niet.
+        var feHdrRow = null;
+        var feTitle = document.getElementById('fe-export-title');
+        if (feTitle && feTitle.closest('.subpanel-header')) feHdrRow = feTitle.closest('.subpanel-header');
+        function applyFeLayoutMode() {
+          var w = 0;
+          try { w = (window.screen && window.screen.width) || window.innerWidth || 0; } catch (_) { w = 0; }
+          var is4k = w >= 2400;
+          if (feHdrRow) feHdrRow.style.display = is4k ? '' : 'none';
+          if (proxyBody) proxyBody.style.display = is4k ? '' : 'none';
+          try { if (pdoc && pdoc.body) pdoc.body.classList.toggle('fe-controls-in-strip', is4k); } catch (_) {}
+        }
+        applyFeLayoutMode();
+        window.addEventListener('resize', applyFeLayoutMode);
       }
 
       var SUBPANEL_COLLAPSE_KEY = 'f2f.strip.subpanelCollapse.v1';
