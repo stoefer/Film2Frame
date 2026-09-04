@@ -722,10 +722,8 @@ export function setProject(projectPath, meta) {
   if (meta?.filmFormat != null) state.filmFormat = meta.filmFormat;
   if (meta?.filmPolarity != null) state.filmPolarity = meta.filmPolarity;
   if (meta?.outputFolder != null) state.exportFolderPath = meta.outputFolder;
-  if (meta?.outputFormat != null) state.outputFormat = meta.outputFormat;
-  if (meta?.jpgQuality != null && Number.isFinite(Number(meta.jpgQuality))) {
-    state.jpgQuality = Math.max(1, Math.min(100, Math.round(Number(meta.jpgQuality))));
-  }
+  // Uitvoerformaat (PNG/JPG + kwaliteit) is een globale app-instelling (prefs), niet per project.
+  // Niet meer overschrijven vanuit het project, zodat de keuze na herstart behouden blijft.
   if (meta?.scanDpi != null) state.scanDpi = meta.scanDpi;
   state.pixelEditorOutputFolder =
     meta?.pixelEditorOutputFolder != null && String(meta.pixelEditorOutputFolder).trim() !== ''

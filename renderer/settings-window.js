@@ -9,6 +9,9 @@ const gel = (id) => document.getElementById(id);
 const S = {
   settingDpi: 'f2f-setting-dpi',
   settingDefaultFrames: 'f2f-setting-default-frames',
+  settingOutputFormat: 'f2f-setting-output-format',
+  settingJpgQuality: 'f2f-setting-jpg-quality',
+  settingJpgQualityRow: 'f2f-setting-jpg-quality-row',
   settingPreviewRes: 'f2f-setting-preview-res',
   displayProfileFullHdBtn: 'f2f-display-profile-fullhd',
   displayProfileFullHdActive: 'f2f-display-profile-fullhd-active',
@@ -337,6 +340,12 @@ function applyTheme(darkMode) {
   }
 }
 
+function updateJpgQualityRowVisibility() {
+  const fmt = gel(S.settingOutputFormat)?.value;
+  const row = gel(S.settingJpgQualityRow);
+  if (row) row.hidden = fmt !== 'jpg';
+}
+
 function updateDisplayProfileButtons() {
   const v = parseInt(gel(S.settingPreviewRes)?.value, 10);
   const fullHdBtn = gel(S.displayProfileFullHdBtn);
@@ -404,6 +413,9 @@ async function loadForm() {
     };
     set(S.settingDpi, String(s.scanDpi));
     set(S.settingDefaultFrames, String(s.defaultFramesPerStrip));
+    set(S.settingOutputFormat, s.outputFormat === 'jpg' || s.outputFormat === 'jpeg' ? 'jpg' : 'png');
+    set(S.settingJpgQuality, String(Math.max(1, Math.min(100, Math.round(Number(s.jpgQuality) || 92)))));
+    updateJpgQualityRowVisibility();
     const previewRes = Math.max(512, Math.min(8192, Number(s.stripPreviewRes) || DEFAULT_STRIP_PREVIEW_MAX_DIM));
     set(S.settingPreviewRes, String(previewRes));
     updateDisplayProfileButtons();
@@ -431,8 +443,8 @@ async function saveForm() {
   const settings = {
     scanDpi: parseInt(gel(S.settingDpi)?.value, 10) || 4800,
     defaultFramesPerStrip: parseInt(gel(S.settingDefaultFrames)?.value, 10) || 30,
-    outputFormat: 'png',
-    outputResolution: 'original',
+    outputFormat: gel(S.settingOutputFormat)?.value === 'jpg' ? 'jpg' : 'png',
+    jpgQuality: Math.max(1, Math.min(100, parseInt(gel(S.settingJpgQuality)?.value, 10) || 92)),
     stripPreviewRes: parseInt(gel(S.settingPreviewRes)?.value, 10) || DEFAULT_STRIP_PREVIEW_MAX_DIM,
     darkMode: !!gel(S.settingDarkMode)?.checked,
     compactUi: !!gel(S.settingCompactUi)?.checked,
@@ -495,6 +507,7 @@ async function onAutoArrangeFromGrid() {
 async function boot() {
   await initI18n(window.api);
   await loadForm();
+  gel(S.settingOutputFormat)?.addEventListener('change', updateJpgQualityRowVisibility);
   gel(S.settingPreviewRes)?.addEventListener('change', updateDisplayProfileButtons);
   gel(S.displayProfileFullHdBtn)?.addEventListener('click', () => applyDisplayProfile('fullhd').catch(() => {}));
   gel(S.displayProfile4kBtn)?.addEventListener('click', () => applyDisplayProfile('4k').catch(() => {}));

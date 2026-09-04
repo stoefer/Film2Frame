@@ -14,7 +14,6 @@ import {
   setFilmFormat,
   setFilmPolarity,
   setNumFrames,
-  setOutputFormat,
   setScanDpi
 } from './state.js';
 import { restoreFramePaintOverlaysFromSerialized } from './frame-pixel-overlay-persist.js';
@@ -265,7 +264,7 @@ export async function applySavedLintState(lintPath) {
         if (data.filmFormat) setFilmFormat(data.filmFormat);
         if (data.filmPolarity) setFilmPolarity(data.filmPolarity);
         if (data.numFrames != null) setNumFrames(data.numFrames);
-        if (data.outputFormat) setOutputFormat(data.outputFormat);
+        // Uitvoerformaat is globaal (app-instelling); een preset mag dit niet overschrijven.
         if (data.scanDpi != null) setScanDpi(data.scanDpi);
         presetApplied = true;
       }

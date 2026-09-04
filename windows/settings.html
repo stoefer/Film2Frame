@@ -27,6 +27,17 @@
       <input type="number" id="f2f-setting-default-frames" min="1" max="99" value="30" class="input-num" />
     </div>
     <div class="row">
+      <label for="f2f-setting-output-format" data-i18n="settings.outputFormatLabel" data-i18n-title="settings.outputFormatTooltip">Uitvoerformaat</label>
+      <select id="f2f-setting-output-format" class="input-select" data-i18n-title="settings.outputFormatTooltip">
+        <option value="png" data-i18n="settings.outputFormatPng">PNG</option>
+        <option value="jpg" data-i18n="settings.outputFormatJpg">JPG</option>
+      </select>
+    </div>
+    <div class="row" id="f2f-setting-jpg-quality-row">
+      <label for="f2f-setting-jpg-quality" data-i18n="settings.jpgQualityLabel" data-i18n-title="settings.jpgQualityTooltip">JPG-kwaliteit (1–100)</label>
+      <input type="number" id="f2f-setting-jpg-quality" min="1" max="100" value="92" class="input-num" data-i18n-title="settings.jpgQualityTooltip" />
+    </div>
+    <div class="row">
       <label for="f2f-setting-preview-res" data-i18n="settings.previewResLabel">Preview-resolutie scanlint</label>
       <select id="f2f-setting-preview-res" class="input-select">
         <option value="1024">1024 px</option>
