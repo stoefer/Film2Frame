@@ -226,10 +226,10 @@
       padding: 2px 7px;
       font-size: 0.69rem;
     }
-    body.strip-ui-compact-hd .raster-subpanel__nav-center .btn-scan-nav {
-      width: 6.4rem;
-      min-width: 6.4rem;
-      max-width: 6.4rem;
+    body.strip-ui-compact-hd .manual-scan-nav__buttons .btn-scan-nav {
+      width: 100%;
+      min-width: 0;
+      max-width: none;
     }
     body.strip-ui-compact-hd .manual-scan-nav #input-scan-goto {
       min-height: 32px;
@@ -335,6 +335,39 @@
       width: var(--raster-current-col);
       min-width: var(--raster-current-col);
     }
+    /* "Even geduld" overlay tijdens het laden van een (grote) scan van schijf. */
+    .strip-busy-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.35);
+      z-index: 100000;
+      pointer-events: none;
+    }
+    .strip-busy-overlay.visible { display: flex; }
+    .strip-busy-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: #1b222b;
+      color: #e8eef7;
+      border: 1px solid #3b4450;
+      border-radius: 8px;
+      padding: 14px 22px;
+      font-size: 15px;
+      box-shadow: 0 6px 28px rgba(0, 0, 0, 0.55);
+    }
+    .strip-busy-spinner {
+      width: 18px;
+      height: 18px;
+      border: 3px solid rgba(255, 255, 255, 0.25);
+      border-top-color: #6ea8fe;
+      border-radius: 50%;
+      animation: strip-busy-spin 0.8s linear infinite;
+    }
+    @keyframes strip-busy-spin { to { transform: rotate(360deg); } }
     .raster-current-scan-display {
       display: inline-flex;
       flex-direction: column;
@@ -924,16 +957,22 @@
       min-width: 0;
     }
     .manual-scan-nav__buttons {
-      display: flex;
-      align-items: center;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
       gap: 6px;
-      flex-wrap: wrap;
+      align-items: stretch;
       min-width: 0;
     }
     .manual-scan-nav__buttons .btn-scan-nav {
-      width: auto;
-      min-width: 5.5rem;
-      flex: 1 1 auto;
+      width: 100%;
+      min-width: 0;
+      margin: 0;
+      box-sizing: border-box;
+      white-space: nowrap;
+    }
+    /* "Gebruik frame als ref" over de volle breedte onder de vier navigatieknoppen. */
+    .manual-scan-nav__buttons #btn-range-use-current-ref {
+      grid-column: 1 / -1;
     }
     .manual-scan-nav .auto-advance-align {
       display: inline-flex;
@@ -4296,20 +4335,53 @@
       }
 
       var busyResetTimer = null;
+      var busyShowTimer = null;
+      var busyOverlayEl = null;
+      function ensureBusyOverlay() {
+        if (busyOverlayEl) return busyOverlayEl;
+        var el = document.createElement('div');
+        el.id = 'strip-busy-overlay';
+        el.className = 'strip-busy-overlay';
+        el.setAttribute('aria-live', 'polite');
+        var box = document.createElement('div');
+        box.className = 'strip-busy-box';
+        var sp = document.createElement('span');
+        sp.className = 'strip-busy-spinner';
+        var txt = document.createElement('span');
+        txt.className = 'strip-busy-text';
+        txt.textContent = (typeof stripTr === 'function' && stripTr('stripWindow.loadingWait')) || 'Bezig met laden…';
+        box.appendChild(sp);
+        box.appendChild(txt);
+        el.appendChild(box);
+        (document.body || document.documentElement).appendChild(el);
+        busyOverlayEl = el;
+        return el;
+      }
+
       function setBusy(busy) {
-        if (busyResetTimer) {
-          clearTimeout(busyResetTimer);
-          busyResetTimer = null;
-        }
-        /* Geen body-opacity: dat flikkert/“shaket” het hele UI. Alleen cursor + aria. */
+        if (busyResetTimer) { clearTimeout(busyResetTimer); busyResetTimer = null; }
+        if (busyShowTimer) { clearTimeout(busyShowTimer); busyShowTimer = null; }
+        /* Geen body-opacity: dat flikkert/“shaket” het hele UI. Alleen cursor + aria + overlay. */
         document.body.classList.toggle('strip-ui-busy', !!busy);
         document.body.style.cursor = busy ? 'progress' : '';
         if (busy) {
+          /* "Even geduld" alleen tonen als het laden merkbaar duurt (voorkomt flikkeren bij snelle/voorgeladen scans). */
+          busyShowTimer = setTimeout(function () {
+            busyShowTimer = null;
+            var ov = ensureBusyOverlay();
+            var t = ov.querySelector('.strip-busy-text');
+            if (t) t.textContent = (typeof stripTr === 'function' && stripTr('stripWindow.loadingWait')) || 'Bezig met laden…';
+            ov.classList.add('visible');
+          }, 350);
+          /* Veiligheids-reset als er onverhoopt geen strip-update volgt (dekt trage schijf/grote JPEG). */
           busyResetTimer = setTimeout(function () {
             document.body.classList.remove('strip-ui-busy');
             document.body.style.cursor = '';
+            if (busyOverlayEl) busyOverlayEl.classList.remove('visible');
             busyResetTimer = null;
-          }, 1200);
+          }, 30000);
+        } else if (busyOverlayEl) {
+          busyOverlayEl.classList.remove('visible');
         }
       }
 
