@@ -10600,9 +10600,14 @@ async function exportGlobalFrameRange(paths, frameMap, fromFrame, toFrame, range
     if (!scanPath) continue;
     const sameFolderErr = assertExportFolderNotInput(folder, scanPath);
     if (sameFolderErr) throw new Error(sameFolderErr);
-    const ok = await loadScanByPath(scanPath, { ...scanNavigationGridOptions(), preserveGrid: true, skipPreviewRefresh: suppressPreview });
+    // Een handmatig (per scan) ingesteld raster heeft voorrang op de range-referentie.
+    // Bepaal vóór het laden of deze scan een eigen opgeslagen rasterinstelling heeft.
+    const hasOwnGridForScan = !!getLintStateForPath(scanPath);
+    // preserveGrid=false → laadt het eigen opgeslagen raster van de scan (incl. per-frame tweaks).
+    const ok = await loadScanByPath(scanPath, { ...scanNavigationGridOptions(), preserveGrid: false, skipPreviewRefresh: suppressPreview });
     if (!ok) continue;
-    if (fixedReferenceSnapshot) {
+    // Alleen terugvallen op de range-referentie voor scans zonder eigen raster.
+    if (!hasOwnGridForScan && fixedReferenceSnapshot) {
       applyLintState(fixedReferenceSnapshot);
     }
     const pair = getStripCanvasPairForExport();
