@@ -10170,12 +10170,21 @@ async function jumpToRangeStartScan(range) {
     alert(t('frameExport.batchRangeOutOfBounds'));
     return false;
   }
+  // Bewaar de reeds ingestelde rastergeometrie vóór het laden, zodat we niet
+  // terugvallen op een niet-ingestelde grootte wanneer het doelbereik (nog) geen
+  // eigen referentie heeft. Dit voorkomt dat het raster bij bereik-navigatie
+  // "terugspringt" naar een default grootte (bv. bij bereik 2, terwijl bereik 1/3 wel goed staan).
+  const preservedGrid = getGridGeometrySnapshot();
   const loaded = await loadScanByPath(targetPos.scanPath, scanNavigationGridOptions());
   if (!loaded) return false;
   setActiveFrameIndex(Math.max(0, targetPos.frameInScan - 1));
   if (applyRangeReferenceSnapshotForRange(range, targetPos.scanPath)) {
     // Bij een opgeslagen referentie blijft de startframe-positie leidend.
     setActiveFrameIndex(Math.max(0, targetPos.frameInScan - 1));
+  } else if (preservedGrid) {
+    // Geen opgeslagen referentie voor dit bereik: behoud de huidige rastergeometrie
+    // i.p.v. de (mogelijk niet-ingestelde) geometrie van de doelscan.
+    applyGridGeometrySnapshot(preservedGrid);
   }
   setDirty();
   updateUI();
