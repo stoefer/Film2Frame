@@ -642,6 +642,10 @@ function setupInlineStripBridge() {
     },
     goToPreviousBatchRange: () => onGoToPreviousBatchRange(),
     goToNextBatchRange: () => onGoToNextBatchRange(),
+    gotoBatchRange: (request) => {
+      const idx = request && typeof request === 'object' ? request.index : request;
+      return onGoToBatchRangeByNumber(idx);
+    },
     getBatchRangeContext: () => getBatchRangeContextForCurrentFrame(),
     setCurrentFrameAsBatchRangeReference: () => setCurrentFrameAsRangeReference(),
     getLocale: () => window.api?.getLocale?.(),
@@ -10397,6 +10401,29 @@ async function onGoToNextBatchRange() {
   stripNavigateBusy = true;
   try {
     await onGoToNextBatchRangeBody();
+  } finally {
+    stripNavigateBusy = false;
+  }
+}
+
+// Spring rechtstreeks naar een bereik op nummer (1-gebaseerd), vanuit "Ga naar Bereik nr".
+async function onGoToBatchRangeByNumber(index1) {
+  if (stripNavigateBusy || exportScanBusy) return;
+  stripNavigateBusy = true;
+  try {
+    persistCurrentRangeReferenceSnapshot();
+    if (!exportScanBatchRanges.length) {
+      alert(t('frameExport.batchRangeListEmpty'));
+      return;
+    }
+    const n = Math.floor(Number(index1));
+    if (!Number.isFinite(n) || n < 1 || n > exportScanBatchRanges.length) {
+      alert(t('frameExport.batchRangeGotoInvalid', { max: exportScanBatchRanges.length }));
+      return;
+    }
+    exportScanBatchSelectedIndex = n - 1;
+    renderExportScanBatchRangeList();
+    await jumpToRangeStartScan(exportScanBatchRanges[exportScanBatchSelectedIndex]);
   } finally {
     stripNavigateBusy = false;
   }

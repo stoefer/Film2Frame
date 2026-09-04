@@ -195,7 +195,7 @@
       font-size: 0.54rem;
     }
     body.strip-ui-compact-hd .raster-subpanel__nav-center .btn-scan-nav,
-    body.strip-ui-compact-hd .raster-subpanel__trail #btn-scan-goto {
+    body.strip-ui-compact-hd .raster-subpanel__trail :is(#btn-scan-goto, #btn-range-goto) {
       min-height: 32px;
       height: 32px;
       padding: 0 10px;
@@ -787,24 +787,24 @@
     }
     /* Vorige / Volgende / Ga naar: duidelijke blauwe rand (Scanlint-navigatie) */
     .raster-subpanel__nav-center .btn-scan-nav,
-    .raster-subpanel__trail #btn-scan-goto,
+    .raster-subpanel__trail :is(#btn-scan-goto, #btn-range-goto),
     .toolbar .yonder-block__nav .btn-scan-nav {
       border: 2px solid #3b82f6;
       box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35);
     }
     .raster-subpanel__nav-center .btn-scan-nav:hover,
-    .raster-subpanel__trail #btn-scan-goto:hover,
+    .raster-subpanel__trail :is(#btn-scan-goto, #btn-range-goto):hover,
     .toolbar .yonder-block__nav .btn-scan-nav:hover {
       border-color: #60a5fa;
       box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.45);
     }
     .raster-subpanel__nav-center .btn-scan-nav:active,
-    .raster-subpanel__trail #btn-scan-goto:active,
+    .raster-subpanel__trail :is(#btn-scan-goto, #btn-range-goto):active,
     .toolbar .yonder-block__nav .btn-scan-nav:active {
       border-color: #2563eb;
     }
     .raster-subpanel__nav-center .btn-scan-nav,
-    .raster-subpanel__trail #btn-scan-goto {
+    .raster-subpanel__trail :is(#btn-scan-goto, #btn-range-goto) {
       min-height: 44px;
       height: 44px;
       padding: 0 14px;
@@ -820,12 +820,12 @@
       justify-content: center;
     }
     .raster-subpanel__nav-center .btn-scan-nav:focus,
-    .raster-subpanel__trail #btn-scan-goto:focus,
+    .raster-subpanel__trail :is(#btn-scan-goto, #btn-range-goto):focus,
     #btn-grid-size-apply:focus {
       outline: none;
     }
     .raster-subpanel__nav-center .btn-scan-nav:focus-visible,
-    .raster-subpanel__trail #btn-scan-goto:focus-visible,
+    .raster-subpanel__trail :is(#btn-scan-goto, #btn-range-goto):focus-visible,
     #btn-grid-size-apply:focus-visible {
       box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.55), 0 0 0 3px rgba(30, 64, 175, 0.35);
     }
@@ -2081,7 +2081,7 @@
     }
     .toolbar-controls-right .btn-grid-size-film:hover { background: #363636; border-color: #818181; }
     .toolbar-controls-right .btn-grid-size-film:active { background: #3d3d3d; }
-    .raster-subpanel__trail #btn-scan-goto {
+    .raster-subpanel__trail :is(#btn-scan-goto, #btn-range-goto) {
       width: var(--raster-goto-btn-col);
       min-width: var(--raster-goto-btn-col);
       max-width: var(--raster-goto-btn-col);
@@ -2234,6 +2234,11 @@
               <span id="label-auto-advance-align"></span>
             </label>
             <button type="button" id="btn-stop-progress" class="btn-stop-progress" disabled aria-disabled="true"></button>
+          </div>
+          <div class="manual-scan-nav__goto manual-scan-nav__rangegoto raster-subpanel__trail">
+            <label class="label-scan-goto label-range-goto" for="input-range-goto"></label>
+            <input type="number" id="input-range-goto" class="input-scan-goto" min="1" max="99999" step="1" placeholder="1" inputmode="numeric" />
+            <button type="button" id="btn-range-goto"></button>
           </div>
         </div>
       </div>
@@ -2563,6 +2568,8 @@
       const btnAssistExtraPresetLeft4 = document.getElementById('btn-assist-extra-preset-left4');
       const btnAssistExtraPresetFrame = document.getElementById('btn-assist-extra-preset-frame');
       const inputScanGoto = document.getElementById('input-scan-goto');
+      const inputRangeGoto = document.getElementById('input-range-goto');
+      const btnRangeGoto = document.getElementById('btn-range-goto');
       const btnRangePrev = document.getElementById('btn-range-prev');
       const btnRangeNext = document.getElementById('btn-range-next');
       const btnRangeUseCurrentRef = document.getElementById('btn-range-use-current-ref');
@@ -3918,6 +3925,10 @@
         var labNr = document.querySelector('label[for="input-scan-goto"]');
         if (labNr) labNr.textContent = stripTr('stripWindow.labelScanNr');
         if (inputScanGoto) inputScanGoto.title = stripTr('stripWindow.scanGotoRowTitle');
+        var labRangeNr = document.querySelector('label[for="input-range-goto"]');
+        if (labRangeNr) labRangeNr.textContent = stripTr('stripWindow.labelRangeNr');
+        if (btnRangeGoto) btnRangeGoto.textContent = stripTr('stripWindow.btnGoto');
+        if (inputRangeGoto) inputRangeGoto.title = stripTr('stripWindow.rangeGotoRowTitle');
         var navRow = document.getElementById('manual-scan-nav');
         if (navRow) navRow.title = stripTr('stripWindow.navActionsTitle');
         var manualTitle = document.getElementById('raster-manual-title');
@@ -4321,6 +4332,43 @@
         setBusy(true);
         api.gotoProjectScan({ index: v, exportCurrent: true });
         macroRecordStep({ type: 'scanGoto', index: v, label: stripTr('stripWindow.btnGoto') + ' ' + v });
+      }
+
+      function updateRangeGotoHints(rangeCtx) {
+        if (!inputRangeGoto) return;
+        var total = rangeCtx && rangeCtx.rangeCount != null ? Math.floor(Number(rangeCtx.rangeCount)) : NaN;
+        if (Number.isFinite(total) && total >= 1) {
+          inputRangeGoto.max = String(total);
+          inputRangeGoto.placeholder = '1–' + total;
+          var cur = rangeCtx && rangeCtx.rangeIndex != null ? Math.floor(Number(rangeCtx.rangeIndex)) : NaN;
+          if (document.activeElement !== inputRangeGoto && Number.isFinite(cur) && cur >= 0) {
+            inputRangeGoto.value = String(cur + 1);
+          }
+        } else {
+          inputRangeGoto.removeAttribute('max');
+          inputRangeGoto.placeholder = '1';
+        }
+      }
+
+      function doRangeGoto() {
+        if (!api.gotoBatchRange) return;
+        var raw = inputRangeGoto ? String(inputRangeGoto.value).trim() : '';
+        var v = raw === '' ? NaN : parseInt(raw, 10);
+        var total = lastBatchRangeContext && lastBatchRangeContext.rangeCount != null
+          ? Math.floor(Number(lastBatchRangeContext.rangeCount))
+          : NaN;
+        if (!Number.isFinite(v) || v < 1 || (Number.isFinite(total) && total >= 1 && v > total)) {
+          alert(stripTr('stripWindow.rangeGotoInvalidAlert'));
+          return;
+        }
+        setBusy(true);
+        Promise.resolve(api.gotoBatchRange({ index: v }))
+          .catch(function () {})
+          .finally(function () {
+            setBusy(false);
+            setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 30);
+            setTimeout(function () { refreshRangeContextUiFromMain(lastPayload); }, 160);
+          });
       }
 
       function sendWidthEdge(edge, deltaSign) {
@@ -5172,6 +5220,7 @@
       }
 
       function updateCurrentRangeDisplay(rangeCtx) {
+        updateRangeGotoHints(rangeCtx);
         if (!currentRangeDisplayEl) return;
         if (!rangeCtx || typeof rangeCtx !== 'object') {
           currentRangeDisplayEl.textContent = stripTr('stripWindow.currentRangeUnknown');
@@ -6007,7 +6056,7 @@
         return null;
       }
       function stripShortcutTargetsInput() {
-        if (document.activeElement === inputX || document.activeElement === inputY || document.activeElement === inputYBottom || document.activeElement === inputScanGoto || document.activeElement === zoomSelect || document.activeElement === inputVerticalAnchorK) return true;
+        if (document.activeElement === inputX || document.activeElement === inputY || document.activeElement === inputYBottom || document.activeElement === inputScanGoto || document.activeElement === inputRangeGoto || document.activeElement === zoomSelect || document.activeElement === inputVerticalAnchorK) return true;
         return isTextLikeFocused();
       }
       /** Spatie voor Lijn # alleen als geen ander tekstveld actief is, of als Lijn # zelf focus heeft. */
@@ -6379,6 +6428,19 @@
           if (e.key === 'Enter') {
             e.preventDefault();
             doScanGoto();
+          }
+        });
+      }
+      if (btnRangeGoto) {
+        btnRangeGoto.addEventListener('click', function () {
+          doRangeGoto();
+        });
+      }
+      if (inputRangeGoto) {
+        inputRangeGoto.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            doRangeGoto();
           }
         });
       }
