@@ -488,6 +488,7 @@
   "stripWindow.gridSizeInvalidAlert": "Enter valid pixel values for width and height (minimum 1).",
   "stripWindow.scanGotoRowTitle": "Scan strip number (1 = first in project), then Go to",
   "stripWindow.labelScanNr": "No.:",
+  "stripWindow.subpanelCollapseTitle": "Collapse/expand sub-panel",
   "stripWindow.labelRangeNr": "Range no.:",
   "stripWindow.rangeGotoRowTitle": "Range number (1 = first range in the list), then Go to",
   "stripWindow.frameControlTitle": "FRAME CONTROL",

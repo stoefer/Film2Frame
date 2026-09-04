@@ -1414,13 +1414,114 @@
     .toolbar-controls-right {
       background: #1d2430;
       border-color: #2f3946;
-      --assist-label-col: 3.2rem;
-      --assist-input-col: 5.6rem;
-      --assist-preset-col: 6.3rem;
-      --assist-mode-col: 6.3rem;
-      --assist-ref-col: 5.8rem;
-      --assist-extra-col: 4.8rem;
+      --assist-label-col: 3rem;
+      --assist-input-col: 5.4rem;
+      /* Bredere dropdowns zodat de tekst (bv. presetnaam, "Rechts") niet afgekapt wordt. */
+      --assist-preset-col: 9.8rem;
+      --assist-mode-col: 7rem;
+      --assist-ref-col: 6.6rem;
+      /* Compactere offset-velden zodat X-offset … zoekbereik dichter opeen op één lijn passen. */
+      --assist-extra-col: 4rem;
     }
+    /* Dropdown-rij mag afbreken naar een tweede regel i.p.v. tekst af te kappen. */
+    .toolbar-controls-right .assist-row--refs { flex-wrap: wrap; }
+    /* X-offset … zoekbereik vloeien in één (afbrekende) horizontale lijn. */
+    .toolbar-controls-right .assist-offsets-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 4px 6px;
+      width: 100%;
+      margin-top: 1px;
+    }
+    .toolbar-controls-right .assist-offsets-wrap > .assist-row--extra {
+      display: contents;
+    }
+    .toolbar-controls-right .assist-offsets-wrap .raster-field--assist-extra {
+      flex: 0 0 auto;
+      min-width: 0;
+      max-width: none;
+    }
+    /* Compacter ASSIST-paneel (kleiner lettertype, lagere knoppen/velden) om ruimte te maken
+       voor de MACRO RECORDER eronder. */
+    .toolbar-controls-right .assist-row input[type="number"],
+    .toolbar-controls-right .assist-row select {
+      min-height: 28px;
+      padding: 4px 6px;
+      font-size: 11px;
+    }
+    .toolbar-controls-right .assist-row--extra {
+      gap: 4px 5px;
+      flex-wrap: wrap;
+    }
+    .toolbar-controls-right .assist-row--extra .raster-field {
+      gap: 3px;
+    }
+    .toolbar-controls-right .assist-center-detect { font-size: 11px; }
+    .toolbar-controls-right .assist-detect-actions > button {
+      height: 30px !important;
+      min-height: 30px !important;
+      max-height: 30px;
+      font-size: 12px;
+      padding: 0 8px;
+    }
+    .toolbar-controls-right #btn-auto-detect-bounds,
+    .toolbar-controls-right #btn-center-grid-manual,
+    .toolbar-controls-right #btn-suggest-assist-preset {
+      min-height: 30px;
+      height: 30px;
+      padding: 0 8px;
+    }
+    .toolbar-controls-right .btn-assist-extra-preset {
+      min-height: 24px;
+      height: 24px;
+      padding: 0 8px;
+      font-size: 11px;
+    }
+    /* Scheidingslijn tussen ASSIST-INSTELLINGEN en de MACRO RECORDER daaronder. */
+    .assist-macro-divider {
+      width: 100%;
+      height: 1px;
+      background: #3a4450;
+      margin: 6px 0 2px;
+      flex: 0 0 auto;
+    }
+    /* Sub-paneel koppen + in-/uitklapknop. */
+    .subpanel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      min-width: 0;
+    }
+    .subpanel-header .raster-half-title,
+    .subpanel-header .macro-recorder-title { flex: 1 1 auto; min-width: 0; }
+    .assist-title-row { justify-content: flex-start; }
+    .assist-title-row #raster-assist-title { flex: 1 1 auto; min-width: 0; }
+    .subpanel-collapse-btn {
+      flex: 0 0 auto;
+      width: 22px;
+      height: 20px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      background: #2a3039;
+      color: #c9d0db;
+      border: 1px solid #3a4450;
+      border-radius: 4px;
+      font-size: 11px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .subpanel-collapse-btn:hover { background: #323845; border-color: #6d7788; }
+    /* Ingeklapte sub-panelen: verberg de body, houd de kop zichtbaar. */
+    .toolbar-controls-left-extra.export-collapsed > .assist-row--export-left { display: none; }
+    .assist-row--macro.macro-collapsed > :not(.subpanel-header) { display: none; }
+    .toolbar-controls-right.assist-collapsed .raster-half-controls > .assist-row--refs,
+    .toolbar-controls-right.assist-collapsed .raster-half-controls > .assist-offsets-wrap,
+    .toolbar-controls-right.assist-collapsed .raster-half-controls > .assist-row--extra-presets,
+    .toolbar-controls-right.assist-collapsed .raster-half-controls > .assist-row--detect { display: none; }
     .toolbar-controls-right .assist-row {
       display: flex;
       align-items: center;
@@ -2294,47 +2395,10 @@
       <div class="toolbar-controls-split">
         <div class="toolbar-controls-left">
           <div class="toolbar-controls-left-extra">
-            <div class="assist-row assist-row--macro">
-              <div id="macro-recorder-title" class="macro-recorder-title"></div>
-              <div class="macro-config-row">
-                <span class="macro-loop-wrap">
-                  <label for="input-macro-loops" id="label-macro-loops"></label>
-                  <input type="number" id="input-macro-loops" min="1" step="1" value="1" />
-                </span>
-                <span class="macro-loop-wrap macro-speed-slider-wrap">
-                  <label for="select-macro-speed" id="label-macro-speed"></label>
-                  <input type="range" id="select-macro-speed" min="0.1" max="10.0" step="0.1" value="1.0" />
-                  <span id="macro-speed-value" class="macro-speed-value">1.0x</span>
-                </span>
-                <span class="macro-loop-wrap">
-                  <label for="input-macro-loop-delay" id="label-macro-loop-delay"></label>
-                  <input type="number" id="input-macro-loop-delay" min="0" step="50" value="700" />
-                </span>
-                <label class="macro-repeat-remaining" for="chk-macro-remaining">
-                  <input type="checkbox" id="chk-macro-remaining" />
-                  <span id="label-macro-remaining"></span>
-                  <span id="label-macro-remaining-hint" class="macro-remaining-hint"></span>
-                </label>
-              </div>
-              <div class="macro-controls-row">
-                <button type="button" id="btn-macro-record" class="btn-macro"></button>
-                <button type="button" id="btn-macro-play" class="btn-macro"></button>
-                <button type="button" id="btn-macro-save" class="btn-macro"></button>
-                <button type="button" id="btn-macro-load" class="btn-macro"></button>
-                <button type="button" id="btn-macro-clear" class="btn-macro"></button>
-              </div>
-              <div class="macro-speed-row">
-                <span class="macro-speed-group">
-                  <button type="button" id="btn-macro-speed-safe" class="btn-macro-speed"></button>
-                  <button type="button" id="btn-macro-speed-normal" class="btn-macro-speed"></button>
-                  <button type="button" id="btn-macro-speed-fast" class="btn-macro-speed"></button>
-                  <button type="button" id="btn-macro-safety-profile" class="btn-macro-speed"></button>
-                </span>
-              </div>
-              <span id="macro-status" class="macro-status"></span>
-              <span id="macro-preview" class="macro-preview"></span>
+            <div class="subpanel-header">
+              <div id="raster-export-title" class="raster-half-title"></div>
+              <button type="button" class="subpanel-collapse-btn" id="btn-collapse-export" aria-expanded="true" data-i18n-title="stripWindow.subpanelCollapseTitle">▾</button>
             </div>
-            <div id="raster-export-title" class="raster-half-title"></div>
             <div class="assist-row assist-row--export-left">
               <span class="raster-field">
                 <label for="input-grid-height-px"></label>
@@ -2357,6 +2421,7 @@
         <div class="toolbar-controls-right">
           <div class="assist-title-row">
             <div id="raster-assist-title" class="raster-half-title"></div>
+            <button type="button" class="subpanel-collapse-btn" id="btn-collapse-assist" aria-expanded="true" data-i18n-title="stripWindow.subpanelCollapseTitle">▾</button>
             <button type="button" id="btn-assist-help" class="btn-assist-help"></button>
           </div>
           <div class="raster-half-controls">
@@ -2401,6 +2466,7 @@
                 </select>
               </span>
             </div>
+            <div class="assist-offsets-wrap">
             <div class="assist-row assist-row--extra">
               <span class="raster-field raster-field--assist-extra">
                 <label for="input-auto-raster-assist-offset-x"></label>
@@ -2461,6 +2527,7 @@
                 <input type="number" id="input-auto-raster-triangle-sensitivity" min="0" max="100" step="5" value="50" />
               </span>
             </div>
+            </div>
             <div class="assist-row assist-row--extra-presets">
               <button type="button" id="btn-assist-extra-preset-reset" class="btn-assist-extra-preset"></button>
               <button type="button" id="btn-assist-extra-preset-offset-zero" class="btn-assist-extra-preset"></button>
@@ -2488,6 +2555,50 @@
                 <button type="button" id="btn-suggest-assist-preset" class="btn-scan-nav"></button>
                 <button type="button" id="btn-auto-detect-bounds" class="btn-scan-nav"></button>
               </div>
+            </div>
+            <div class="assist-macro-divider" aria-hidden="true"></div>
+            <div class="assist-row assist-row--macro">
+              <div class="subpanel-header subpanel-header--macro">
+                <div id="macro-recorder-title" class="macro-recorder-title"></div>
+                <button type="button" class="subpanel-collapse-btn" id="btn-collapse-macro" aria-expanded="true" data-i18n-title="stripWindow.subpanelCollapseTitle">▾</button>
+              </div>
+              <div class="macro-config-row">
+                <span class="macro-loop-wrap">
+                  <label for="input-macro-loops" id="label-macro-loops"></label>
+                  <input type="number" id="input-macro-loops" min="1" step="1" value="1" />
+                </span>
+                <span class="macro-loop-wrap macro-speed-slider-wrap">
+                  <label for="select-macro-speed" id="label-macro-speed"></label>
+                  <input type="range" id="select-macro-speed" min="0.1" max="10.0" step="0.1" value="1.0" />
+                  <span id="macro-speed-value" class="macro-speed-value">1.0x</span>
+                </span>
+                <span class="macro-loop-wrap">
+                  <label for="input-macro-loop-delay" id="label-macro-loop-delay"></label>
+                  <input type="number" id="input-macro-loop-delay" min="0" step="50" value="700" />
+                </span>
+                <label class="macro-repeat-remaining" for="chk-macro-remaining">
+                  <input type="checkbox" id="chk-macro-remaining" />
+                  <span id="label-macro-remaining"></span>
+                  <span id="label-macro-remaining-hint" class="macro-remaining-hint"></span>
+                </label>
+              </div>
+              <div class="macro-controls-row">
+                <button type="button" id="btn-macro-record" class="btn-macro"></button>
+                <button type="button" id="btn-macro-play" class="btn-macro"></button>
+                <button type="button" id="btn-macro-save" class="btn-macro"></button>
+                <button type="button" id="btn-macro-load" class="btn-macro"></button>
+                <button type="button" id="btn-macro-clear" class="btn-macro"></button>
+              </div>
+              <div class="macro-speed-row">
+                <span class="macro-speed-group">
+                  <button type="button" id="btn-macro-speed-safe" class="btn-macro-speed"></button>
+                  <button type="button" id="btn-macro-speed-normal" class="btn-macro-speed"></button>
+                  <button type="button" id="btn-macro-speed-fast" class="btn-macro-speed"></button>
+                  <button type="button" id="btn-macro-safety-profile" class="btn-macro-speed"></button>
+                </span>
+              </div>
+              <span id="macro-status" class="macro-status"></span>
+              <span id="macro-preview" class="macro-preview"></span>
             </div>
           </div>
         </div>
@@ -4386,6 +4497,36 @@
           inputRangeGoto.removeAttribute('max');
           inputRangeGoto.placeholder = '1';
         }
+      }
+
+      var SUBPANEL_COLLAPSE_KEY = 'f2f.strip.subpanelCollapse.v1';
+      function setupSubpanelCollapse() {
+        var defs = [
+          { btn: 'btn-collapse-export', host: '.toolbar-controls-left-extra', cls: 'export-collapsed', key: 'export' },
+          { btn: 'btn-collapse-assist', host: '.toolbar-controls-right', cls: 'assist-collapsed', key: 'assist' },
+          { btn: 'btn-collapse-macro', host: '.assist-row--macro', cls: 'macro-collapsed', key: 'macro' }
+        ];
+        var store = {};
+        try { store = JSON.parse(localStorage.getItem(SUBPANEL_COLLAPSE_KEY) || '{}') || {}; } catch (_) { store = {}; }
+        defs.forEach(function (d) {
+          var btn = document.getElementById(d.btn);
+          if (!btn) return;
+          var host = btn.closest(d.host) || document.querySelector(d.host);
+          if (!host) return;
+          btn.title = stripTr('stripWindow.subpanelCollapseTitle');
+          function apply(collapsed) {
+            host.classList.toggle(d.cls, collapsed);
+            btn.setAttribute('aria-expanded', String(!collapsed));
+            btn.textContent = collapsed ? '\u25B8' : '\u25BE';
+          }
+          apply(store[d.key] === true);
+          btn.addEventListener('click', function () {
+            var now = !host.classList.contains(d.cls);
+            apply(now);
+            store[d.key] = now;
+            try { localStorage.setItem(SUBPANEL_COLLAPSE_KEY, JSON.stringify(store)); } catch (_) {}
+          });
+        });
       }
 
       function doRangeGoto() {
@@ -6496,6 +6637,7 @@
         });
       }
 
+      setupSubpanelCollapse();
       readAssistHelpState();
       wireAssistHelpDrag();
       applyAssistHelpPosition();
