@@ -6,10 +6,14 @@
   <title>Film2Frame</title>
   <style>
     * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #1a1a1a; color: #e0e0e0; font-family: system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column; }
+    html { height: 100%; overflow: hidden; }
+    body { margin: 0; padding: 0; height: 100%; overflow-x: hidden; overflow-y: auto; background: #1a1a1a; color: #e0e0e0; font-family: system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column; }
     body.strip-ui-busy { cursor: progress; }
     .header {
       flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      z-index: 20;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -76,7 +80,7 @@
       border-top: 1px solid #333;
       border-bottom: 1px solid #333;
       margin-top: 0;
-      flex: 1 1 48%;
+      flex: 0 0 auto;
       min-height: 220px;
       overflow: auto;
       --raster-label-col: 9.6rem;
@@ -803,8 +807,8 @@
     }
     .zoom-select { padding: 6px 8px; background: #2a2a2a; border: 1px solid #555; border-radius: 4px; color: #fff; font-size: 13px; margin-left: 0; }
     .preview-workspace {
-      flex: 1 1 52%;
-      min-height: 180px;
+      flex: 1 1 auto;
+      min-height: 640px;
       display: flex;
       align-items: stretch;
       gap: 12px;
