@@ -818,7 +818,7 @@
     /* HD (compacte) modus heeft kleinere controls; lagere min-hoogte zodat preview + rood paneel
        in een HD-venster passen zonder scrollbalk en zonder overlap. */
     body.strip-ui-compact-hd .preview-workspace {
-      min-height: 480px;
+      min-height: 360px;
     }
     .preview-workspace__viewport {
       flex: 1 1 auto;
@@ -4088,11 +4088,33 @@
       let pendingJumpScroll = true;
       let lastSeenActiveFrameNumber = null;
 
-      function applyFullHdCompactUi(payload) {
-        var v = payload && payload.previewResSetting != null ? Number(payload.previewResSetting) : NaN;
-        var compact = Number.isFinite(v) && v <= 1536;
+      /** Laatst bekende preview-resolutie uit een payload; bepaalt mede of de compacte UI aan moet. */
+      var lastPreviewResSetting = NaN;
+
+      /**
+       * Compacte UI ook forceren wanneer het venster te laag is voor de niet-compacte controls.
+       * De niet-compacte FRAME CONTROL + het rode paneel hebben samen ~1135px nodig; past dat niet,
+       * dan wordt het rode sub-paneel onderaan afgekapt (zie HD-bug). Compact (~928px) past dan wel.
+       */
+      function isCompactHeight() {
+        var h = window.innerHeight || document.documentElement.clientHeight || 0;
+        return h > 0 && h < 1180;
+      }
+
+      function updateCompactHdClass() {
+        var resCompact = Number.isFinite(lastPreviewResSetting) && lastPreviewResSetting <= 1536;
+        var compact = resCompact || isCompactHeight();
         document.body.classList.toggle('strip-ui-compact-hd', compact);
       }
+
+      function applyFullHdCompactUi(payload) {
+        var v = payload && payload.previewResSetting != null ? Number(payload.previewResSetting) : NaN;
+        if (Number.isFinite(v)) lastPreviewResSetting = v;
+        updateCompactHdClass();
+      }
+
+      updateCompactHdClass();
+      window.addEventListener('resize', updateCompactHdClass);
 
       var VIEWPORT_PADDING = 16;
       var ZOOM_FIT_MIN = 0.05;
