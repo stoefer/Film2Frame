@@ -815,6 +815,11 @@
       padding: 10px 12px 0;
       background: #0d0d0d;
     }
+    /* HD (compacte) modus heeft kleinere controls; lagere min-hoogte zodat preview + rood paneel
+       in een HD-venster passen zonder scrollbalk en zonder overlap. */
+    body.strip-ui-compact-hd .preview-workspace {
+      min-height: 480px;
+    }
     .preview-workspace__viewport {
       flex: 1 1 auto;
       min-width: 0;
